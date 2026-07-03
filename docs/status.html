@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ray Terraform Repo Status</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #5f6c7b;
+        --border: #d7dde5;
+        --ok: #18794e;
+        --warn: #9a6700;
+        --bad: #b42318;
+        --info: #2557a7;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.45;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 36px 20px 48px;
+      }
+
+      header {
+        margin-bottom: 28px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(30px, 5vw, 48px);
+        line-height: 1.05;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 22px;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 17px;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #eef1f5;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .subtitle {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin: 22px 0 28px;
+      }
+
+      .card,
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+
+      .card {
+        padding: 16px;
+      }
+
+      section {
+        padding: 20px;
+        margin-top: 16px;
+      }
+
+      .label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        border: 1px solid currentColor;
+      }
+
+      .ok {
+        color: var(--ok);
+      }
+
+      .warn {
+        color: var(--warn);
+      }
+
+      .bad {
+        color: var(--bad);
+      }
+
+      .info {
+        color: var(--info);
+      }
+
+      ul {
+        margin: 10px 0 0;
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        overflow-wrap: anywhere;
+      }
+
+      th,
+      td {
+        padding: 10px 9px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+
+      .commands {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .commands code {
+        display: block;
+        padding: 10px 12px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        table,
+        thead,
+        tbody,
+        th,
+        td,
+        tr {
+          display: block;
+        }
+
+        th {
+          display: none;
+        }
+
+        td {
+          padding: 8px 0;
+        }
+
+        td::before {
+          content: attr(data-label);
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Ray Terraform Repo Status</h1>
+        <p class="subtitle">
+          Current status after the local Multipass, Tailscale, Ray, and OpenTofu verification pass.
+          No secrets are shown here.
+        </p>
+      </header>
+
+      <div class="grid">
+        <article class="card">
+          <span class="label ok">Local path passed</span>
+          <h3>Multipass Ray lab</h3>
+          <p>Three Ubuntu worker VMs joined the Ray head over Tailscale, ran smoke probes, and completed a synthetic Tune workload.</p>
+        </article>
+        <article class="card">
+          <span class="label warn">Cloud apply pending</span>
+          <h3>DigitalOcean</h3>
+          <p>OpenTofu init, validate, and one-worker plan passed. Paid resource creation was not run.</p>
+        </article>
+        <article class="card">
+          <span class="label info">Current branch</span>
+          <h3>Git state</h3>
+          <p>The repo is on <code>feat/ray-infra-goal</code> with changes still uncommitted for review.</p>
+        </article>
+      </div>
+
+      <section>
+        <h2>What Has Been Done</h2>
+        <ul>
+          <li>Created the repo structure for a temporary Ray worker infrastructure project.</li>
+          <li>Added Makefile targets for local lab, Ray head control, smoke tests, Tune runs, result watching, and DigitalOcean/OpenTofu workflows.</li>
+          <li>Added local Multipass cloud-init worker bootstrap with Tailscale and Ray worker join.</li>
+          <li>Added DigitalOcean OpenTofu configuration and cloud-init worker bootstrap.</li>
+          <li>Configured the Ray head to bind to the Tailscale IP and expose zero schedulable CPUs by default, so training runs on workers.</li>
+          <li>Added Python smoke and synthetic Ray Tune workloads.</li>
+          <li>Added live JSONL and Markdown result reporting under ignored <code>artifacts/live/</code>.</li>
+          <li>Fixed the result watcher so it summarizes the latest Tune run instead of mixing older runs.</li>
+          <li>Removed GitHub Actions usage and references.</li>
+          <li>Added git workflow guidance: use a feature branch, check status before staging, and do not commit secrets or generated artifacts.</li>
+          <li>Added Tailscale logout before local VM deletion to reduce stale duplicate machine records.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Verified Checks</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>Result</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Area">Python</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence"><code>make python-check</code> compiled <code>src</code> and <code>scripts</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Shell scripts</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence"><code>make lint-shell</code> passed bash syntax checks.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Local Ray cluster</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">Ray showed four nodes alive: one head and three workers, with <code>3.0</code> total CPUs from workers only.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Worker smoke test</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">Smoke probes ran on <code>ray-lab-worker-1</code>, <code>ray-lab-worker-2</code>, and <code>ray-lab-worker-3</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Synthetic Tune run</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">24 of 24 trials completed. Best latest-run trial was <code>c5598_00001</code> on <code>100.64.0.2</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Result summary</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence"><code>make watch-once</code> generated a scoped latest-run summary for run <code>20260703T111726Z</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">Local teardown</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence"><code>make local-lab-down</code> logged out and deleted all local workers; <code>multipass list</code> showed no instances.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">OpenTofu validation</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence"><code>make do-init do-validate do-plan WORKER_COUNT=1</code> succeeded and planned one droplet, one firewall, and one tag.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>What Still Needs To Be Done</h2>
+        <ul>
+          <li>Review the uncommitted changes on <code>feat/ray-infra-goal</code>.</li>
+          <li>Commit the repo changes after review.</li>
+          <li>Run the paid DigitalOcean smoke test only when you explicitly want to create a droplet.</li>
+          <li>Verify one DigitalOcean worker joins Ray over Tailscale.</li>
+          <li>Run smoke and synthetic Tune against the DigitalOcean worker.</li>
+          <li>Destroy the DigitalOcean worker immediately after the smoke test.</li>
+          <li>After the one-worker cloud test passes, optionally test the 10-worker burst path.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Known Failures Or Warnings</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Status</th>
+              <th>Explanation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Item">DigitalOcean apply</td>
+              <td data-label="Status"><span class="label warn">Not tested</span></td>
+              <td data-label="Explanation">The non-billable plan passed, but <code>make do-up</code> was intentionally not run because it creates paid resources.</td>
+            </tr>
+            <tr>
+              <td data-label="Item">Tailscale duplicate worker names</td>
+              <td data-label="Status"><span class="label warn">Admin cleanup may be needed</span></td>
+              <td data-label="Explanation">Earlier recreated workers left suffixed records such as <code>ray-lab-worker-1-1</code>. The teardown now logs workers out before deletion, but old offline records may still need manual deletion in the Tailscale admin UI.</td>
+            </tr>
+            <tr>
+              <td data-label="Item">Local Ray cluster</td>
+              <td data-label="Status"><span class="label info">Stopped after test</span></td>
+              <td data-label="Explanation">The Ray head was stopped and Multipass has no running instances. This is expected after teardown.</td>
+            </tr>
+            <tr>
+              <td data-label="Item">Repo changes</td>
+              <td data-label="Status"><span class="label warn">Uncommitted</span></td>
+              <td data-label="Explanation">The current branch is ready for review, but the changes have not been committed yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Next Commands</h2>
+        <p>Local path, if you want to rerun it:</p>
+        <div class="commands">
+          <code>make head-start</code>
+          <code>make local-lab-up WORKER_COUNT=3</code>
+          <code>make ray-status EXPECTED_WORKERS=3</code>
+          <code>make smoke EXPECTED_WORKERS=3</code>
+          <code>make tune-synth</code>
+          <code>make watch-once</code>
+          <code>make local-lab-down</code>
+          <code>make head-stop</code>
+        </div>
+        <p style="margin-top: 18px;">Paid DigitalOcean smoke path, only when approved:</p>
+        <div class="commands">
+          <code>make head-start</code>
+          <code>TF=$HOME/.local/bin/tofu make do-up WORKER_COUNT=1</code>
+          <code>make ray-status EXPECTED_WORKERS=1</code>
+          <code>make smoke EXPECTED_WORKERS=1</code>
+          <code>make tune-synth</code>
+          <code>TF=$HOME/.local/bin/tofu make do-down</code>
+          <code>make head-stop</code>
+        </div>
+        <p class="note" style="margin-top: 14px;">
+          Do not run <code>make do-up</code> unless you are ready to create paid DigitalOcean resources.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
