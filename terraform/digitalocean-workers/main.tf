@@ -3,6 +3,8 @@ data "digitalocean_ssh_key" "main" {
 }
 
 resource "digitalocean_tag" "ray" {
+  count = var.worker_count > 0 ? 1 : 0
+
   name = var.cluster_name
 }
 
@@ -13,7 +15,7 @@ resource "digitalocean_droplet" "workers" {
   region   = var.region
   size     = var.size
   ssh_keys = [data.digitalocean_ssh_key.main.id]
-  tags     = [digitalocean_tag.ray.name]
+  tags     = var.worker_count > 0 ? [digitalocean_tag.ray[0].name] : []
 
   ipv6       = false
   monitoring = true
@@ -27,6 +29,8 @@ resource "digitalocean_droplet" "workers" {
 }
 
 resource "digitalocean_firewall" "workers" {
+  count = var.worker_count > 0 ? 1 : 0
+
   name = "${var.cluster_name}-workers-fw"
 
   droplet_ids = digitalocean_droplet.workers[*].id

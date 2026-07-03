@@ -87,12 +87,13 @@ do-plan: ## Plan DO workers without creating resources.
 
 .PHONY: do-up
 do-up: ## Create DO workers. Billable.
-	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) apply -var="worker_count=$$do_worker_count"
+	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) apply -auto-approve -var="worker_count=$$do_worker_count"
 	$(LOAD_ENV) TF="$(TF)" bash scripts/do/render_inventory.sh
 
 .PHONY: do-down
 do-down: ## Destroy DO workers.
-	$(LOAD_ENV) cd $(TF_DIR) && $(TF) destroy
+	$(LOAD_ENV) bash scripts/do/logout_workers.sh
+	$(LOAD_ENV) cd $(TF_DIR) && $(TF) destroy -auto-approve
 
 .PHONY: sync-data
 sync-data: ## Sync a compact tune data slice to workers over Tailscale/public SSH inventory.
