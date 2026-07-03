@@ -225,7 +225,7 @@
         <article class="card">
           <span class="label warn">Cloud apply pending</span>
           <h3>DigitalOcean</h3>
-          <p>OpenTofu init, validate, and one-worker plan passed. Paid resource creation was not run.</p>
+          <p>OpenTofu init, validate, and one-worker plan passed. Paid resource creation was not run. The next smoke plan uses <code>ams3</code> and <code>s-1vcpu-512mb-10gb</code>.</p>
         </article>
         <article class="card">
           <span class="label info">Current branch</span>
@@ -300,7 +300,7 @@
             <tr>
               <td data-label="Area">OpenTofu validation</td>
               <td data-label="Result"><span class="label ok">Passed</span></td>
-              <td data-label="Evidence"><code>make do-init do-validate do-plan WORKER_COUNT=1</code> succeeded and planned one droplet, one firewall, and one tag.</td>
+              <td data-label="Evidence"><code>make do-init do-validate do-plan DO_WORKER_COUNT=1</code> succeeded and planned one droplet, one firewall, and one tag.</td>
             </tr>
           </tbody>
         </table>
@@ -313,7 +313,8 @@
           <li>Commit the repo changes after review.</li>
           <li>Run the paid DigitalOcean smoke test only when you explicitly want to create a droplet.</li>
           <li>Verify one DigitalOcean worker joins Ray over Tailscale.</li>
-          <li>Run smoke and synthetic Tune against the DigitalOcean worker.</li>
+          <li>Run smoke against the tiny DigitalOcean worker.</li>
+          <li>Use a larger droplet size before running synthetic Tune or real HPO jobs in DigitalOcean.</li>
           <li>Destroy the DigitalOcean worker immediately after the smoke test.</li>
           <li>After the one-worker cloud test passes, optionally test the 10-worker burst path.</li>
         </ul>
@@ -333,7 +334,7 @@
             <tr>
               <td data-label="Item">DigitalOcean apply</td>
               <td data-label="Status"><span class="label warn">Not tested</span></td>
-              <td data-label="Explanation">The non-billable plan passed, but <code>make do-up</code> was intentionally not run because it creates paid resources.</td>
+              <td data-label="Explanation">The non-billable plan passed, but <code>make do-up</code> was intentionally not run because it creates paid resources. The current smoke-test target is <code>ams3</code> / <code>s-1vcpu-512mb-10gb</code>.</td>
             </tr>
             <tr>
               <td data-label="Item">Tailscale duplicate worker names</td>
@@ -370,10 +371,9 @@
         <p style="margin-top: 18px;">Paid DigitalOcean smoke path, only when approved:</p>
         <div class="commands">
           <code>make head-start</code>
-          <code>TF=$HOME/.local/bin/tofu make do-up WORKER_COUNT=1</code>
+          <code>TF=$HOME/.local/bin/tofu make do-up DO_WORKER_COUNT=1</code>
           <code>make ray-status EXPECTED_WORKERS=1</code>
           <code>make smoke EXPECTED_WORKERS=1</code>
-          <code>make tune-synth</code>
           <code>TF=$HOME/.local/bin/tofu make do-down</code>
           <code>make head-stop</code>
         </div>

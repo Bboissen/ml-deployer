@@ -23,7 +23,7 @@ make watch-once
 make local-lab-down
 make do-init
 make do-validate
-make do-plan WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
 ```
 
 Do not run `make do-up` unless I explicitly approve real DigitalOcean resource creation.

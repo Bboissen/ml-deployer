@@ -10,8 +10,8 @@
 ## Safe execution pattern
 
 ```bash
-make do-plan WORKER_COUNT=1
-make do-up WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 # verify
 make do-down
 ```

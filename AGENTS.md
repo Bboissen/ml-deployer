@@ -51,7 +51,7 @@ If touching DigitalOcean Terraform:
 ```bash
 make do-init
 make do-validate
-make do-plan WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
 ```
 
 Only run `make do-up` when explicitly authorized.

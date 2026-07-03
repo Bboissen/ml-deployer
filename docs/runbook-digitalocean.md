@@ -14,15 +14,22 @@ Provision short-lived DigitalOcean Droplets as Ray workers that join the home Ra
 
 ## Smoke test
 
+The default smoke-test worker is intentionally cheap:
+
+- Region: `ams3`
+- Size slug: `s-1vcpu-512mb-10gb`
+- Worker count: `1`
+
+This size is only intended to verify provisioning, Tailscale, and Ray worker join. The worker bootstrap installs minimal Ray dependencies for this path. Use a larger slug and an ML-capable worker image/bootstrap before running heavier Tune jobs.
+
 ```bash
 source .env
 make head-start
 make do-init
-make do-plan WORKER_COUNT=1
-make do-up WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 make ray-status EXPECTED_WORKERS=1
 make smoke EXPECTED_WORKERS=1
-make tune-synth
 make do-down
 ```
 
@@ -31,7 +38,7 @@ make do-down
 ```bash
 source .env
 make head-start
-make do-up WORKER_COUNT=10
+make do-up DO_WORKER_COUNT=10
 make ray-status EXPECTED_WORKERS=10
 make sync-data DATA_DIR=/path/to/compact/tune_slice
 make run-tune CONFIG=configs/tune_synthetic.yaml

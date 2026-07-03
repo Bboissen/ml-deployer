@@ -7,7 +7,7 @@ Target end state:
 - Home server is the **Ray head/orchestrator**.
 - Temporary workers join over **Tailscale**.
 - Local lab phase uses **3 small Ubuntu VMs** on the home server.
-- DigitalOcean phase uses **10 small Ubuntu Droplets** as Ray workers.
+- DigitalOcean smoke phase uses **1 tiny Ubuntu Droplet** in `ams3`; production bursts can scale to larger worker counts and sizes after the smoke test passes.
 - Workers run Ray Tune / XGBoost / LightGBM style jobs and stream metrics back to the home server in real time.
 - Terraform/OpenTofu creates and destroys DigitalOcean workers on demand.
 - No Ray control ports are exposed on public interfaces.
@@ -18,7 +18,7 @@ Target end state:
 |---|---|---|
 | Phase 0 | Home server only | Install and verify Ray head on Tailscale IP. |
 | Phase 1 | 3 local Ubuntu VMs | Validate worker bootstrapping, Tailscale, Ray worker join, metrics streaming, and result-review loop. |
-| Phase 2 | 1-3 DigitalOcean workers | Validate Terraform/OpenTofu, cloud-init, DO firewall, Tailscale auth key, and Ray join. |
+| Phase 2 | 1 tiny DigitalOcean worker | Validate Terraform/OpenTofu, cloud-init, DO firewall, Tailscale auth key, and Ray join with `s-1vcpu-512mb-10gb` in `ams3`. This is a smoke test, not an HPO worker size. |
 | Phase 3 | 10 DigitalOcean workers | Run real small-batch HPO / feature-search jobs. |
 
 ## Important security model
@@ -59,18 +59,17 @@ make local-lab-down
 
 ```bash
 make do-init
-make do-plan WORKER_COUNT=1
-make do-up WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 make ray-status
 make smoke
-make tune-synth
 make do-down
 ```
 
 ### Full DigitalOcean run
 
 ```bash
-make do-up WORKER_COUNT=10
+make do-up DO_WORKER_COUNT=10
 make sync-data DATA_DIR=/path/to/compact/tune_slice
 make run-tune CONFIG=configs/tune_synthetic.yaml
 make pull-artifacts OUT_DIR=/path/to/local/artifacts

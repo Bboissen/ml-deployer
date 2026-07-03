@@ -2,6 +2,7 @@ SHELL := /usr/bin/env bash
 
 PYTHON ?= $(shell if command -v mise >/dev/null 2>&1; then printf 'mise exec -- python'; elif command -v python3.12 >/dev/null 2>&1; then printf python3.12; else printf python3; fi)
 WORKER_COUNT ?= 3
+DO_WORKER_COUNT ?=
 EXPECTED_WORKERS ?= 0
 DATA_DIR ?= ./data/tune
 OUT_DIR ?= ./artifacts/pulled
@@ -82,11 +83,11 @@ do-validate: ## Validate Terraform/OpenTofu for DO workers.
 
 .PHONY: do-plan
 do-plan: ## Plan DO workers without creating resources.
-	$(LOAD_ENV) cd $(TF_DIR) && $(TF) plan -var="worker_count=$(WORKER_COUNT)"
+	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) plan -var="worker_count=$$do_worker_count"
 
 .PHONY: do-up
 do-up: ## Create DO workers. Billable.
-	$(LOAD_ENV) cd $(TF_DIR) && $(TF) apply -var="worker_count=$(WORKER_COUNT)"
+	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) apply -var="worker_count=$$do_worker_count"
 	$(LOAD_ENV) TF="$(TF)" bash scripts/do/render_inventory.sh
 
 .PHONY: do-down

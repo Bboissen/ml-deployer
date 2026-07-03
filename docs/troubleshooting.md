@@ -46,7 +46,7 @@ This local lab is for infrastructure validation, not real HPO throughput.
 Run fewer workers:
 
 ```bash
-make do-up WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 ```
 
 Then scale up gradually.

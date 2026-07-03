@@ -7,7 +7,7 @@ Starting from an empty repo, create a deployable infrastructure system that lets
 The system must support:
 
 1. A local lab with 3 small Ubuntu VMs on the home server.
-2. A DigitalOcean smoke test with 1-3 workers.
+2. A DigitalOcean smoke test with 1 tiny worker in `ams3`.
 3. A DigitalOcean production-sized burst with 10 workers.
 4. Ray Tune / XGBoost / LightGBM style jobs launched from the home server.
 5. Real-time metric flow from workers to the head.
@@ -35,13 +35,13 @@ make watch-once
 make local-lab-down
 make do-init
 make do-validate
-make do-plan WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
 ```
 
 DigitalOcean apply is a separate manual authorization step:
 
 ```bash
-make do-up WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 make ray-status EXPECTED_WORKERS=1
 make smoke EXPECTED_WORKERS=1
 make do-down
@@ -50,7 +50,7 @@ make do-down
 The 10-worker run is considered valid when:
 
 ```bash
-make do-up WORKER_COUNT=10
+make do-up DO_WORKER_COUNT=10
 make ray-status EXPECTED_WORKERS=10
 make tune-synth
 make pull-artifacts

@@ -5,7 +5,7 @@ variable "do_token" {
 
 variable "region" {
   type    = string
-  default = "nyc3"
+  default = "ams3"
 }
 
 variable "image" {
@@ -15,7 +15,7 @@ variable "image" {
 
 variable "size" {
   type    = string
-  default = "s-4vcpu-8gb"
+  default = "s-1vcpu-512mb-10gb"
 }
 
 variable "worker_count" {
@@ -55,5 +55,5 @@ variable "ray_head_tailscale_ip" {
 
 variable "ray_object_store_memory" {
   type    = number
-  default = 1000000000
+  default = 80000000
 }

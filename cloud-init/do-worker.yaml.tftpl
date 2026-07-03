@@ -68,7 +68,7 @@ runcmd:
   - tailscale up --auth-key="${tailscale_auth_key}" --hostname="${worker_hostname}" --ssh=false --accept-dns=false --accept-routes=false
   - python3 -m venv /opt/spotify-ray/venv
   - /opt/spotify-ray/venv/bin/pip install -U pip wheel
-  - /opt/spotify-ray/venv/bin/pip install "ray[default,tune]" lightgbm xgboost pandas polars pyarrow scikit-learn psutil PyYAML rich
+  - /opt/spotify-ray/venv/bin/pip install "ray[default]" psutil PyYAML
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow in on tailscale0 to any port 22 proto tcp

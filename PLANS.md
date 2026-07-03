@@ -83,13 +83,13 @@ Checks:
 ```bash
 make do-init
 make do-validate
-make do-plan WORKER_COUNT=1
+make do-plan DO_WORKER_COUNT=1
 ```
 
 Manual cloud check:
 
 ```bash
-make do-up WORKER_COUNT=1
+make do-up DO_WORKER_COUNT=1
 make ray-status EXPECTED_WORKERS=1
 make smoke EXPECTED_WORKERS=1
 make do-down
@@ -106,7 +106,7 @@ Deliverables:
 Checks:
 
 ```bash
-make do-up WORKER_COUNT=10
+make do-up DO_WORKER_COUNT=10
 make ray-status EXPECTED_WORKERS=10
 make tune-synth
 make pull-artifacts
