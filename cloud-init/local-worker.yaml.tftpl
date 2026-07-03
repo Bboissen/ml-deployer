@@ -1,0 +1,74 @@
+#cloud-config
+hostname: __WORKER_HOSTNAME__
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - python3-venv
+  - python3-pip
+  - htop
+  - netcat-openbsd
+  - ufw
+
+write_files:
+  - path: /opt/spotify-ray/start-worker.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      source /opt/spotify-ray/venv/bin/activate
+      for i in $(seq 1 120); do
+        TS_IP="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+        if [ -n "$TS_IP" ] && nc -z __RAY_HEAD_TS_IP__ 6379; then
+          break
+        fi
+        sleep 2
+      done
+      TS_IP="$(tailscale ip -4 | head -n1)"
+      ray stop --force || true
+      ray start \
+        --address="__RAY_HEAD_TS_IP__:6379" \
+        --node-ip-address="$TS_IP" \
+        --min-worker-port=10002 \
+        --max-worker-port=10100 \
+        --node-manager-port=11001 \
+        --object-manager-port=11002 \
+        --runtime-env-agent-port=11003 \
+        --dashboard-agent-listen-port=11004 \
+        --metrics-export-port=11005 \
+        --object-store-memory=268435456
+      tail -f /dev/null
+
+  - path: /etc/systemd/system/ray-worker.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Ray worker over Tailscale
+      After=network-online.target tailscaled.service
+      Wants=network-online.target tailscaled.service
+
+      [Service]
+      Type=simple
+      Restart=always
+      RestartSec=10
+      ExecStart=/opt/spotify-ray/start-worker.sh
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - mkdir -p /opt/spotify-ray /data/tune /artifacts
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --auth-key="__TS_AUTH_KEY__" --hostname="__WORKER_HOSTNAME__" --ssh=false --accept-dns=false --accept-routes=false
+  - python3 -m venv /opt/spotify-ray/venv
+  - /opt/spotify-ray/venv/bin/pip install -U pip wheel
+  - /opt/spotify-ray/venv/bin/pip install "ray[default,tune]" lightgbm xgboost pandas polars pyarrow scikit-learn psutil PyYAML rich
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow in on tailscale0 to any port 22 proto tcp
+  - ufw allow in on tailscale0 to any port 10002:10100 proto tcp
+  - ufw allow in on tailscale0 to any port 11001:11005 proto tcp
+  - ufw --force enable
+  - systemctl daemon-reload
+  - systemctl enable --now ray-worker.service
