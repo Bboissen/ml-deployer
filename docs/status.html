@@ -211,7 +211,7 @@
       <header>
         <h1>Ray Terraform Repo Status</h1>
         <p class="subtitle">
-          Current status after the local Multipass, Tailscale, Ray, and OpenTofu verification pass.
+          Current status after the local Multipass lab and the paid DigitalOcean AMS3 smoke tests.
           No secrets are shown here.
         </p>
       </header>
@@ -223,14 +223,14 @@
           <p>Three Ubuntu worker VMs joined the Ray head over Tailscale, ran smoke probes, and completed a synthetic Tune workload.</p>
         </article>
         <article class="card">
-          <span class="label warn">Cloud apply pending</span>
+          <span class="label ok">Cloud smoke passed</span>
           <h3>DigitalOcean</h3>
-          <p>OpenTofu init, validate, and one-worker plan passed. Paid resource creation was not run. The next smoke plan uses <code>ams3</code> and <code>s-1vcpu-512mb-10gb</code>.</p>
+          <p>One-worker and three-worker smoke tests passed in <code>ams3</code> on <code>s-1vcpu-512mb-10gb</code>. All Droplets were destroyed afterward.</p>
         </article>
         <article class="card">
           <span class="label info">Current branch</span>
           <h3>Git state</h3>
-          <p>The repo is on <code>feat/ray-infra-goal</code> with changes still uncommitted for review.</p>
+          <p>The repo is on <code>feat/ray-infra-goal</code> and pushed through commit <code>2985c2e</code>.</p>
         </article>
       </div>
 
@@ -248,6 +248,9 @@
           <li>Removed GitHub Actions usage and references.</li>
           <li>Added git workflow guidance: use a feature branch, check status before staging, and do not commit secrets or generated artifacts.</li>
           <li>Added Tailscale logout before local VM deletion to reduce stale duplicate machine records.</li>
+          <li>Configured the DigitalOcean smoke path for <code>ams3</code> and <code>s-1vcpu-512mb-10gb</code>.</li>
+          <li>Verified paid DigitalOcean smoke tests with one worker and three workers.</li>
+          <li>Added DigitalOcean worker logout before destroy for future <code>make do-down</code> runs.</li>
         </ul>
       </section>
 
@@ -302,6 +305,21 @@
               <td data-label="Result"><span class="label ok">Passed</span></td>
               <td data-label="Evidence"><code>make do-init do-validate do-plan DO_WORKER_COUNT=1</code> succeeded and planned one droplet, one firewall, and one tag.</td>
             </tr>
+            <tr>
+              <td data-label="Area">DigitalOcean one-worker smoke</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">Created one <code>ams3</code> Droplet, Ray saw head plus worker, and the smoke probe ran on <code>spotify-ray-worker-01</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">DigitalOcean three-worker smoke</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">Ray saw four nodes total, <code>3.0</code> worker CPUs, and probes ran on <code>spotify-ray-worker-01</code>, <code>spotify-ray-worker-02</code>, and <code>spotify-ray-worker-03</code>.</td>
+            </tr>
+            <tr>
+              <td data-label="Area">DigitalOcean teardown</td>
+              <td data-label="Result"><span class="label ok">Passed</span></td>
+              <td data-label="Evidence">OpenTofu destroy completed after both smoke tests. DigitalOcean API reported <code>spotify-ray droplet count: 0</code>, and OpenTofu state was empty.</td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -309,14 +327,10 @@
       <section>
         <h2>What Still Needs To Be Done</h2>
         <ul>
-          <li>Review the uncommitted changes on <code>feat/ray-infra-goal</code>.</li>
-          <li>Commit the repo changes after review.</li>
-          <li>Run the paid DigitalOcean smoke test only when you explicitly want to create a droplet.</li>
-          <li>Verify one DigitalOcean worker joins Ray over Tailscale.</li>
-          <li>Run smoke against the tiny DigitalOcean worker.</li>
+          <li>Manually delete stale offline <code>spotify-ray-worker-*</code> records from the Tailscale admin UI.</li>
           <li>Use a larger droplet size before running synthetic Tune or real HPO jobs in DigitalOcean.</li>
-          <li>Destroy the DigitalOcean worker immediately after the smoke test.</li>
-          <li>After the one-worker cloud test passes, optionally test the 10-worker burst path.</li>
+          <li>Run a larger-worker DigitalOcean Tune/HPO test only after selecting the target size and budget.</li>
+          <li>Optionally test the 10-worker burst path with a non-tiny worker type.</li>
         </ul>
       </section>
 
@@ -332,24 +346,24 @@
           </thead>
           <tbody>
             <tr>
-              <td data-label="Item">DigitalOcean apply</td>
-              <td data-label="Status"><span class="label warn">Not tested</span></td>
-              <td data-label="Explanation">The non-billable plan passed, but <code>make do-up</code> was intentionally not run because it creates paid resources. The current smoke-test target is <code>ams3</code> / <code>s-1vcpu-512mb-10gb</code>.</td>
+              <td data-label="Item">DigitalOcean smoke size</td>
+              <td data-label="Status"><span class="label info">Smoke only</span></td>
+              <td data-label="Explanation"><code>s-1vcpu-512mb-10gb</code> is enough for Ray join and smoke probes, but not a realistic Tune/HPO worker size.</td>
             </tr>
             <tr>
-              <td data-label="Item">Tailscale duplicate worker names</td>
+              <td data-label="Item">Tailscale stale worker records</td>
               <td data-label="Status"><span class="label warn">Admin cleanup may be needed</span></td>
-              <td data-label="Explanation">Earlier recreated workers left suffixed records such as <code>ray-lab-worker-1-1</code>. The teardown now logs workers out before deletion, but old offline records may still need manual deletion in the Tailscale admin UI.</td>
+              <td data-label="Explanation">The first DO destroy deleted Droplets before Tailscale logout, leaving offline records such as <code>spotify-ray-worker-01</code> and a suffixed replacement like <code>spotify-ray-worker-01-1</code>. Future <code>make do-down</code> runs call <code>scripts/do/logout_workers.sh</code> before destroy, but existing stale records must be deleted manually.</td>
             </tr>
             <tr>
-              <td data-label="Item">Local Ray cluster</td>
+              <td data-label="Item">Ray head</td>
               <td data-label="Status"><span class="label info">Stopped after test</span></td>
-              <td data-label="Explanation">The Ray head was stopped and Multipass has no running instances. This is expected after teardown.</td>
+              <td data-label="Explanation">The local Ray head was stopped after the DigitalOcean smoke tests. This is expected after teardown.</td>
             </tr>
             <tr>
-              <td data-label="Item">Repo changes</td>
-              <td data-label="Status"><span class="label warn">Uncommitted</span></td>
-              <td data-label="Explanation">The current branch is ready for review, but the changes have not been committed yet.</td>
+              <td data-label="Item">OpenTofu state</td>
+              <td data-label="Status"><span class="label ok">Clean</span></td>
+              <td data-label="Explanation">The final state check showed no OpenTofu-managed resources and no local Ray processes.</td>
             </tr>
           </tbody>
         </table>
@@ -368,7 +382,7 @@
           <code>make local-lab-down</code>
           <code>make head-stop</code>
         </div>
-        <p style="margin-top: 18px;">Paid DigitalOcean smoke path, only when approved:</p>
+        <p style="margin-top: 18px;">Paid DigitalOcean smoke path, if you want to rerun it:</p>
         <div class="commands">
           <code>make head-start</code>
           <code>TF=$HOME/.local/bin/tofu make do-up DO_WORKER_COUNT=1</code>
@@ -377,8 +391,17 @@
           <code>TF=$HOME/.local/bin/tofu make do-down</code>
           <code>make head-stop</code>
         </div>
+        <p style="margin-top: 18px;">Three-worker smoke path:</p>
+        <div class="commands">
+          <code>make head-start</code>
+          <code>TF=$HOME/.local/bin/tofu make do-up DO_WORKER_COUNT=3</code>
+          <code>make ray-status EXPECTED_WORKERS=3</code>
+          <code>make smoke EXPECTED_WORKERS=3</code>
+          <code>TF=$HOME/.local/bin/tofu make do-down</code>
+          <code>make head-stop</code>
+        </div>
         <p class="note" style="margin-top: 14px;">
-          Do not run <code>make do-up</code> unless you are ready to create paid DigitalOcean resources.
+          <code>make do-up</code> creates paid DigitalOcean resources. <code>make do-down</code> now attempts Tailscale logout before destroying workers.
         </p>
       </section>
     </main>
