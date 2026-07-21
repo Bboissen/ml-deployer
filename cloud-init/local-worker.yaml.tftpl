@@ -12,7 +12,6 @@ packages:
 
 write_files:
   - path: /opt/spotify-ray/start-worker.sh
-    permissions: '0755'
     content: |
       #!/usr/bin/env bash
       set -euxo pipefail
@@ -40,7 +39,6 @@ write_files:
       tail -f /dev/null
 
   - path: /etc/systemd/system/ray-worker.service
-    permissions: '0644'
     content: |
       [Unit]
       Description=Ray worker over Tailscale
@@ -60,9 +58,11 @@ runcmd:
   - mkdir -p /opt/spotify-ray /data/tune /artifacts
   - curl -fsSL https://tailscale.com/install.sh | sh
   - tailscale up --auth-key="__TS_AUTH_KEY__" --hostname="__WORKER_HOSTNAME__" --ssh=false --accept-dns=false --accept-routes=false
-  - python3 -m venv /opt/spotify-ray/venv
-  - /opt/spotify-ray/venv/bin/pip install -U pip wheel
-  - /opt/spotify-ray/venv/bin/pip install "ray[default,tune]" lightgbm xgboost pandas polars pyarrow scikit-learn psutil PyYAML rich
+  - curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
+  - /usr/local/bin/uv python install 3.14.4
+  - /usr/local/bin/uv venv --python 3.14.4 /opt/spotify-ray/venv
+  - /usr/local/bin/uv pip install --python /opt/spotify-ray/venv/bin/python -U pip wheel
+  - /usr/local/bin/uv pip install --python /opt/spotify-ray/venv/bin/python "ray[client,default,tune]==2.56.0" lightgbm xgboost pandas polars pyarrow scikit-learn psutil PyYAML rich
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
@@ -70,5 +70,6 @@ runcmd:
   - ufw allow in on tailscale0 to any port 10002:10100 proto tcp
   - ufw allow in on tailscale0 to any port 11001:11005 proto tcp
   - ufw --force enable
+  - chmod 0755 /opt/spotify-ray/start-worker.sh
   - systemctl daemon-reload
   - systemctl enable --now ray-worker.service

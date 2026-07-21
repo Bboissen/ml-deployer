@@ -9,6 +9,7 @@ Target end state:
 - Local lab phase uses **3 small Ubuntu VMs** on the home server.
 - DigitalOcean smoke phase uses **1 tiny Ubuntu Droplet** in `ams3`; production bursts can scale to larger worker counts and sizes after the smoke test passes.
 - Workers run Ray Tune / XGBoost / LightGBM style jobs and stream metrics back to the home server in real time.
+- The head, workers, and driver pin Python 3.14.4 and `ray==2.56.0` exactly so the separate `demo` driver can connect.
 - Terraform/OpenTofu creates and destroys DigitalOcean workers on demand.
 - No Ray control ports are exposed on public interfaces.
 
