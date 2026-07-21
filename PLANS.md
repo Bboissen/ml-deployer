@@ -152,7 +152,24 @@ make storage-plan
 
 The sentinel VPC values are valid only for this non-creating code plan. Phase 1 must not apply infrastructure, activate or migrate a backend, mutate credentials, run a paid smoke, or modify cloud-init. Apply and live workers must use the exact storage outputs.
 
-### Phase 2: separately authorized live gates
+### Phase 2: storage/cache smoke build
+
+Deliverables:
+
+- A PyArrow-version-pinned deterministic 512 MiB/16-object pack protocol with a tiny offline profile.
+- Canonical manifest, explicit Bronze publication/presign primitives, and a locked atomic worker cache.
+- One-use authorization, fresh size/cost validation, cleanup rendering, workspace isolation, and receipt validation primitives.
+- One offline selftest covering positive and adversarial protocol/control fixtures.
+
+Check:
+
+```bash
+make storage-phase2-selftest
+```
+
+This code-only prerequisite does not generate the full pack, query live APIs, create a workspace, publish objects, arm cleanup, apply/destroy infrastructure, migrate state, or prove live network behavior. The exact-flag-gated controller and worker entrypoints now implement the frozen sequence, but Phase 2 is not ready for live execution until they pass separate adversarial review and produce live cleanup, transfer, cloud identity, cache, network, Ray, and destroy evidence.
+
+### Phase 2 live-execution gates
 
 1. Recheck live AMS3 size price and availability.
 2. Human-authorize persistent storage/VPC bootstrap.

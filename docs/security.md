@@ -28,6 +28,10 @@ The storage provider reads `DIGITALOCEAN_TOKEN` plus `SPACES_ACCESS_KEY_ID` and 
 
 Bootstrap uses the temporary broad identity only until the separate state-bucket-scoped backend identity and Bronze-bucket-scoped identity are verified against their intended bucket operations. Revoking the broad bootstrap identity is a separate human-gated action. Bronze consumers receive presigned download plans rather than long-lived Spaces credentials. Silver and later data layers require a new reviewed phase.
 
+The Phase 2 Bronze controller accepts only `BRONZE_SPACES_ACCESS_KEY_ID` and `BRONZE_SPACES_SECRET_ACCESS_KEY`, passes them explicitly to a SigV4 Boto3 client, and disables provider-chain fallback by construction. It must not read the backend `AWS_*` identity or bootstrap `SPACES_*` identity. Signed plans are ignored runtime files written atomically with mode `0600`; URLs are never command arguments or receipt/log fields. Workers receive a short-lived GET-only plan, then delete it before the warm-cache proof.
+
+One-use live authorization is a separate mode-`0600` receipt bound to one run ID, one AMS3 `s-1vcpu-1gb` worker, a fresh price timestamp, expiry, and the $5.10 cap. Consumption creates and fsyncs an exclusive durable marker before any live API or mutation. The marker remains after success or failure, so apply retries require a new human authorization.
+
 All persistent resources use `force_destroy = false` where applicable and `lifecycle.prevent_destroy = true`. This is a guardrail, not deletion authority: `prevent_destroy` cannot protect a resource block after that block is removed from configuration. Persistent-resource decommission therefore follows the reviewed break-glass procedure in `docs/runbook-storage.md`.
 
 ## Suggested Tailscale ACL sketch

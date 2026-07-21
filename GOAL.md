@@ -42,6 +42,7 @@ TF_VAR_vpc_uuid=00000000-0000-4000-8000-000000000000 \
 make storage-init
 make storage-validate
 make storage-plan
+make storage-phase2-selftest
 ```
 
 The sentinel VPC values are only for the non-creating Phase 1 plan. They are forbidden for apply and live workers, which must use the exact storage outputs.
@@ -112,8 +113,9 @@ Work in this order:
 7. DO cloud-init hardening and worker join service.
 8. Cost-control and destroy runbooks.
 9. Code-only persistent Spaces and VPC design, without resource creation.
-10. Separately authorized storage bootstrap, backend migration, and bounded cache smoke.
-11. Final documentation pass.
+10. Offline Phase 2 pack/cache/controller build and adversarial fixture verification.
+11. Separately authorized storage bootstrap, backend migration, and bounded cache smoke.
+12. Final documentation pass.
 
 After each step, run the smallest relevant verification. If a verification fails, fix it before expanding scope.
 

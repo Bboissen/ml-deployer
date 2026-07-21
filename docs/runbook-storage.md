@@ -69,11 +69,36 @@ Backend syntax and `use_lockfile = true` do not prove Spaces locking works. Run 
 
 After the state-bucket-scoped and Bronze-bucket-scoped identities are verified against only their intended bucket operations, revocation of the broad bootstrap key is another human-gated action. Confirm both scoped identities still work after revocation.
 
-## Phase 2 contract: bounded storage/cache smoke
+## Phase 2: storage/cache smoke build
 
-Before any paid action, query `/v2/sizes` and verify the live price and AMS3 availability for `s-1vcpu-1gb`. The smoke uses one 25 GiB Droplet, a maximum of 20 minutes per smoke phase, and an initial authorization cap of $5.10 including the Spaces base subscription and compute smoke. Stop for human review between smoke phases.
+Install the pinned dependencies, then run the single offline acceptance entrypoint:
 
-The test pack is approximately 512 MiB, roughly 16 partitioned Parquet objects plus a SHA-256 manifest under `smoke/<test-pack-hash>/`. Before paid smoke, finalize a numeric size tolerance. Two independent pack generations must produce byte-identical objects, manifest bytes, and hashes.
+```bash
+make venv
+make storage-phase2-selftest
+```
+
+It generates the tiny deterministic pack twice and checks byte identity; canonical manifest/pack hashes; traversal, duplicate, mutation, extra, and truncation rejection; injected cold fetch followed by plan deletion and network-free warm verification; disk, lock, and eviction safety; explicit fake-credential SigV4 client configuration without a request; private signed-plan files; size/cost and one-use authorization fixtures; cleanup rendering; and network/Ray ambiguity and public-route rejection fixtures.
+
+The full builder is pinned to `pyarrow==24.0.0`. Its full profile targets exactly 536,870,912 object bytes across exactly 16 deterministic partitioned Parquet objects with a one-percent tolerance. `test_pack_hash` hashes a canonical descriptor containing protocol, builder, pinned PyArrow version, and ordered exact object paths/sizes/SHA-256 values. `manifest_sha256` separately hashes the exact canonical manifest bytes. Canonical JSON is UTF-8, sorted-key compact JSON with exactly one trailing LF.
+
+The cache authority is the expected pack hash plus manifest SHA-256 delivered outside the signed plan. Cold staging uses global-management and per-entry `fcntl` locks, a same-filesystem unique `.partial` directory, sequential bounded downloads, exact membership/size/hash checks, file and directory fsyncs, an atomically written `.ready` binding both hashes, atomic rename, and parent fsync. Existing entries are fully reverified. Oldest-ready-first eviction never selects the current, incomplete, symlinked, or locked entry. Warm verification accepts no plan, URL, fetcher, or credentials.
+
+Required free disk is enforced as:
+
+```text
+ceil(1.2 * (snapshot bytes + largest temporary object + configured Ray spill/workspace bytes))
+```
+
+This prerequisite intentionally exposes no live Make target. `scripts/storage/phase2.py` provides `build-pack`, non-executing `dry-run`, and an exact-flag-gated `live-smoke`; `scripts/storage/phase2_worker.py` provides cold, warm, and network worker commands. Build the full pack twice into distinct roots; `live-smoke` requires both receipts and verifies their parsed manifests, object hashes, object counts, and byte totals match before any live action. Passing the selftest proves only the tiny builder and ordered dry-run path: it does not contact DigitalOcean/Spaces, arm systemd, apply/destroy resources, transfer a signed plan, or prove real routing/Ray identity. Phase 2 remains **not ready for live execution** until this executable path passes separate adversarial review and its cleanup arming, secure transfer/removal, cloud identity, cache, network, Ray, and destroy receipts are proven live.
+
+## Phase 2 live-execution contract
+
+The live sequence is fixed: consume the one-use authorization and prove a fresh empty isolated workspace; publish and HEAD/list verify the pack; immediately query `/v2/sizes`; arm and verify independent cleanup; apply exactly once; discover the worker; generate and securely transfer the plan; run cold cache; delete the plan locally and remotely; run warm verification with zero network; collect network/Ray evidence; fully destroy the isolated workspace and verify zero managed resources; then disarm cleanup and remove the workspace. Any error leaves cleanup armed. Apply is never automatically retried.
+
+Before any paid action, query `/v2/sizes` and verify the live price and AMS3 availability for `s-1vcpu-1gb`. The smoke uses one 25 GiB Droplet, a maximum of 20 minutes from apply through verified destroy, and an initial authorization cap of $5.10 including the Spaces base subscription, prior authorized spend, and compute conservatively rounded to a full billing hour. Stop for human review between smoke phases.
+
+The test pack is 512 MiB within the frozen one-percent tolerance, with exactly 16 partitioned Parquet objects plus a SHA-256 manifest under `smoke/<test-pack-hash>/`. Two independent pack generations must produce byte-identical objects, manifest bytes, and hashes.
 
 Cache materialization requires a disk-space preflight, an inter-process lock, `.partial` staging, per-object size and SHA-256 verification, atomic final rename, a `.ready` marker bound to the exact manifest hash, a cache-size ceiling, and cleanup policy. The warm-cache test removes the signed download plan before reuse and must prove no storage access is required.
 
@@ -84,6 +109,10 @@ Every machine-readable Droplet receipt records:
 - VPC CIDR plus route and source-interface evidence for the resolved address.
 
 Discover the interface from the VPC CIDR, resolved address, and kernel route. Never assume `eth1`. A public-looking regional Spaces DNS answer does not disprove internal transport; same-region routing must be demonstrated by the route/source evidence.
+
+Each field is grouped as expected, controller-observed, or worker-observed and carries a source description. The controller cross-checks the selected Terraform VPC and Droplet ID against the DigitalOcean API. The worker discovers the metadata-private interface by matching its metadata address to `ip -j address`; records metadata address/gateway/netmask, `systemd-resolved` effective link/upstreams and `/etc/resolv.conf`; resolves the exact virtual-hosted AMS3 endpoint; and records `ip -j route get` for every answer plus the expected VPC route. Every download-eligible answer must select the metadata-private interface and source. Ray identity must uniquely match one alive node by worker hostname plus Tailscale IP; the DigitalOcean private IP is forbidden as the Ray identity.
+
+Cleanup is an absolute-deadline, initiating-shell-independent service scoped to the unique `smoke-<run-id>` workspace. It performs a full destroy without `-target`, retries cleanup only, writes a durable success/error receipt, and may be disarmed only after state lists zero managed resources. The workspace must be freshly created, proven not to preexist, and removed only after successful cleanup. Rendered cleanup validation is offline; arming remains a human gate.
 
 The 512 MiB test proves the protocol, not 50 GiB production performance. Full staging capacity uses:
 

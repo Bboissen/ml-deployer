@@ -24,6 +24,10 @@ venv: ## Create Python virtualenv.
 python-check: ## Compile Python source files.
 	if [ -f .venv/bin/activate ]; then . .venv/bin/activate; fi; python -m compileall src scripts
 
+.PHONY: storage-phase2-selftest
+storage-phase2-selftest: ## Run the Phase 2 offline protocol/control acceptance suite.
+	$(LOAD_ENV) if [ -f .venv/bin/activate ]; then . .venv/bin/activate; fi; PYTHONPATH=src python scripts/storage/phase2_selftest.py
+
 .PHONY: lint-shell
 lint-shell: ## Shell syntax check.
 	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh
