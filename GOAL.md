@@ -13,6 +13,7 @@ The system must support:
 5. Real-time metric flow from workers to the head.
 6. A Codex/subagent-friendly result-review loop based on generated markdown and JSONL artifacts.
 7. Safe teardown to stop cloud billing.
+8. Persistent private state and Bronze Spaces buckets plus a named AMS3 VPC that survive every disposable worker teardown.
 
 ## Verification surface
 
@@ -35,8 +36,15 @@ make watch-once
 make local-lab-down
 make do-init
 make do-validate
-make do-plan DO_WORKER_COUNT=1
+TF_VAR_vpc_uuid=00000000-0000-4000-8000-000000000000 \
+  TF_VAR_vpc_name=phase1-plan-sentinel \
+  make do-plan DO_WORKER_COUNT=1
+make storage-init
+make storage-validate
+make storage-plan
 ```
+
+The sentinel VPC values are only for the non-creating Phase 1 plan. They are forbidden for apply and live workers, which must use the exact storage outputs.
 
 DigitalOcean apply is a separate manual authorization step:
 
@@ -66,6 +74,7 @@ make do-down
 - Do not commit `.env`, `terraform.tfvars`, private keys, Terraform state, or artifacts.
 - Terraform/OpenTofu `plan` must be safe to run without creating resources.
 - DigitalOcean workers must be destroyed after use.
+- Persistent state, Bronze objects, and the worker VPC have an independent lifecycle and must never be included in routine worker teardown.
 - Local VM lab must be the first working test target.
 - The infrastructure repository must not depend on the private ML repo internals. It should call configurable commands and scripts.
 
@@ -85,7 +94,9 @@ Not allowed:
 
 - Hardcoding secrets.
 - Public Ray dashboards.
-- Creating persistent DigitalOcean volumes, snapshots, reserved IPs, Kubernetes clusters, Spaces buckets, or databases unless explicitly requested.
+- Creating persistent DigitalOcean volumes, snapshots, reserved IPs, Kubernetes clusters, or databases unless explicitly requested.
+- Creating Spaces buckets or a persistent VPC outside the separately approved storage lifecycle.
+- Silver and later data layers are out of scope and require a new reviewed phase.
 - Training real production models inside this infra repo. This repo only proves the compute substrate and provides examples.
 
 ## Iteration policy
@@ -100,7 +111,9 @@ Work in this order:
 6. DigitalOcean Terraform/OpenTofu worker provisioning.
 7. DO cloud-init hardening and worker join service.
 8. Cost-control and destroy runbooks.
-9. Final documentation pass.
+9. Code-only persistent Spaces and VPC design, without resource creation.
+10. Separately authorized storage bootstrap, backend migration, and bounded cache smoke.
+11. Final documentation pass.
 
 After each step, run the smallest relevant verification. If a verification fails, fix it before expanding scope.
 
@@ -112,3 +125,5 @@ After each step, run the smallest relevant verification. If a verification fails
 - Ray Tune results appear in real time under `artifacts/live/`.
 - A Codex subagent can read the generated report and act on it.
 - Every paid resource path has a documented teardown command.
+- The state bucket, Demo Bronze bucket, and named VPC persist when every Ray Droplet is destroyed.
+- Backend migration, credential revocation, paid smoke, and persistent-resource decommission remain explicit human gates.

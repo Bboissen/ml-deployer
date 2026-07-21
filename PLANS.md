@@ -83,8 +83,12 @@ Checks:
 ```bash
 make do-init
 make do-validate
-make do-plan DO_WORKER_COUNT=1
+TF_VAR_vpc_uuid=00000000-0000-4000-8000-000000000000 \
+  TF_VAR_vpc_name=phase1-plan-sentinel \
+  make do-plan DO_WORKER_COUNT=1
 ```
+
+These sentinel values are code-only plan inputs. Apply and live workers must use the exact persistent storage outputs.
 
 Manual cloud check:
 
@@ -112,3 +116,49 @@ make tune-synth
 make pull-artifacts
 make do-down
 ```
+
+## Storage workstream: persistent Bronze and disposable caches
+
+### Phase 0: accepted runtime base
+
+- Python 3.14.4 and `ray==2.56.0` are pinned across head, driver, and workers.
+- Local worker lifecycle and non-creating DigitalOcean worker plan are green.
+
+### Phase 1: code-only storage design
+
+Deliverables:
+
+- Independent `terraform/digitalocean-storage/` root for one VPC, one private state bucket, and one private Bronze bucket in AMS3.
+- Explicit VPC UUID input on every disposable worker.
+- Backend-disabled init, validation, and semantic plan checks.
+- Inactive S3-compatible backend example and one consolidated storage runbook.
+- Documentation for credential boundaries, lifecycle protection, receipts, cache protocol, and decommission.
+
+Checks:
+
+```bash
+make lint-shell
+make python-check
+make dryrun
+make do-init
+make do-validate
+TF_VAR_vpc_uuid=00000000-0000-4000-8000-000000000000 \
+  TF_VAR_vpc_name=phase1-plan-sentinel \
+  make do-plan DO_WORKER_COUNT=1
+make storage-init
+make storage-validate
+make storage-plan
+```
+
+The sentinel VPC values are valid only for this non-creating code plan. Phase 1 must not apply infrastructure, activate or migrate a backend, mutate credentials, run a paid smoke, or modify cloud-init. Apply and live workers must use the exact storage outputs.
+
+### Phase 2: separately authorized live gates
+
+1. Recheck live AMS3 size price and availability.
+2. Human-authorize persistent storage/VPC bootstrap.
+3. Verify separate state-bucket-scoped and Bronze-bucket-scoped identities, then revoke the broad bootstrap key at a separate human gate.
+4. Activate and migrate each backend in reviewed commits; prove Spaces lock contention before accepting migration.
+5. Human-authorize the 512 MiB storage/cache smoke, capped at 20 minutes per phase and the approved budget.
+6. Stop after smoke for semantic receipt review; do not auto-promote to production staging.
+
+Silver and later data layers require a new reviewed phase and are not supported by this phase.

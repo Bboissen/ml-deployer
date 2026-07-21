@@ -11,6 +11,8 @@ Target end state:
 - Workers run Ray Tune / XGBoost / LightGBM style jobs and stream metrics back to the home server in real time.
 - The head, workers, and driver pin Python 3.14.4 and `ray==2.56.0` exactly so the separate `demo` driver can connect.
 - Terraform/OpenTofu creates and destroys DigitalOcean workers on demand.
+- DigitalOcean Spaces permanently holds infrastructure state and accepted Demo Bronze snapshots; worker disks are temporary caches.
+- A persistent named AMS3 VPC is created independently and attached explicitly to every disposable Droplet.
 - No Ray control ports are exposed on public interfaces.
 
 ## Repository phases
@@ -22,10 +24,15 @@ Target end state:
 | Phase 2 | 1 tiny DigitalOcean worker | Validate Terraform/OpenTofu, cloud-init, DO firewall, Tailscale auth key, and Ray join with `s-1vcpu-512mb-10gb` in `ams3`. This is a smoke test, not an HPO worker size. |
 | Phase 3 | 10 DigitalOcean workers | Run real small-batch HPO / feature-search jobs. |
 
+The storage workstream has separate gates: Phase 1 is code-only design and validation; Phase 2 covers explicitly authorized storage bootstrap, backend migration, and bounded cache smoke. See [`docs/runbook-storage.md`](docs/runbook-storage.md).
+
+The current storage scope is Bronze only. Silver and later data layers require a new reviewed phase.
+
 ## Important security model
 
 - Use a **reusable, ephemeral, pre-authorized Tailscale auth key** for short-lived workers.
 - Keep `DO_TOKEN`, `TS_AUTH_KEY`, Terraform state, `.env`, and `terraform.tfvars` out of Git.
+- Keep Spaces and backend credentials environment-only; workers receive short-lived presigned download plans, never long-lived storage secrets.
 - Bind Ray head to the home server's Tailscale IP only.
 - Workers connect to the Ray head over Tailscale.
 - DigitalOcean public firewall exposes no Ray ports.
@@ -45,6 +52,16 @@ make ray-status
 
 All validation is local through `make` targets.
 
+### Persistent storage code-only validation
+
+```bash
+make storage-init
+make storage-validate
+make storage-plan
+```
+
+These targets do not create resources. There is intentionally no routine `storage-down` target. Bootstrap apply, backend activation/migration, key revocation, paid smoke, and persistent-resource decommission each require a separate human gate.
+
 ### Local VM lab
 
 ```bash
@@ -60,7 +77,9 @@ make local-lab-down
 
 ```bash
 make do-init
-make do-plan DO_WORKER_COUNT=1
+TF_VAR_vpc_uuid=<storage-output-uuid> \
+  TF_VAR_vpc_name=<storage-output-name> \
+  make do-plan DO_WORKER_COUNT=1
 make do-up DO_WORKER_COUNT=1
 make ray-status
 make smoke
