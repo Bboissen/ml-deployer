@@ -6,6 +6,37 @@ variable "do_token" {
 variable "region" {
   type    = string
   default = "ams3"
+
+  validation {
+    condition     = var.region == "ams3"
+    error_message = "region must be ams3 for the persistent storage and worker VPC contract."
+  }
+}
+
+variable "vpc_uuid" {
+  type        = string
+  description = "UUID exported by the persistent storage root. A sentinel UUID is allowed only for code-only plan validation."
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$", var.vpc_uuid))
+    error_message = "vpc_uuid must be a syntactically valid UUID."
+  }
+}
+
+variable "vpc_name" {
+  type        = string
+  description = "Non-secret VPC name recorded with plans and receipts for operator context."
+
+  validation {
+    condition     = length(trimspace(var.vpc_name)) > 0
+    error_message = "vpc_name must not be empty."
+  }
+}
+
+variable "allow_phase1_plan_sentinel" {
+  type        = bool
+  description = "Internal code-plan-only override for the exact Phase 1 VPC sentinel. Never enable for apply or live workers."
+  default     = false
 }
 
 variable "image" {

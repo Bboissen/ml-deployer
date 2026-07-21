@@ -14,11 +14,22 @@ resource "digitalocean_droplet" "workers" {
   name     = format("%s-worker-%02d", var.cluster_name, count.index + 1)
   region   = var.region
   size     = var.size
+  vpc_uuid = var.vpc_uuid
   ssh_keys = [data.digitalocean_ssh_key.main.id]
   tags     = var.worker_count > 0 ? [digitalocean_tag.ray[0].name] : []
 
   ipv6       = false
   monitoring = true
+
+  lifecycle {
+    precondition {
+      condition = var.allow_phase1_plan_sentinel || (
+        var.vpc_uuid != "00000000-0000-4000-8000-000000000000" &&
+        var.vpc_name != "phase1-plan-sentinel"
+      )
+      error_message = "Phase 1 sentinel VPC values are forbidden for apply and live workers."
+    }
+  }
 
   user_data = templatefile("${path.module}/../../cloud-init/do-worker.yaml.tftpl", {
     worker_hostname         = format("%s-worker-%02d", var.cluster_name, count.index + 1)
