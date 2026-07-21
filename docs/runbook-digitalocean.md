@@ -31,7 +31,10 @@ make do-up DO_WORKER_COUNT=1
 make ray-status EXPECTED_WORKERS=1
 make smoke EXPECTED_WORKERS=1
 make do-down
+make head-stop
 ```
+
+`make head-start` owns the local head in the exact transient user unit `spotify-ray-head.service` with `KillMode=control-group`. `make head-stop` stops only that unit and refuses to use Ray's host-global process scan. If the Ray port is open without the owned unit, teardown stops with an error for manual investigation.
 
 ## Full 10-worker run
 
@@ -44,6 +47,7 @@ make sync-data DATA_DIR=/path/to/compact/tune_slice
 make run-tune CONFIG=configs/tune_synthetic.yaml
 make pull-artifacts OUT_DIR=/path/to/local/artifacts
 make do-down
+make head-stop
 ```
 
 ## Failure handling

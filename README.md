@@ -50,6 +50,8 @@ make head-start
 make ray-status
 ```
 
+The head lifecycle is isolated in `spotify-ray-head.service`; `make head-stop` stops only that systemd user control group. Run `make head-lifecycle-check` to verify the source policy. Host-global `ray stop` is forbidden for the shared home server.
+
 All validation is local through `make` targets.
 
 ### Persistent storage code-only validation

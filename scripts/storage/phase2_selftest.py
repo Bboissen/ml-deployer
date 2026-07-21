@@ -378,7 +378,7 @@ def main() -> int:
                 "resolved_endpoint": "phase2-offline-test.ams3.digitaloceanspaces.com",
                 "routes": [{"answer": "203.0.113.8", "dev": "ens7", "src": "10.10.0.5", "vpc_route_present": True}],
                 "hostname": "ray-smoke-worker-01", "tailscale_ip": "100.64.0.2",
-                "ray": {"match_count": 1, "alive": True, "node_id": "node-1", "node_name": "ray-smoke-worker-01", "node_address": "100.64.0.2"},
+                "ray": {"match_count": 1, "alive": True, "node_id": "node-1", "node_name": "100.64.0.2", "node_address": "100.64.0.2"},
             },
         }
         validate_network_receipt(receipt)
@@ -386,6 +386,12 @@ def main() -> int:
             lambda value: value["worker_observed"].update(private_interface="eth1", interface_match_count=2),
             lambda value: value["worker_observed"]["routes"][0].update(dev="eth0", src="192.0.2.2"),
             lambda value: value["worker_observed"]["ray"].update(match_count=2),
+            lambda value: value["worker_observed"]["ray"].update(node_id=""),
+            lambda value: value["worker_observed"]["ray"].update(node_address="100.64.0.99"),
+            lambda value: (
+                value["worker_observed"].update(tailscale_ip="10.10.0.5"),
+                value["worker_observed"]["ray"].update(node_address="10.10.0.5"),
+            ),
             lambda value: value["worker_observed"].pop("resolver"),
             lambda value: value["worker_observed"]["resolver"].update(upstream=["8.8.8.8"]),
             lambda value: value["worker_observed"]["resolver"].update(upstream=["10.10.15.254", "8.8.8.8"]),

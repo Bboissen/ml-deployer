@@ -42,11 +42,15 @@ install-head: ## Install Ray head dependencies on this machine.
 
 .PHONY: head-start
 head-start: ## Start Ray head on home server Tailscale IP.
-	$(LOAD_ENV) bash scripts/head/start_head.sh
+	$(LOAD_ENV) bash scripts/head/start_head_service.sh
 
 .PHONY: head-stop
 head-stop: ## Stop Ray head.
 	$(LOAD_ENV) bash scripts/head/stop_head.sh
+
+.PHONY: head-lifecycle-check
+head-lifecycle-check: ## Verify head start/stop is scoped to its own systemd cgroup.
+	bash scripts/head/validate_head_lifecycle.sh
 
 .PHONY: ray-status
 ray-status: ## Show Ray cluster status and optionally verify expected workers.

@@ -25,9 +25,6 @@ RAY_HEAD_CPUS="${RAY_HEAD_CPUS:-0}"
 
 # shellcheck disable=SC1091
 source .venv/bin/activate
-if [ "${RAY_STOP_BEFORE_START:-0}" = "1" ]; then
-  ray stop --force || true
-fi
 ray_args=(
   --head
   --node-ip-address="$RAY_HEAD_TS_IP"
@@ -45,11 +42,6 @@ ray_args=(
   --object-store-memory="$RAY_OBJECT_STORE_MEMORY"
   --num-cpus="$RAY_HEAD_CPUS"
   --disable-usage-stats
+  --block
 )
-if [ "${RAY_BLOCK:-0}" = "1" ]; then
-  ray_args+=(--block)
-fi
-ray start "${ray_args[@]}"
-
-echo "Ray head started on $RAY_HEAD_TS_IP:$RAY_HEAD_PORT"
-echo "Dashboard: http://$RAY_HEAD_TS_IP:$RAY_DASHBOARD_PORT"
+exec ray start "${ray_args[@]}"

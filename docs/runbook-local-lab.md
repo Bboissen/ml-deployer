@@ -31,6 +31,7 @@ make smoke EXPECTED_WORKERS=3
 make tune-synth
 make watch-once
 make local-lab-down
+make head-stop
 ```
 
 ## Expected result
@@ -44,6 +45,8 @@ make local-lab-down
 Use 1 CPU per trial and small synthetic jobs. This lab proves infrastructure, not model performance.
 
 By default, `RAY_HEAD_CPUS=0` keeps the home server as the Ray head/orchestrator and schedules Tune trials on workers. Set `RAY_HEAD_CPUS` above `0` only if you want the home server to contribute compute.
+
+The head runs inside the exact transient user unit `spotify-ray-head.service`. `make head-stop` stops only that unit's control group. It never calls the host-global `ray stop` process scanner.
 
 ## Tailscale device names
 

@@ -413,8 +413,10 @@ def validate_network_receipt(receipt: Mapping[str, object]) -> None:
     ray = worker.get("ray")
     if not isinstance(ray, dict) or ray.get("match_count") != 1 or ray.get("alive") is not True:
         raise ProtocolError("Ray node identity is absent or ambiguous")
-    if ray.get("node_name") != worker.get("hostname") or ray.get("node_address") != worker.get("tailscale_ip"):
-        raise ProtocolError("Ray node does not match hostname plus Tailscale IP")
+    if not isinstance(ray.get("node_id"), str) or not ray.get("node_id"):
+        raise ProtocolError("Ray node ID is missing")
+    if ray.get("node_address") != worker.get("tailscale_ip"):
+        raise ProtocolError("Ray node does not match the worker Tailscale IP")
     if ray.get("node_address") == worker.get("metadata_private_ip"):
         raise ProtocolError("Ray identity incorrectly uses the DO private IP")
 
@@ -530,7 +532,6 @@ def _collect_worker_network_receipt(
     ray_matches = [
         node for node in ray_nodes
         if node.get("Alive") is True
-        and node.get("NodeName") == hostname
         and node.get("NodeManagerAddress") == tailscale_ip
     ]
     ray_evidence = {
