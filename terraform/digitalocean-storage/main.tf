@@ -106,3 +106,8 @@ output "vpc_region" {
   value       = digitalocean_vpc.demo.region
   description = "Persistent VPC region."
 }
+
+output "vpc_cidr" {
+  value       = digitalocean_vpc.demo.ip_range
+  description = "Authoritative VPC CIDR used by Phase 2 route receipts."
+}
