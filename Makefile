@@ -26,7 +26,7 @@ python-check: ## Compile Python source files.
 
 .PHONY: lint-shell
 lint-shell: ## Shell syntax check.
-	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh
+	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh
 
 .PHONY: dryrun
 dryrun: ## Print current non-secret plan context.
@@ -83,10 +83,23 @@ do-validate: ## Validate Terraform/OpenTofu for DO workers.
 
 .PHONY: do-plan
 do-plan: ## Plan DO workers without creating resources.
-	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) plan -var="worker_count=$$do_worker_count"
+	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; TF="$(TF)" bash scripts/storage/storage.sh worker-plan "$$do_worker_count"
+
+.PHONY: storage-init
+storage-init: ## Initialize the persistent storage root with backend handling disabled.
+	$(LOAD_ENV) TF="$(TF)" bash scripts/storage/storage.sh init
+
+.PHONY: storage-validate
+storage-validate: ## Validate storage HCL, policy, and the inactive backend example.
+	$(LOAD_ENV) TF="$(TF)" bash scripts/storage/storage.sh validate
+
+.PHONY: storage-plan
+storage-plan: ## Plan and semantically verify exactly three persistent creates.
+	$(LOAD_ENV) TF="$(TF)" bash scripts/storage/storage.sh plan
 
 .PHONY: do-up
 do-up: ## Create DO workers. Billable.
+	$(LOAD_ENV) TF="$(TF)" bash scripts/storage/storage.sh guard-live-vpc
 	$(LOAD_ENV) do_worker_count="$(DO_WORKER_COUNT)"; if [ -z "$$do_worker_count" ]; then do_worker_count="$${DO_WORKER_COUNT:-$${TF_VAR_worker_count:-1}}"; fi; cd $(TF_DIR) && $(TF) apply -auto-approve -var="worker_count=$$do_worker_count"
 	$(LOAD_ENV) TF="$(TF)" bash scripts/do/render_inventory.sh
 
