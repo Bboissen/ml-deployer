@@ -175,6 +175,21 @@ def stat_mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
 
 
+def state_pull_is_empty(raw: bytes) -> bool:
+    """Prove an absent or parsed resource-free Terraform state without stderr matching."""
+    if len(raw) > 2 * 1024 * 1024:
+        raise ProtocolError("Terraform state exceeded byte limit")
+    if not raw.strip():
+        return True
+    try:
+        state = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProtocolError("Terraform state is invalid JSON") from exc
+    if not isinstance(state, dict) or not isinstance(state.get("resources"), list):
+        raise ProtocolError("Terraform state schema is invalid")
+    return not state["resources"]
+
+
 def _sha256(value: bytes) -> str:
     import hashlib
     return hashlib.sha256(value).hexdigest()
@@ -234,7 +249,21 @@ cd "$worker_dir"
 "$tf_executable" workspace select "$workspace"
 for delay in 0 10 30 60; do
   (( delay == 0 )) || sleep "$delay"
-  if "$tf_executable" destroy -auto-approve -input=false >/dev/null 2>&1 && [[ -z "$("$tf_executable" state list 2>/dev/null)" ]]; then
+  if "$tf_executable" destroy -auto-approve -input=false >/dev/null 2>&1 && \
+     "$tf_executable" state pull 2>/dev/null | python3 -c '
+import json, sys
+raw = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
+if len(raw) > 2 * 1024 * 1024:
+    raise SystemExit(1)
+if not raw.strip():
+    raise SystemExit(0)
+try:
+    state = json.loads(raw)
+except (UnicodeDecodeError, json.JSONDecodeError):
+    raise SystemExit(1)
+resources = state.get("resources") if isinstance(state, dict) else None
+raise SystemExit(0 if isinstance(resources, list) and not resources else 1)
+'; then
     status=success; detail=zero_managed_resources; exit 0
   fi
 done

@@ -22,6 +22,7 @@ from spotify_ray_infra.phase2_control import (
     SIZE,
     consume_authorization,
     render_cleanup_bundle,
+    state_pull_is_empty,
     validate_authorization,
     validate_controller_crosscheck,
     validate_network_receipt,
@@ -319,13 +320,21 @@ def main() -> int:
         expensive = dict(size, price_hourly_usd=0.02)
         expect_error("price increased after consumption", lambda: validate_live_recheck(auth, expensive, now))
 
+        assert state_pull_is_empty(b"") is True
+        assert state_pull_is_empty(b'{"resources":[]}\n') is True
+        assert state_pull_is_empty(b'{"resources":[{"type":"digitalocean_droplet"}]}\n') is False
+        expect_error(
+            "invalid state is not empty state",
+            lambda: state_pull_is_empty(b'{"resources":[]}{"error":"permission denied"}'),
+        )
+
         cleanup_root = tmp / "cleanup"
         script, unit = render_cleanup_bundle(
             cleanup_root, run_id, f"smoke-{run_id}", Path("/tmp/workers"), now + 600, "/usr/bin/tofu"
         )
         rendered = script.read_text() + unit.read_text()
         assert "-target" not in rendered and "fake-secret" not in rendered
-        assert '"$tf_executable" destroy' in rendered and '"$tf_executable" state list' in rendered
+        assert '"$tf_executable" destroy' in rendered and '"$tf_executable" state pull' in rendered
         assert "TimeoutStartSec=30min" in rendered and "os.fsync(f.fileno())" in rendered and "os.fsync(d)" in rendered
         assert LIVE_ORDER.index("fetch_and_verify_size") < LIVE_ORDER.index("arm_and_verify_cleanup") < LIVE_ORDER.index("apply_once")
 

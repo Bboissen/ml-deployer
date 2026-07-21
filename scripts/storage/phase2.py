@@ -17,7 +17,7 @@ from pathlib import Path
 
 from spotify_ray_infra.phase2_control import (
     LIVE_ORDER, ProtocolError, consume_authorization, fetch_live_size,
-    render_cleanup_bundle, validate_controller_crosscheck,
+    render_cleanup_bundle, state_pull_is_empty, validate_controller_crosscheck,
     validate_live_recheck,
 )
 from spotify_ray_infra.storage_protocol import (
@@ -53,6 +53,17 @@ def _tf(tf: str, directory: Path, *arguments: str, timeout: int = 120, json_outp
 def _storage_outputs(tf: str, storage_dir: Path) -> dict[str, object]:
     value = _tf(tf, storage_dir, "output", "-json", json_output=True)
     return {key: item["value"] for key, item in value.items()}
+
+
+def _tf_state_is_empty(tf: str, directory: Path) -> bool:
+    try:
+        result = subprocess.run(
+            [tf, f"-chdir={directory}", "state", "pull"],
+            check=True, capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProtocolError(f"Terraform state inspection failed ({type(exc).__name__})") from None
+    return state_pull_is_empty(result.stdout)
 
 
 def _do_droplet(token: str, droplet_id: str) -> dict[str, object]:
@@ -203,11 +214,7 @@ def live_smoke(args) -> int:
             [tf, f"-chdir={args.worker_dir}", "workspace", "show"],
             check=True, capture_output=True, text=True, timeout=30,
         ).stdout.strip()
-        state = subprocess.run(
-            [tf, f"-chdir={args.worker_dir}", "state", "list"],
-            check=True, capture_output=True, text=True, timeout=30,
-        ).stdout.strip()
-        if selected != workspace or state:
+        if selected != workspace or not _tf_state_is_empty(tf, args.worker_dir):
             raise ProtocolError("fresh workspace proof failed")
         mark(LIVE_ORDER[0])
 
@@ -293,11 +300,7 @@ def live_smoke(args) -> int:
         mark(LIVE_ORDER[10])
 
         _tf(tf, args.worker_dir, "destroy", "-auto-approve", "-input=false", timeout=600)
-        state_after = subprocess.run(
-            [tf, f"-chdir={args.worker_dir}", "state", "list"],
-            check=True, capture_output=True, text=True, timeout=30,
-        ).stdout.strip()
-        if state_after:
+        if not _tf_state_is_empty(tf, args.worker_dir):
             raise ProtocolError("destroy left managed resources")
         mark(LIVE_ORDER[11])
         _run(["systemctl", "--user", "stop", unit_name])
