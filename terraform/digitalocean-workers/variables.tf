@@ -33,6 +33,16 @@ variable "vpc_name" {
   }
 }
 
+variable "vpc_cidr" {
+  type        = string
+  description = "IPv4 CIDR exported by the persistent storage root; its second-to-last address is the VPC-local DNS resolver."
+
+  validation {
+    condition     = can(cidrnetmask(var.vpc_cidr)) && can(cidrhost(var.vpc_cidr, -2))
+    error_message = "vpc_cidr must be a valid IPv4 CIDR with room for the VPC-local resolver."
+  }
+}
+
 variable "allow_phase1_plan_sentinel" {
   type        = bool
   description = "Internal code-plan-only override for the exact Phase 1 VPC sentinel. Never enable for apply or live workers."

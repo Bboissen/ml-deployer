@@ -298,10 +298,23 @@ StandardError=null
 
 
 def validate_controller_crosscheck(
-    terraform: Mapping[str, object], api: Mapping[str, object], expected_vpc_uuid: str
+    terraform: Mapping[str, object], api: Mapping[str, object], expected_vpc_uuid: str,
+    expected_vpc_cidr: str,
 ) -> None:
     if terraform.get("selected_vpc_uuid") != expected_vpc_uuid:
         raise ProtocolError("Terraform selected VPC differs from storage authority")
+    try:
+        network = ipaddress.ip_network(expected_vpc_cidr, strict=False)
+    except ValueError as exc:
+        raise ProtocolError("storage authority VPC CIDR is malformed") from exc
+    if network.version != 4:
+        raise ProtocolError("storage authority VPC CIDR must be IPv4")
+    expected_resolver = str(network.broadcast_address - 1)
+    if (
+        terraform.get("selected_vpc_cidr") != str(network)
+        or terraform.get("selected_vpc_resolver_ip") != expected_resolver
+    ):
+        raise ProtocolError("Terraform selected VPC DNS authority differs from storage authority")
     tf_ids = sorted(str(value) for value in terraform.get("droplet_ids", []))
     api_ids = sorted(str(value) for value in api.get("droplet_ids", []))
     if tf_ids != api_ids or len(tf_ids) != 1 or api.get("vpc_uuid") != expected_vpc_uuid:
@@ -334,6 +347,11 @@ def validate_network_receipt(receipt: Mapping[str, object]) -> None:
         raise ProtocolError("network receipt contains malformed IP or CIDR evidence") from exc
     if private_ip not in network:
         raise ProtocolError("metadata private IP is outside expected VPC")
+    if network.version != 4:
+        raise ProtocolError("expected VPC network must be IPv4")
+    expected_resolver = str(network.broadcast_address - 1)
+    if expected.get("vpc_resolver_ip") != expected_resolver:
+        raise ProtocolError("expected VPC resolver does not match the VPC CIDR")
     interface = worker.get("private_interface")
     if not interface or worker.get("interface_match_count") != 1:
         raise ProtocolError("metadata private interface is ambiguous")
@@ -355,8 +373,37 @@ def validate_network_receipt(receipt: Mapping[str, object]) -> None:
         raise ProtocolError("resolver evidence is missing")
     if resolver.get("effective_link") != interface or not resolver.get("link_status") or not resolver.get("resolv_conf"):
         raise ProtocolError("effective resolver link evidence is incomplete")
-    if not isinstance(resolver.get("upstream"), list) or not resolver.get("upstream"):
+    if resolver.get("resolv_conf_target") != "/run/systemd/resolve/stub-resolv.conf":
+        raise ProtocolError("worker resolver does not use the systemd-resolved stub")
+    nameservers = re.findall(r"(?m)^nameserver\s+(\S+)\s*$", str(resolver.get("resolv_conf")))
+    if nameservers != ["127.0.0.53"]:
+        raise ProtocolError("resolv.conf contains a competing or non-stub resolver")
+    route_domains = str(resolver.get("route_domain", "")).partition(":")[2].split()
+    if route_domains != ["~."]:
+        raise ProtocolError("VPC resolver link does not own the global DNS route")
+    if str(resolver.get("default_route", "")).partition(":")[2].strip() != "yes":
+        raise ProtocolError("VPC resolver link is not the DNS default route")
+    upstream = resolver.get("upstream")
+    if not isinstance(upstream, list) or not upstream:
         raise ProtocolError("resolver upstream evidence is incomplete")
+    try:
+        parsed_upstream = [str(ipaddress.ip_address(str(address))) for address in upstream]
+    except ValueError as exc:
+        raise ProtocolError("resolver upstream evidence contains a malformed address") from exc
+    if parsed_upstream != [expected_resolver]:
+        raise ProtocolError("worker is not using only the VPC-local resolver")
+    all_link_upstreams = resolver.get("all_link_upstreams")
+    if not isinstance(all_link_upstreams, dict) or interface not in all_link_upstreams or len(all_link_upstreams) < 2:
+        raise ProtocolError("all-link resolver evidence is incomplete")
+    for link, addresses in all_link_upstreams.items():
+        if not isinstance(link, str) or not isinstance(addresses, list):
+            raise ProtocolError("all-link resolver evidence schema is invalid")
+        try:
+            parsed = [str(ipaddress.ip_address(str(address))) for address in addresses]
+        except ValueError as exc:
+            raise ProtocolError("all-link resolver evidence contains a malformed address") from exc
+        if parsed != ([expected_resolver] if link == interface else []):
+            raise ProtocolError("a non-private link exposes a competing resolver")
     for answer in parsed_answers:
         route = by_answer.get(answer)
         if not route or route.get("dev") != interface or route.get("src") != str(private_ip):
@@ -402,6 +449,18 @@ def _metadata(path: str, timeout: float = 3.0) -> str:
     return raw.decode("utf-8", "strict").strip()
 
 
+def _resolvectl_addresses(output: str) -> list[str]:
+    values = []
+    for token in output.partition(":")[2].split():
+        try:
+            address = str(ipaddress.ip_address(token.split("%", 1)[0]))
+        except ValueError as exc:
+            raise ProtocolError("resolvectl returned a malformed resolver address") from exc
+        if address not in values:
+            values.append(address)
+    return values
+
+
 def _collect_worker_network_receipt(
     path: Path,
     run_id: str,
@@ -418,7 +477,6 @@ def _collect_worker_network_receipt(
     private_ip = _metadata("interfaces/private/0/ipv4/address")
     gateway = _metadata("interfaces/private/0/ipv4/gateway")
     netmask = _metadata("interfaces/private/0/ipv4/netmask")
-    metadata_dns = _metadata("dns/nameservers")
     addresses = run_json(["ip", "-j", "address", "show"])
     if not isinstance(addresses, list):
         raise ProtocolError("ip address evidence schema is invalid")
@@ -451,6 +509,19 @@ def _collect_worker_network_receipt(
         routes.append({"answer": answer, "dev": route.get("dev"), "gateway": route.get("gateway"), "src": route.get("prefsrc"), "vpc_route_present": vpc_route_present})
     hostname = _run_text(["hostname"])
     tailscale_ip = _run_text(["tailscale", "ip", "-4"])
+    resolver_dns = _run_text(["resolvectl", "dns", interface])
+    upstream = _resolvectl_addresses(resolver_dns)
+    links = run_json(["ip", "-j", "link", "show"])
+    if not isinstance(links, list):
+        raise ProtocolError("ip link evidence schema is invalid")
+    all_link_upstreams = {}
+    for link in links:
+        if not isinstance(link, dict) or not isinstance(link.get("ifname"), str):
+            raise ProtocolError("ip link evidence contains an invalid interface")
+        link_name = str(link["ifname"])
+        all_link_upstreams[link_name] = _resolvectl_addresses(
+            _run_text(["resolvectl", "dns", link_name])
+        )
     ray_code = (
         "import json,ray;ray.init(address='auto',logging_level='ERROR');"
         "print(json.dumps(ray.nodes(),sort_keys=True))"
@@ -481,9 +552,13 @@ def _collect_worker_network_receipt(
         "ray": ray_evidence,
         "resolver": {
             "effective_link": interface,
+            "all_link_upstreams": all_link_upstreams,
+            "default_route": _run_text(["resolvectl", "default-route", interface]),
             "link_status": _run_text(["resolvectl", "status", interface]),
             "resolv_conf": Path("/etc/resolv.conf").read_text()[:64 * 1024],
-            "upstream": metadata_dns.splitlines(),
+            "resolv_conf_target": str(Path("/etc/resolv.conf").resolve(strict=True)),
+            "route_domain": _run_text(["resolvectl", "domain", interface]),
+            "upstream": upstream,
         },
         "routes": routes,
         "resolved_endpoint": endpoint,
@@ -495,6 +570,7 @@ def _collect_worker_network_receipt(
             "droplet_id": expected_droplet_id,
             "spaces_endpoint": endpoint,
             "vpc_cidr": str(network),
+            "vpc_resolver_ip": str(network.broadcast_address - 1),
             "vpc_uuid": expected_vpc_uuid,
         },
         "run_id": run_id,

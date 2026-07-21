@@ -253,7 +253,8 @@ def live_smoke(args) -> int:
         _tf(
             tf, args.worker_dir, "apply", "-auto-approve", "-input=false",
             "-var=worker_count=1", "-var=size=s-1vcpu-1gb", f"-var=cluster_name={cluster}",
-            f"-var=vpc_uuid={storage['vpc_uuid']}", f"-var=vpc_name={storage['vpc_name']}", timeout=600,
+            f"-var=vpc_uuid={storage['vpc_uuid']}", f"-var=vpc_name={storage['vpc_name']}",
+            f"-var=vpc_cidr={storage['vpc_cidr']}", timeout=600,
         )
         mark(LIVE_ORDER[4])
         outputs = _tf(tf, args.worker_dir, "output", "-json", json_output=True)
@@ -262,8 +263,14 @@ def live_smoke(args) -> int:
         public_ip = str(values["worker_public_ips"][0])
         droplet = _do_droplet(token, droplet_id)
         validate_controller_crosscheck(
-            {"selected_vpc_uuid": values["selected_vpc_uuid"], "droplet_ids": values["worker_droplet_ids"]},
-            {"vpc_uuid": droplet["vpc_uuid"], "droplet_ids": [droplet["id"]]}, str(storage["vpc_uuid"]),
+            {
+                "selected_vpc_uuid": values["selected_vpc_uuid"],
+                "selected_vpc_cidr": values["selected_vpc_cidr"],
+                "selected_vpc_resolver_ip": values["selected_vpc_resolver_ip"],
+                "droplet_ids": values["worker_droplet_ids"],
+            },
+            {"vpc_uuid": droplet["vpc_uuid"], "droplet_ids": [droplet["id"]]},
+            str(storage["vpc_uuid"]), str(storage["vpc_cidr"]),
         )
         _wait_worker_ready(public_ip, args.ssh_user)
         mark(LIVE_ORDER[5])

@@ -25,7 +25,7 @@ Copy `.env.example` to the ignored `.env` and set values locally. Never put secr
 - Later S3 backend: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` use a separate state-bucket-scoped identity. Never map or reuse the broad provider key for this role.
 - Bronze access uses a separate Bronze-bucket-scoped identity.
 - Non-secret inputs: `TF_VAR_state_bucket_name`, `TF_VAR_bronze_bucket_name`, `TF_VAR_vpc_name`.
-- Workers: set `TF_VAR_vpc_uuid` to the storage root's exact `vpc_uuid` output after an authorized apply.
+- Workers: set `TF_VAR_vpc_uuid` and `TF_VAR_vpc_cidr` to the storage root's exact outputs after an authorized apply. The worker derives the VPC-local resolver from that CIDR.
 
 ## Phase 1: non-creating checks
 

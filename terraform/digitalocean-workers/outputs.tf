@@ -29,3 +29,13 @@ output "selected_vpc_name" {
   value       = var.vpc_name
   description = "Operator-facing name of the selected persistent VPC."
 }
+
+output "selected_vpc_cidr" {
+  value       = var.vpc_cidr
+  description = "VPC CIDR selected for every worker Droplet."
+}
+
+output "selected_vpc_resolver_ip" {
+  value       = cidrhost(var.vpc_cidr, -2)
+  description = "VPC-local DNS resolver derived from the selected VPC CIDR."
+}

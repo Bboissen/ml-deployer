@@ -25,7 +25,8 @@ resource "digitalocean_droplet" "workers" {
     precondition {
       condition = var.allow_phase1_plan_sentinel || (
         var.vpc_uuid != "00000000-0000-4000-8000-000000000000" &&
-        var.vpc_name != "phase1-plan-sentinel"
+        var.vpc_name != "phase1-plan-sentinel" &&
+        var.vpc_cidr != "10.255.240.0/20"
       )
       error_message = "Phase 1 sentinel VPC values are forbidden for apply and live workers."
     }
@@ -36,6 +37,7 @@ resource "digitalocean_droplet" "workers" {
     tailscale_auth_key      = var.tailscale_auth_key
     ray_head_tailscale_ip   = var.ray_head_tailscale_ip
     ray_object_store_memory = var.ray_object_store_memory
+    vpc_resolver_ip         = cidrhost(var.vpc_cidr, -2)
   })
 }
 

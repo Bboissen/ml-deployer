@@ -7,6 +7,7 @@ WORKER_DIR="$ROOT_DIR/terraform/digitalocean-workers"
 TF_BIN="${TF:-terraform}"
 PHASE1_SENTINEL_UUID="00000000-0000-4000-8000-000000000000"
 PHASE1_SENTINEL_NAME="phase1-plan-sentinel"
+PHASE1_SENTINEL_CIDR="10.255.240.0/20"
 
 die() {
   printf 'storage: %s\n' "$*" >&2
@@ -24,13 +25,16 @@ require_env() {
 guard_live_vpc() {
   require_env TF_VAR_vpc_uuid
   require_env TF_VAR_vpc_name
+  require_env TF_VAR_vpc_cidr
   [[ "$TF_VAR_vpc_uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] ||
     die "TF_VAR_vpc_uuid must be a syntactically valid UUID"
   [[ "$TF_VAR_vpc_uuid" != "$PHASE1_SENTINEL_UUID" ]] ||
     die "Phase 1 sentinel VPC UUID is forbidden for apply and live workers"
   [[ "$TF_VAR_vpc_name" != "$PHASE1_SENTINEL_NAME" ]] ||
     die "Phase 1 sentinel VPC name is forbidden for apply and live workers"
-  printf 'Live VPC guard accepted: %s (%s).\n' "$TF_VAR_vpc_name" "$TF_VAR_vpc_uuid"
+  [[ "$TF_VAR_vpc_cidr" != "$PHASE1_SENTINEL_CIDR" ]] ||
+    die "Phase 1 sentinel VPC CIDR is forbidden for apply and live workers"
+  printf 'Live VPC guard accepted: %s (%s, %s).\n' "$TF_VAR_vpc_name" "$TF_VAR_vpc_uuid" "$TF_VAR_vpc_cidr"
 }
 
 tf() {
@@ -180,29 +184,39 @@ assert_worker_plan() {
   local plan_json="$1"
   local expected_count="$2"
   local expected_vpc_uuid="$3"
+  local expected_vpc_cidr="$4"
+  local expected_vpc_resolver_ip="$5"
 
   jq -e '
     ([.resource_changes[].change.actions[]] | index("update") | not) and
     ([.resource_changes[].change.actions[]] | index("delete") | not) and
     ([.resource_changes[] | select(.type == "digitalocean_droplet")] | length == $expected_count) and
     (all(.resource_changes[] | select(.type == "digitalocean_droplet");
-      .change.after.vpc_uuid == $expected_vpc_uuid))
+      .change.after.vpc_uuid == $expected_vpc_uuid)) and
+    (.planned_values.outputs.selected_vpc_cidr.value == $expected_vpc_cidr) and
+    (.planned_values.outputs.selected_vpc_resolver_ip.value == $expected_vpc_resolver_ip)
   ' \
     --argjson expected_count "$expected_count" \
     --arg expected_vpc_uuid "$expected_vpc_uuid" \
+    --arg expected_vpc_cidr "$expected_vpc_cidr" \
+    --arg expected_vpc_resolver_ip "$expected_vpc_resolver_ip" \
     "$plan_json" >/dev/null || die "worker plan failed VPC/action policy"
 }
 
 plan_workers() (
   local worker_count="${1:-1}"
   local allow_phase1_plan_sentinel=false
+  local expected_vpc_resolver_ip
   local temp_root plan_file plan_json
 
   require_command jq
   require_env TF_VAR_vpc_uuid
   require_env TF_VAR_vpc_name
+  require_env TF_VAR_vpc_cidr
+  expected_vpc_resolver_ip="$(python3 -c 'import ipaddress, os; print(ipaddress.ip_network(os.environ["TF_VAR_vpc_cidr"], strict=False).broadcast_address - 1)' 2>/dev/null)" ||
+    die "TF_VAR_vpc_cidr must be a valid IPv4 CIDR"
   [[ "$worker_count" =~ ^[0-9]+$ ]] || die "worker count must be a non-negative integer"
-  if [[ "$TF_VAR_vpc_uuid" == "$PHASE1_SENTINEL_UUID" && "$TF_VAR_vpc_name" == "$PHASE1_SENTINEL_NAME" ]]; then
+  if [[ "$TF_VAR_vpc_uuid" == "$PHASE1_SENTINEL_UUID" && "$TF_VAR_vpc_name" == "$PHASE1_SENTINEL_NAME" && "$TF_VAR_vpc_cidr" == "$PHASE1_SENTINEL_CIDR" ]]; then
     allow_phase1_plan_sentinel=true
   fi
 
@@ -220,9 +234,9 @@ plan_workers() (
     -out="$plan_file" >/dev/null
   tf -chdir="$WORKER_DIR" show -json "$plan_file" >"$plan_json"
 
-  assert_worker_plan "$plan_json" "$worker_count" "$TF_VAR_vpc_uuid"
-  printf 'Worker plan verified: count=%s, VPC=%s (%s), no update/delete/replace actions.\n' \
-    "$worker_count" "$TF_VAR_vpc_name" "$TF_VAR_vpc_uuid"
+  assert_worker_plan "$plan_json" "$worker_count" "$TF_VAR_vpc_uuid" "$TF_VAR_vpc_cidr" "$expected_vpc_resolver_ip"
+  printf 'Worker plan verified: count=%s, VPC=%s (%s, %s), resolver=%s, no update/delete/replace actions.\n' \
+    "$worker_count" "$TF_VAR_vpc_name" "$TF_VAR_vpc_uuid" "$TF_VAR_vpc_cidr" "$expected_vpc_resolver_ip"
 )
 
 usage() {

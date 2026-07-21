@@ -38,6 +38,7 @@ make do-init
 make do-validate
 TF_VAR_vpc_uuid=00000000-0000-4000-8000-000000000000 \
   TF_VAR_vpc_name=phase1-plan-sentinel \
+  TF_VAR_vpc_cidr=10.255.240.0/20 \
   make do-plan DO_WORKER_COUNT=1
 make storage-init
 make storage-validate

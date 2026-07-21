@@ -340,8 +340,13 @@ def main() -> int:
 
         expected_vpc = "12345678-1234-4234-8234-123456789abc"
         validate_controller_crosscheck(
-            {"selected_vpc_uuid": expected_vpc, "droplet_ids": ["42"]},
-            {"vpc_uuid": expected_vpc, "droplet_ids": ["42"]}, expected_vpc,
+            {
+                "selected_vpc_uuid": expected_vpc,
+                "selected_vpc_cidr": "10.10.0.0/20",
+                "selected_vpc_resolver_ip": "10.10.15.254",
+                "droplet_ids": ["42"],
+            },
+            {"vpc_uuid": expected_vpc, "droplet_ids": ["42"]}, expected_vpc, "10.10.0.0/20",
         )
         receipt = {
             "finished_at": now,
@@ -351,6 +356,7 @@ def main() -> int:
             "version": RECEIPT_VERSION,
             "expected": {
                 "vpc_uuid": expected_vpc, "vpc_cidr": "10.10.0.0/20", "droplet_id": "42",
+                "vpc_resolver_ip": "10.10.15.254",
                 "spaces_endpoint": "phase2-offline-test.ams3.digitaloceanspaces.com",
             },
             "controller_observed": {"vpc_uuid": expected_vpc, "droplet_id": "42"},
@@ -362,7 +368,10 @@ def main() -> int:
                 "metadata_gateway": "10.10.0.1", "metadata_netmask": "255.255.240.0",
                 "private_interface": "ens7", "interface_match_count": 1,
                 "resolver": {
-                    "resolv_conf": "stub", "effective_link": "ens7", "link_status": "DNS Servers: 10.10.15.254",
+                    "resolv_conf": "nameserver 127.0.0.53\n", "resolv_conf_target": "/run/systemd/resolve/stub-resolv.conf",
+                    "effective_link": "ens7", "link_status": "DNS Servers: 10.10.15.254",
+                    "route_domain": "Link 3 (ens7): ~.", "default_route": "Link 3 (ens7): yes",
+                    "all_link_upstreams": {"lo": [], "eth0": [], "ens7": ["10.10.15.254"], "tailscale0": []},
                     "upstream": ["10.10.15.254"],
                 },
                 "dns_answers": ["203.0.113.8"],
@@ -378,6 +387,11 @@ def main() -> int:
             lambda value: value["worker_observed"]["routes"][0].update(dev="eth0", src="192.0.2.2"),
             lambda value: value["worker_observed"]["ray"].update(match_count=2),
             lambda value: value["worker_observed"].pop("resolver"),
+            lambda value: value["worker_observed"]["resolver"].update(upstream=["8.8.8.8"]),
+            lambda value: value["worker_observed"]["resolver"].update(upstream=["10.10.15.254", "8.8.8.8"]),
+            lambda value: value["worker_observed"]["resolver"]["all_link_upstreams"].update(eth0=["8.8.8.8"]),
+            lambda value: value["worker_observed"]["resolver"].update(route_domain="Link 3 (ens7): example.com"),
+            lambda value: value["worker_observed"]["resolver"].update(resolv_conf="nameserver 8.8.8.8\n"),
             lambda value: value["worker_observed"].update(resolved_endpoint="wrong.example"),
             lambda value: value["worker_observed"].update(vpc_uuid=expected_vpc),
         ):
