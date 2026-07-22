@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars only if you understand that tfvars must not be committed.
+# Prefer environment variables for secrets:
+# export TF_VAR_do_token="dop_v1_..."
+# export TF_VAR_tailscale_auth_key="tskey-auth-..."
+
+region                = "ams3"
+image                 = "ubuntu-24-04-x64"
+size                  = "s-1vcpu-512mb-10gb"
+worker_count          = 1
+cluster_name          = "spotify-ray"
+ssh_key_name          = "your-do-ssh-key-name"
+admin_public_cidr     = "YOUR_PUBLIC_IP/32"
+ray_head_tailscale_ip = "100.x.y.z"

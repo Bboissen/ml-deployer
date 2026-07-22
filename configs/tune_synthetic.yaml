@@ -1,0 +1,11 @@
+name: synthetic_lgbm_smoke
+num_samples: 24
+max_concurrent_trials: 8
+cpus_per_trial: 1
+metric: val_rmse
+mode: min
+ray_results_dir: artifacts/ray_results
+live_events_path: artifacts/live/trial_events.jsonl
+n_rows: 25000
+n_features: 40
+random_state: 42
