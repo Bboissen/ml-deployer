@@ -124,7 +124,7 @@ runcmd:
   - /usr/local/bin/uv python install 3.14.4
   - /usr/local/bin/uv venv --python 3.14.4 /opt/spotify-ray/venv
   - /usr/local/bin/uv pip install --python /opt/spotify-ray/venv/bin/python -U pip wheel
-  - /usr/local/bin/uv pip install --python /opt/spotify-ray/venv/bin/python "ray[client,default,tune]==2.56.0" psutil PyYAML
+  - /usr/local/bin/uv pip install --python /opt/spotify-ray/venv/bin/python "ray[client,default,tune]==2.56.0" psutil PyYAML "xgboost>=2.0" "lightgbm>=4.3" "catboost>=1.2" "pandas>=2.2" "pyarrow==24.0.0"
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp

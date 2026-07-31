@@ -1,0 +1,51 @@
+name: mf2_xgb_quantile_hpo
+# Distributed XGBoost multi-quantile HPO for MF2 (Spotify artist audience stock).
+# Metric = running-mean pinball loss over the 7-quantile grid (p05..p95) on a
+# date-embargoed grouped temporal walk-forward (fold = resolution month).
+# Fidelity per round-2 ruling: full rows, 4 cpus/trial, 6 era-stratified folds,
+# 96 samples. Arbiter = full 12-fold re-score on BOTH panels (default + strict).
+num_samples: 96
+max_concurrent_trials: 10   # 10x c-4 fleet at 4 cpus/trial = 1 trial per node
+cpus_per_trial: 4
+metric: mean_pinball
+mode: min
+ray_results_dir: artifacts/ray_results
+live_events_path: artifacts/live/trial_events.jsonl
+
+# Data plane. DEFAULT = rsync: panel synced to each worker's local disk by
+# `make sync-data DATA_DIR=./data/tune`, read from panel_path. Simplest, and fine
+# for the ~500MB MF2 panel that fits every droplet's 50GB disk and 8GB RAM.
+panel_path: /data/tune/panel_h28.parquet
+# ALTERNATIVE = Spaces (for big MF1 / stacked panels that don't fit a c-4's RAM):
+# push once with `scripts/do/push_data_spaces.sh <dir> panels/mf2/h28`, then set
+# panel_uri; workers read only projected columns (+ optional fold pushdown) straight
+# from object storage. Creds via env (DO_SPACES_KEY/SECRET/ENDPOINT) -> Ray runtime_env.
+# panel_uri: "s3://<bucket>/panels/mf2/h28"
+# panel_months: ["2022-04","2023-01","2023-10","2024-07","2025-04","2026-01"]  # optional
+# CRITICAL: XGBoost reg:quantileerror (7 alphas) is ~35s / 100k rows / 100 rounds
+# (benchmarked on this data, xgb 3.3.0) — train_sample:0 (~5M rows) is ~40min/FOLD,
+# infeasible for HPO. Cap the SEARCH; re-score finalists on full rows separately.
+train_sample: 120000        # was 0; ~50-90s/fold at 200-400 rounds. cloudsmoke confirms.
+seed: 17
+
+# Era-stratified eval folds (resolution months), spanning 2022-04..2026-01.
+# Chosen from the panel's actual fold inventory: all full-size months (62k-98k
+# rows), all with >=30 resolved train months; 2026-05 excluded (edge-truncated,
+# 16k rows). eval_months overrides the trailing-n_eval default.
+eval_months:
+  - "2022-04"
+  - "2023-01"
+  - "2023-10"
+  - "2024-07"
+  - "2025-04"
+  - "2026-01"
+# Fixed permutation of fold REPORTING order, shared by every trial: keeps ASHA's
+# first rung from pruning on the oldest regime (backward-generalization bias).
+fold_shuffle_seed: 20260723
+# Eval folds must have >= this many resolved resolution-months of train history.
+min_train_months: 12
+asha_grace_period: 2        # no config dies on a single fold (rungs at 2, 6)
+
+# For finalist re-runs only: set to a worker path (e.g. /data/tune/oof) to write
+# per-trial per-fold OOF quantile predictions; leave unset during HPO.
+# save_predictions_dir: /data/tune/oof

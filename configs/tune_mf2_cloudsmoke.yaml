@@ -1,0 +1,10 @@
+name: mf2_cloudsmoke
+num_samples: 4
+max_concurrent_trials: 4
+cpus_per_trial: 2
+metric: mean_pinball
+mode: min
+panel_path: /data/tune/panel_h28.parquet
+n_eval: 2
+train_sample: 300000
+seed: 17
