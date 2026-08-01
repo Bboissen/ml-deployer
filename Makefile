@@ -1,6 +1,8 @@
 SHELL := /usr/bin/env bash
 
 PYTHON ?= $(shell if command -v mise >/dev/null 2>&1; then printf 'mise exec -- python'; elif command -v python3.12 >/dev/null 2>&1; then printf python3.12; else printf python3; fi)
+DEV_PYTHON ?= $(shell if [ -x .venv/bin/python ]; then printf .venv/bin/python; else printf python3; fi)
+SHELLCHECK ?= $(shell if [ -x .venv/bin/shellcheck ]; then printf .venv/bin/shellcheck; else printf shellcheck; fi)
 WORKER_COUNT ?= 3
 DO_WORKER_COUNT ?=
 EXPECTED_WORKERS ?= 0
@@ -9,6 +11,11 @@ OUT_DIR ?= ./artifacts/pulled
 CONFIG ?= configs/tune_synthetic.yaml
 TF_DIR := terraform/digitalocean-workers
 TF ?= $(shell if command -v terraform >/dev/null 2>&1; then printf terraform; elif command -v tofu >/dev/null 2>&1; then printf tofu; elif command -v opentofu >/dev/null 2>&1; then printf opentofu; else printf terraform; fi)
+TOFU ?= $(shell if command -v tofu >/dev/null 2>&1; then printf tofu; elif command -v opentofu >/dev/null 2>&1; then printf opentofu; else printf tofu; fi)
+PROFILE ?= smoke-free
+ROOT ?= tofu/gcp/training-node
+PLAN ?=
+AUTH ?=
 LOAD_ENV := set -a; [ ! -f .env ] || source .env; set +a;
 
 .PHONY: help
@@ -30,7 +37,7 @@ storage-phase2-selftest: ## Run the Phase 2 offline protocol/control acceptance 
 
 .PHONY: lint-shell
 lint-shell: ## Shell syntax check.
-	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh
+	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh scripts/gcp/*.sh
 
 .PHONY: dryrun
 dryrun: ## Print current non-secret plan context.
@@ -127,3 +134,66 @@ run-tune: ## Run configured Tune job from home server.
 .PHONY: pull-artifacts
 pull-artifacts: ## Pull worker artifacts back.
 	$(LOAD_ENV) bash scripts/do/pull_artifacts.sh $(OUT_DIR)
+
+.PHONY: gcp-doctor gcp-account-check gcp-fmt gcp-validate gcp-test gcp-unit
+gcp-doctor: ## Check local GCP workstation dependencies without cloud mutation.
+	bash scripts/gcp/doctor.sh
+
+gcp-account-check: ## Run the read-only GCP project prerequisite audit.
+	$(LOAD_ENV) bash scripts/gcp/account_check.sh
+
+gcp-fmt: ## Check formatting of all GCP OpenTofu roots.
+	$(TOFU) fmt -check -recursive tofu/gcp tofu/modules
+
+gcp-validate: ## Initialize without backends and validate every GCP root.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh validate-all
+
+gcp-test: ## Run GCP policy and authorization unit tests.
+	$(SHELLCHECK) scripts/gcp/*.sh
+	$(DEV_PYTHON) -m ruff check scripts/gcp tests/gcp
+	PYTHONPATH=scripts/gcp $(DEV_PYTHON) -m pytest -q tests/gcp
+
+gcp-unit: ## Run dependency-free GCP unit tests.
+	PYTHONPATH=scripts/gcp python3 -m unittest discover -s tests/gcp -p 'test_*.py'
+
+.PHONY: gcp-bootstrap-init gcp-bootstrap-plan gcp-storage-init gcp-storage-plan
+gcp-bootstrap-init: ## Initialize the local-state GCP bootstrap root.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh init bootstrap
+
+gcp-bootstrap-plan: ## Save and policy-check a non-creating bootstrap plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh plan bootstrap bootstrap
+
+gcp-storage-init: ## Initialize the GCP storage root using the partial backend.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh init storage
+
+gcp-storage-plan: ## Save and policy-check the persistent GCS storage plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh plan storage storage
+
+.PHONY: gcp-network-init gcp-network-plan gcp-compute-init gcp-compute-plan
+gcp-network-init: ## Initialize the GCP network root using the partial backend.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh init network
+
+gcp-network-plan: ## Save and policy-check the persistent GCP network plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh plan network network
+
+gcp-compute-init: ## Initialize the disposable training-node root.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh init training-node
+
+gcp-compute-plan: ## Save and policy-check one disposable VM plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" PROFILE="$(PROFILE)" bash scripts/gcp/tofu.sh plan training-node compute
+
+.PHONY: gcp-authorize gcp-up gcp-verify gcp-down gcp-audit
+gcp-authorize: ## Issue a local one-use authorization for an exact reviewed plan.
+	$(LOAD_ENV) python3 scripts/gcp/authorization.py issue --root "$(ROOT)" --profile "$(PROFILE)" --plan "$(PLAN)"
+
+gcp-up: ## Apply one exact authorized GCP plan; may create billable resources.
+	$(LOAD_ENV) TOFU="$(TOFU)" python3 scripts/gcp/authorization.py apply --root "$(ROOT)" --profile "$(PROFILE)" --plan "$(PLAN)" --authorization "$(AUTH)"
+
+gcp-verify: ## Run read-only post-apply verification for the active GCP run.
+	$(LOAD_ENV) bash scripts/gcp/audit_resources.sh --verify-smoke
+
+gcp-down: ## Destroy disposable training compute only; persistent roots are refused.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/gcp/tofu.sh destroy-compute
+
+gcp-audit: ## Record a read-only audit of GCP disposable resources.
+	$(LOAD_ENV) bash scripts/gcp/audit_resources.sh --json
