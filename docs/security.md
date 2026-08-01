@@ -1,5 +1,7 @@
 # Security hardening
 
+> Migration status: GCP-specific controls are in [security-gcp.md](security-gcp.md). These DigitalOcean/Ray controls remain mandatory while the legacy path exists.
+
 ## Core rules
 
 1. Ray traffic must stay on Tailscale.

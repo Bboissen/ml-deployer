@@ -1,5 +1,7 @@
 # Architecture
 
+> Migration status: the active target is the GCP single-node design in [architecture-gcp.md](architecture-gcp.md). This document describes the preserved DigitalOcean/Ray implementation during transition.
+
 ## Production topology
 
 ```text

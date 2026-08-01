@@ -1,4 +1,10 @@
-# Goal: Build a secure temporary Ray worker infrastructure for ML HPO
+# Paused goal: secure GCP single-node native ML execution
+
+The GCP migration was stopped by owner decision on 2026-08-01 after the persistent storage implementation and bounded Goal 04 verification. No further GCP apply, fixture, compute, or dataset work is authorized by this repository state. The next active infrastructure goal will target AWS and must be defined on a new branch. The existing DigitalOcean implementation remains supported.
+
+No live GCP resource mutation is implied by this goal. Bootstrap state, persistent storage, persistent network, and disposable compute each retain separate human authorization gates.
+
+# Legacy goal: secure temporary Ray worker infrastructure for ML HPO
 
 ## Outcome
 

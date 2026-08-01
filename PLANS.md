@@ -1,5 +1,9 @@
 # PLANS.md
 
+## Paused migration: GCP single-node native execution
+
+The ordered Goals 00–11 in `goal/` describe the GCP path, but owner decision stopped that migration on 2026-08-01 after bounded Goal 04 storage verification. Do not advance the GCP goals without a new explicit decision. AWS integration will be planned independently on a new branch. The existing DO/Ray milestones below remain supported.
+
 ## Milestone 1: Repository foundation
 
 Deliverables:
