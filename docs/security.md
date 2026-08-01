@@ -1,6 +1,6 @@
 # Security hardening
 
-> Migration status: GCP-specific controls are in [security-gcp.md](security-gcp.md). These DigitalOcean/Ray controls remain mandatory while the legacy path exists.
+> Provider status: these DigitalOcean/Ray controls remain mandatory. AWS-specific controls are in [security-aws.md](security-aws.md); GCP is paused.
 
 ## Core rules
 

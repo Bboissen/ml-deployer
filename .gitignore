@@ -10,6 +10,7 @@ __pycache__/
 .env
 *.env
 !configs/gcp/constants.env
+!configs/aws/constants.env
 *.pem
 *.key
 id_rsa*
@@ -28,6 +29,7 @@ crash.*.log
 
 # GCP private runtime material
 .gcp-runtime/
+.aws-runtime/
 .tools/
 tofu/gcp/bootstrap/.bootstrap-state/
 artifacts/audits/*.json
@@ -38,6 +40,7 @@ artifacts/receipts/*
 artifacts/*
 !artifacts/progress/
 !artifacts/progress/gcp.md
+!artifacts/progress/aws.md
 !artifacts/receipts/
 !artifacts/receipts/.gitkeep
 ray_results/

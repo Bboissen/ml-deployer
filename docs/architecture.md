@@ -1,6 +1,6 @@
 # Architecture
 
-> Migration status: the active target is the GCP single-node design in [architecture-gcp.md](architecture-gcp.md). This document describes the preserved DigitalOcean/Ray implementation during transition.
+> Provider status: DigitalOcean remains supported, GCP is paused, and the new provider-separated AWS design is in [architecture-aws.md](architecture-aws.md).
 
 ## Production topology
 
