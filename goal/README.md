@@ -1,99 +1,59 @@
-# GCP OpenTofu Goal Pack
+# AWS OpenTofu goal pack
 
-This pack extends `Bboissen/Ray_terraform` with a GCP path for persistent Google Cloud Storage and disposable single-node ML compute.
+This pack adds an AWS implementation beside the existing DigitalOcean implementation. The provider roots remain separate and DigitalOcean is not removed.
 
-## Fixed project constants
+The AWS runtime provisions exactly one EC2 instance for native ML training with Polars, DuckDB, PyArrow, LightGBM, XGBoost, and CatBoost. It does not extend or test the existing local VM lab, home-server Ray head, or distributed Ray worker cluster. Ray is optional and may run locally on the one EC2 instance for HPO only.
 
-```dotenv
-GCP_PROJECT_ID=example-project
-GCP_REGION=us-central1
-GCP_ZONE=us-central1-a
-GCP_STATE_BUCKET=example-project-tofu-state
-GCP_BRONZE_BUCKET=example-project-bronze
-GCP_SILVER_BUCKET=example-project-silver
-GCP_ARTIFACT_BUCKET=example-project-artifacts
+## Recommended repository strategy
+
+Use one repository with provider-separated directories. Develop this pack on a temporary feature branch such as `feat/aws-opentofu`, then merge it. Do not maintain permanent long-lived branches per cloud provider; they will drift and duplicate shared fixes.
+
+## AWS architecture summary
+
+| Concern | AWS implementation |
+|---|---|
+| Human authentication | MFA-protected `sposhfi-admin` IAM console user plus AWS CLI `aws login`; no IAM access keys |
+| OpenTofu state | Private, versioned S3 bucket with native S3 lockfile (`use_lockfile=true`) |
+| Data lake | Separate S3 Standard buckets for Bronze, Silver, and artifacts |
+| Administrative shell | AWS Systems Manager Session Manager; no inbound SSH and no EC2 key pair |
+| Standard training | One disposable EC2 instance with encrypted auto-delete EBS volumes |
+| Recoverable Spot | One single-AZ Auto Scaling Group with min/max/desired exactly 1, plus one separately managed encrypted EBS workspace reattached after replacement |
+| Hard runtime limit | One-time EventBridge Scheduler cleanup action plus local systemd fallback |
+| Durable outputs | Immutable artifacts and selected checkpoint backups in S3 |
+| Hot working state | Local EBS workspace, never S3 mounted as the active training filesystem |
+
+## Files
+
+- `00_MASTER_AWS_GOAL.md`
+- `01_ACCOUNT_BILLING_AND_WORKSTATION_AWS.md`
+- `02_REPOSITORY_SCAFFOLD_AWS.md`
+- `03_STATE_BOOTSTRAP_AWS.md`
+- `04_STORAGE_LAKE_AWS.md`
+- `05_NETWORK_IAM_AND_COMPUTE_AWS.md`
+- `06_FREE_TIER_SMOKE_AWS.md`
+- `07_DATA_STAGING_AWS.md`
+- `08_NATIVE_TRAINING_RUNTIME_AWS.md`
+- `09_SCALE_PROFILES_AWS.md`
+- `09A_SPOT_RECOVERY_AWS.md`
+- `10_SINGLE_NODE_RAY_HPO_AWS.md`
+- `11_FINAL_ACCEPTANCE_AWS.md`
+- `AWS_PARALLEL_ARCHITECTURE_SETUP.md`
+
+## Values that must be resolved before implementation
+
+```bash
+AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+AWS_REGION="us-east-1"
+AWS_AVAILABILITY_ZONE=""  # select after instance-type, quota, and Spot discovery
+AWS_ADMIN_EMAIL=""
+AWS_PROFILE="sposhfi-admin"
 ```
 
-The project ID is syntactically valid and exactly 30 characters, which is the maximum length for a Google Cloud project ID. Bucket names are globally unique because they are derived from the globally unique project ID, but every live phase must still verify availability before apply.
-
-## Core architecture
+Bucket names should include the account ID because S3 bucket names are globally unique:
 
 ```text
-home server / workstation
-├── gcloud + OpenTofu
-├── infrastructure repository
-├── separate ML repository
-└── initial Bronze/Silver upload
-
-Google Cloud project
-├── GCS state bucket                 persistent
-├── GCS Bronze bucket                persistent, source truth
-├── GCS Silver bucket                persistent, derived snapshots
-├── GCS artifact bucket              persistent, lifecycle-managed
-├── custom VPC and subnet            persistent
-├── IAP-only administrative ingress  persistent
-└── one training VM                  disposable, auto-deleted
-    ├── local staged dataset
-    ├── Polars / DuckDB / PyArrow
-    ├── LightGBM / XGBoost / CatBoost
-    └── Ray Tune later, single-node only
+spotify-predictor-<account-id>-tofu-state
+spotify-predictor-<account-id>-bronze
+spotify-predictor-<account-id>-silver
+spotify-predictor-<account-id>-artifacts
 ```
-
-Google Cloud Storage is “S3-like” object storage, but the implementation uses the native `gs://` API and a native GCS OpenTofu backend. Do not create HMAC credentials merely to imitate the S3 protocol.
-
-## Why `us-central1`
-
-- Eligible region for the monthly `e2-micro` Compute Engine Free Tier.
-- Eligible region for the first 5 GB-months of Standard Cloud Storage Free Tier.
-- Regional GCS and Compute Engine can be colocated, avoiding Cloud Storage outbound transfer charges for same-region reads.
-- A regional bucket is cheaper and more predictable than dual-region or multi-region storage for this workload.
-
-## Cost posture with approximately EUR 10 available
-
-- First compute smoke: `e2-micro`, 10 GB `pd-standard`, 45-minute maximum runtime, automatic VM deletion.
-- `e2-micro` proves infrastructure only; it is not an ML training server.
-- Standard regional storage is roughly USD 0.02/GB-month before free-tier allowances and operations. A representative 25 GB total footprint is about USD 0.50/month before free-tier credits.
-- Budget alerts do not cap Compute Engine or Cloud Storage spending. The real safeguards are plan allowlists, one-use authorization receipts, `max_run_duration`, `instance_termination_action = "DELETE"`, and post-run resource audits.
-- A public ephemeral IPv4 address is billable after a small free allowance. It is permitted only when needed for outbound package installation; no public inbound firewall rule is permitted.
-
-## Prompt order
-
-1. `00_MASTER_GCP_GOAL.md`
-2. `01_ACCOUNT_BILLING_AND_WORKSTATION.md`
-3. `02_REPOSITORY_SCAFFOLD.md`
-4. `03_STATE_BOOTSTRAP.md`
-5. `04_STORAGE_LAKE.md`
-6. `05_NETWORK_IAM_AND_COMPUTE.md`
-7. `06_FREE_TIER_SMOKE.md`
-8. `07_DATA_STAGING.md`
-9. `08_NATIVE_TRAINING_RUNTIME.md`
-10. `09_SCALE_PROFILES.md`
-11. `10_SINGLE_NODE_RAY_HPO.md`
-12. `11_FINAL_ACCEPTANCE.md`
-
-Each prompt is a separate Codex goal. Run one prompt at a time. Paid or persistent mutations require a separate human authorization at the phase boundary.
-
-## Phase gates
-
-| Phase | Mutation permitted | Expected spend | Gate |
-|---|---:|---:|---|
-| Local scaffold | No | EUR 0 | lint, test, validate |
-| Account setup | Manual console/CLI only | EUR 0 | billing and APIs confirmed |
-| State plan | No | EUR 0 | plan policy passes |
-| State apply | Yes, explicit | cents/month | remote backend and lock pass |
-| Storage apply | Yes, explicit | low monthly | fixture upload/restore pass |
-| `e2-micro` smoke | Yes, explicit | near zero | VM reads/writes GCS and deletes itself |
-| Paid small VM | Yes, new authorization | capped per run | native ML smoke passes |
-| High-end profiles | Plan only initially | EUR 0 | quota, availability, price receipt |
-| High-end run | Yes, per-run authorization | capped per run | benchmark and teardown pass |
-| Ray Tune | Yes, per-run authorization | capped per run | single-node HPO passes |
-
-## Non-negotiable rules
-
-- No GKE, Cloud SQL, load balancer, static external IPv4, service-account key, or public bucket.
-- No public SSH (`0.0.0.0/0:22`). IAP ingress only from `35.235.240.0/20`.
-- No routine command destroys persistent buckets or their state.
-- No full dataset upload before fixture validation.
-- No paid apply without a one-use authorization bound to the exact plan SHA-256.
-- No Ray until native single-node training works.
-- Infrastructure repository remains independent from private ML model internals.

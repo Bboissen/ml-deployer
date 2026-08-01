@@ -2,7 +2,11 @@
 
 ## Paused migration: GCP single-node native execution
 
-The ordered Goals 00–11 in `goal/` describe the GCP path, but owner decision stopped that migration on 2026-08-01 after bounded Goal 04 storage verification. Do not advance the GCP goals without a new explicit decision. AWS integration will be planned independently on a new branch. The existing DO/Ray milestones below remain supported.
+Owner decision stopped GCP on 2026-08-01 after bounded Goal 04 storage verification. Do not advance it without a new explicit decision. The ordered AWS goal pack now defines the independent AWS path; the existing DO/Ray milestones below remain supported.
+
+## AWS milestone A: account and repository foundation
+
+Deliver Goals 01-02 only: secure-account console guide, read-only diagnostics, CPU/GPU image policy, machine profiles, AWS OpenTofu directory separation, fail-closed Make targets, and local validation. Stop for review before Goal 03 state bootstrap implementation or any AWS mutation.
 
 ## Milestone 1: Repository foundation
 
