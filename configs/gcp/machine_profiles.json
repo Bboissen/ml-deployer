@@ -1,0 +1,53 @@
+{
+  "smoke-free": {
+    "machine_type": "e2-micro",
+    "provisioning_model": "STANDARD",
+    "boot_disk_type": "pd-standard",
+    "boot_disk_size_gb": 10,
+    "workspace_disk_enabled": false,
+    "workspace_disk_type": "pd-standard",
+    "workspace_disk_size_gb": 0,
+    "external_ipv4_enabled": true,
+    "max_run_duration": "2700s",
+    "instance_termination_action": "DELETE",
+    "allow_ray": false,
+    "allow_gpu": false,
+    "required_min_memory_gb": 1,
+    "max_estimated_cost": 0.25,
+    "labels": {"cost_class": "free-tier-smoke"}
+  },
+  "smoke-paid": {
+    "machine_type": "e2-standard-2",
+    "provisioning_model": "STANDARD",
+    "boot_disk_type": "pd-balanced",
+    "boot_disk_size_gb": 20,
+    "workspace_disk_enabled": false,
+    "workspace_disk_type": "pd-balanced",
+    "workspace_disk_size_gb": 0,
+    "external_ipv4_enabled": true,
+    "max_run_duration": "5400s",
+    "instance_termination_action": "DELETE",
+    "allow_ray": false,
+    "allow_gpu": false,
+    "required_min_memory_gb": 8,
+    "max_estimated_cost": 1.0,
+    "labels": {"cost_class": "paid-smoke"}
+  },
+  "dev-memory": {
+    "machine_type": "e2-highmem-4",
+    "provisioning_model": "STANDARD",
+    "boot_disk_type": "pd-balanced",
+    "boot_disk_size_gb": 50,
+    "workspace_disk_enabled": false,
+    "workspace_disk_type": "pd-balanced",
+    "workspace_disk_size_gb": 0,
+    "external_ipv4_enabled": true,
+    "max_run_duration": "7200s",
+    "instance_termination_action": "DELETE",
+    "allow_ray": false,
+    "allow_gpu": false,
+    "required_min_memory_gb": 32,
+    "max_estimated_cost": 3.0,
+    "labels": {"cost_class": "development"}
+  }
+}

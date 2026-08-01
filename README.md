@@ -1,4 +1,6 @@
-# Spotify Ray Infra Goal Pack
+# Disposable ML Infrastructure
+
+The GCP single-node migration is paused by owner decision as of 2026-08-01. Its completed code and verification evidence remain for review, but no further GCP work is implied. The next integration target is AWS and will be developed independently. The existing DigitalOcean/Ray implementation remains supported.
 
 This repository template builds a temporary ML-oriented Ray worker fleet for hyperparameter search and feature exploration.
 
@@ -27,6 +29,29 @@ Target end state:
 The storage workstream has separate gates: Phase 1 is code-only design and validation; Phase 2 covers explicitly authorized storage bootstrap, backend migration, and bounded cache smoke. See [`docs/runbook-storage.md`](docs/runbook-storage.md).
 
 The current storage scope is Bronze only. Silver and later data layers require a new reviewed phase.
+
+## GCP single-node path (paused)
+
+Goals 00–06 are under [`goal/`](goal/README.md). The roots deliberately separate bootstrap state, persistent data storage, persistent networking, and disposable compute:
+
+```text
+tofu/gcp/bootstrap
+tofu/gcp/storage
+tofu/gcp/network
+tofu/gcp/training-node
+```
+
+Start with read-only workstation checks, then local validation:
+
+```bash
+make gcp-doctor
+make gcp-account-check
+make gcp-fmt
+make gcp-validate
+make gcp-test
+```
+
+Plans do not mutate cloud resources. `gcp-up` requires an exact saved plan and a mode-0600, one-use authorization bound to its SHA-256. Goal 06 is a separate live authorization; no setup or plan command implies permission to apply.
 
 ## Important security model
 

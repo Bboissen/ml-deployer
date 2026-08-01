@@ -1,5 +1,7 @@
 # Cost control
 
+> Migration status: the active GCP single-node cost policy is in [cost-control-gcp.md](cost-control-gcp.md). This document remains applicable to any legacy DigitalOcean run.
+
 ## Rules
 
 - `terraform plan` is safe.
