@@ -9,6 +9,7 @@ __pycache__/
 # Env and secrets
 .env
 *.env
+!configs/gcp/constants.env
 *.pem
 *.key
 id_rsa*
@@ -20,11 +21,25 @@ terraform.tfvars
 .terraform/
 *.tfstate
 *.tfstate.*
+*.tfplan
+*.plan.json
 crash.log
 crash.*.log
 
+# GCP private runtime material
+.gcp-runtime/
+.tools/
+tofu/gcp/bootstrap/.bootstrap-state/
+artifacts/audits/*.json
+artifacts/receipts/*
+!artifacts/receipts/.gitkeep
+
 # Runtime artifacts
-artifacts/
+artifacts/*
+!artifacts/progress/
+!artifacts/progress/gcp.md
+!artifacts/receipts/
+!artifacts/receipts/.gitkeep
 ray_results/
 logs/
 *.log

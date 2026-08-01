@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ -f /var/lib/spotify-ml/bootstrap-status.json ]]; then
+  gcloud storage cp /var/lib/spotify-ml/bootstrap-status.json 'gs://${artifact_bucket}/artifacts/runs/${run_id}/logs/shutdown-status.json' || true
+fi

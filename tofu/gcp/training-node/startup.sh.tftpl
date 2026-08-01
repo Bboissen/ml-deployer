@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+install -d -m 0755 /opt/spotify-ml /mnt/spotify-ml /var/lib/spotify-ml
+status_tmp="$(mktemp /var/lib/spotify-ml/bootstrap-status.XXXXXX)"
+trap 'rc=$?; printf "{\"status\":\"failed\",\"exit_code\":%d}\n" "$rc" >"$status_tmp"; mv "$status_tmp" /var/lib/spotify-ml/bootstrap-status.json' ERR
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends python3-venv jq ca-certificates
+python3 -m venv /opt/spotify-ml/venv
+/opt/spotify-ml/venv/bin/pip install --no-cache-dir 'duckdb==1.3.2' 'polars==1.31.0' 'pyarrow==20.0.0'
+/opt/spotify-ml/venv/bin/python - <<'PY'
+import duckdb
+import polars as pl
+frame = pl.DataFrame({"x": [1, 2, 3]})
+assert frame.select(pl.col("x").sum()).item() == 6
+path = "/mnt/spotify-ml/synthetic.parquet"
+frame.write_parquet(path)
+assert duckdb.sql(f"select sum(x) from read_parquet('{path}')").fetchone()[0] == 6
+PY
+printf '{"status":"ready","run_id":"%s","profile":"infrastructure-smoke","ray_enabled":%s}\n' '${run_id}' '${enable_ray}' >"$status_tmp"
+chmod 0644 "$status_tmp"
+mv "$status_tmp" /var/lib/spotify-ml/bootstrap-status.json
+gcloud storage cp /var/lib/spotify-ml/bootstrap-status.json 'gs://${artifact_bucket}/artifacts/runs/${run_id}/metrics.json' --if-generation-match=0
+printf '{"schema":"gcp-run-completion-v1","run_id":"%s","status":"success"}\n' '${run_id}' >/var/lib/spotify-ml/COMPLETED.json
+gcloud storage cp /var/lib/spotify-ml/COMPLETED.json 'gs://${artifact_bucket}/artifacts/runs/${run_id}/COMPLETED.json' --if-generation-match=0
