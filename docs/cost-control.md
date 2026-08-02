@@ -1,6 +1,6 @@
 # Cost control
 
-> Migration status: the active GCP single-node cost policy is in [cost-control-gcp.md](cost-control-gcp.md). This document remains applicable to any legacy DigitalOcean run.
+> Provider status: this document remains applicable to DigitalOcean. AWS controls are in [cost-control-aws.md](cost-control-aws.md); GCP is paused.
 
 ## Rules
 

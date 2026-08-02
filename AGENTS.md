@@ -1,83 +1,46 @@
 # AGENTS.md
 
-## Mission
+- don't spawn subagent when not asked
+- don't use complex style reviewing for a simple HTML report
+- don't resolve ambiguity yourself, ask me
+- on a long running goal task, stop for my review at important milestone or to resolve ambiguity
+- on a long running script, report only fail or success, create a monitoring progress script instead of continuous polling
 
-Build and maintain an infrastructure repository that provisions temporary Ray workers for ML training and hyperparameter search. The home server is the Ray head. Local VMs and DigitalOcean Droplets are disposable workers.
+## Git
+- Keep diffs small, reviewable, and human-readable.
+- If the task require broad changes, stop split commit per task
+- Never commit directly to `main` or `master`, work in appropriate branch, use PR to properly merge on main
+- Never use `git add .` or `git add -A`; stage files explicitly by path.
+- If shell `git push` is blocked by the environment policy, push the branch through the GitHub API and then align the local branch ref to the remote API-created commit when the tree is identical.
+- Before any commit, show:
+  - `git status --short`
+  - `git diff --stat`
+  - `git diff --cached --stat`
 
-## Required first reading
+## Branches and PRs
 
-Before editing, read:
+- One task = one branch = one PR.
+- Do not create multiple PRs for one task unless I explicitly ask.
+- Do not create parallel branches for the same task.
+- Do not use "codex" as prefix for branch names, use industry convention for naming
 
-1. `GOAL.md`
-2. `PLANS.md`
-3. `docs/architecture.md`
-4. `docs/security.md`
-5. `docs/runbook-local-lab.md`
-6. `docs/runbook-digitalocean.md`
+## Commits
 
-## Non-negotiable constraints
+- Prefer one small logical commit.
+- Use clear human-readable commit messages.
+- Use conventional commits when appropriate:
+  - `fix: ...`
+  - `feat: ...`
+  - `refactor: ...`
+  - `test: ...`
+  - `docs: ...`
+  - `chore: ...`
+- Avoid huge commits. If the diff is large, split it.
 
-- Never commit secrets.
-- Never commit Terraform state.
-- Never expose Ray ports publicly.
-- Never assume the DigitalOcean cluster can stay running after a test. Every workflow must have a destroy path.
-- Prefer small, verifiable changes over heroic rewrites.
-- Keep local VM lab working before modifying DigitalOcean automation.
-- Use Tailscale for Ray network communication.
-- Workers are disposable and must be reproducible from cloud-init or local VM bootstrap scripts.
-- All scripts must fail fast with clear errors.
+## Pull requests
 
-## Verification policy
-
-After changes, run the smallest applicable checks:
-
-```bash
-make lint-shell
-make python-check
-make dryrun
-```
-
-If touching local VM bootstrap:
-
-```bash
-make local-lab-up WORKER_COUNT=1
-make ray-status
-make smoke
-make local-lab-down
-```
-
-If touching DigitalOcean Terraform:
-
-```bash
-make do-init
-make do-validate
-make do-plan DO_WORKER_COUNT=1
-```
-
-Only run `make do-up` when explicitly authorized.
-
-## Git policy
-
-- Work on a feature branch for repo changes unless the user explicitly asks to commit on `main`.
-- Check `git status --short --branch` before staging.
-- Stage only the files that belong to the current task.
-- Do not commit generated runtime files, `.env`, Terraform state, `terraform.tfvars`, keys, data, models, or artifacts.
-- Before committing, run the smallest relevant local `make` checks from the verification policy.
-- Use clear commit messages that describe the operational change, for example `infra: load env for terraform commands`.
-
-## Result-review loop
-
-Ray Tune jobs must write live metrics to:
-
-```text
-artifacts/live/trial_events.jsonl
-artifacts/live/latest_summary.md
-```
-
-Subagents should inspect `latest_summary.md`, compare against the experiment goal, and write notes to:
-
-```text
-artifacts/reviews/
-```
-
-Do not block training while waiting for review. Treat reviews as asynchronous feedback.
+- PR title must be clear and human-readable.
+- PR body must include:
+  - Summary
+  - Tests run
+  - Risk / rollback notes

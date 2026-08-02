@@ -1,6 +1,6 @@
 # Disposable ML Infrastructure
 
-The GCP single-node migration is paused by owner decision as of 2026-08-01. Its completed code and verification evidence remain for review, but no further GCP work is implied. The next integration target is AWS and will be developed independently. The existing DigitalOcean/Ray implementation remains supported.
+The GCP single-node migration is paused by owner decision as of 2026-08-01. AWS is now the active provider-separated integration target; the existing DigitalOcean/Ray implementation remains supported.
 
 This repository template builds a temporary ML-oriented Ray worker fleet for hyperparameter search and feature exploration.
 
@@ -52,6 +52,20 @@ make gcp-test
 ```
 
 Plans do not mutate cloud resources. `gcp-up` requires an exact saved plan and a mode-0600, one-use authorization bound to its SHA-256. Goal 06 is a separate live authorization; no setup or plan command implies permission to apply.
+
+## AWS single-node native ML path
+
+The ordered AWS goal pack is under [`goal/`](goal/README.md). Goals 01-02 currently provide read-only account diagnostics, CPU/GPU image and machine-profile contracts, documentation, and provider-separated OpenTofu scaffolds. They create no AWS resources.
+
+```bash
+make aws-doctor
+make aws-account-check
+make aws-fmt
+make aws-validate
+make aws-test
+```
+
+CPU profiles resolve Canonical Ubuntu 24.04. GPU profiles resolve the AWS Base OSS NVIDIA Driver GPU DLAMI and will verify `nvidia-smi` before use. Native Polars, DuckDB, PyArrow, LightGBM, XGBoost, and CatBoost precede optional local Ray. `aws-up`, `aws-down`, and Spot control fail closed until their separately reviewed milestones are implemented.
 
 ## Important security model
 

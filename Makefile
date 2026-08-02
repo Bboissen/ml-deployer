@@ -37,7 +37,7 @@ storage-phase2-selftest: ## Run the Phase 2 offline protocol/control acceptance 
 
 .PHONY: lint-shell
 lint-shell: ## Shell syntax check.
-	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh scripts/gcp/*.sh
+	bash -n scripts/head/*.sh scripts/local-vms/*.sh scripts/do/*.sh scripts/agentic/*.sh scripts/storage/*.sh scripts/gcp/*.sh scripts/aws/*.sh
 
 .PHONY: dryrun
 dryrun: ## Print current non-secret plan context.
@@ -197,3 +197,75 @@ gcp-down: ## Destroy disposable training compute only; persistent roots are refu
 
 gcp-audit: ## Record a read-only audit of GCP disposable resources.
 	$(LOAD_ENV) bash scripts/gcp/audit_resources.sh --json
+
+.PHONY: aws-doctor aws-account-check aws-fmt aws-validate aws-test
+aws-doctor: ## Check local AWS workstation dependencies without cloud mutation.
+	$(LOAD_ENV) bash scripts/aws/doctor.sh
+
+aws-account-check: ## Run the read-only AWS account prerequisite audit.
+	$(LOAD_ENV) bash scripts/aws/account_check.sh
+
+aws-fmt: ## Check formatting of all AWS OpenTofu roots.
+	$(TOFU) fmt -check -recursive tofu/aws
+
+aws-validate: ## Initialize without backends and validate every AWS root.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh validate-all
+
+aws-test: ## Run AWS shell, Python, profile-contract, and source-policy tests.
+	$(SHELLCHECK) scripts/aws/*.sh
+	$(DEV_PYTHON) -m ruff check scripts/aws tests/aws
+	$(DEV_PYTHON) -m pytest -q tests/aws
+
+.PHONY: aws-bootstrap-init aws-bootstrap-plan aws-storage-init aws-storage-plan
+aws-bootstrap-init: ## Initialize the code-only AWS bootstrap root.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh init bootstrap
+
+aws-bootstrap-plan: ## Save a non-creating AWS bootstrap scaffold plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh plan bootstrap
+
+aws-storage-init: ## Initialize the AWS storage root after Goal 03 acceptance.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh init storage
+
+aws-storage-plan: ## Save a non-creating AWS storage scaffold plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh plan storage
+
+.PHONY: aws-network-init aws-network-plan aws-compute-init aws-compute-plan aws-spot-init aws-spot-plan
+aws-network-init: ## Initialize the AWS network root after Goal 03 acceptance.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh init network
+
+aws-network-plan: ## Save a non-creating AWS network scaffold plan.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh plan network
+
+aws-compute-init: ## Initialize the direct AWS training-node root after Goal 03 acceptance.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh init training-node
+
+aws-compute-plan: ## Save a non-creating direct AWS compute scaffold plan.
+	$(LOAD_ENV) PROFILE="$(PROFILE)" TOFU="$(TOFU)" bash scripts/aws/tofu.sh plan training-node
+
+aws-spot-init: ## Initialize the recoverable AWS Spot root after Goal 09A acceptance.
+	$(LOAD_ENV) TOFU="$(TOFU)" bash scripts/aws/tofu.sh init spot-runner
+
+aws-spot-plan: ## Save a non-creating AWS Spot scaffold plan.
+	$(LOAD_ENV) PROFILE="$(PROFILE)" CONFIG="$(CONFIG)" TOFU="$(TOFU)" bash scripts/aws/tofu.sh plan spot-runner
+
+.PHONY: aws-authorize aws-up aws-spot-status aws-spot-cancel aws-verify aws-down aws-audit
+aws-authorize: ## Fail closed until the AWS exact-plan authorization milestone is implemented.
+	bash scripts/aws/mutation_gate.sh authorize
+
+aws-up: ## Fail closed; AWS apply is not implemented or authorized in Goals 01-02.
+	bash scripts/aws/mutation_gate.sh apply
+
+aws-spot-status: ## Fail closed until the recoverable Spot controller exists.
+	bash scripts/aws/mutation_gate.sh spot-status
+
+aws-spot-cancel: ## Fail closed until the recoverable Spot controller exists.
+	bash scripts/aws/mutation_gate.sh spot-cancel
+
+aws-verify: ## Run the current read-only AWS account and resource audit.
+	$(LOAD_ENV) bash scripts/aws/account_check.sh --json
+
+aws-down: ## Fail closed; there is no AWS compute lifecycle in Goals 01-02.
+	bash scripts/aws/mutation_gate.sh destroy
+
+aws-audit: ## Record the current read-only AWS account and resource audit.
+	$(LOAD_ENV) bash scripts/aws/account_check.sh --json

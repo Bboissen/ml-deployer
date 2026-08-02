@@ -1,8 +1,8 @@
-# Paused goal: secure GCP single-node native ML execution
+# Active goal: secure AWS single-node native ML execution
 
-The GCP migration was stopped by owner decision on 2026-08-01 after the persistent storage implementation and bounded Goal 04 verification. No further GCP apply, fixture, compute, or dataset work is authorized by this repository state. The next active infrastructure goal will target AWS and must be defined on a new branch. The existing DigitalOcean implementation remains supported.
+The ordered AWS goal pack in `goal/` is active on its feature branch. Goals 01-02 are the current code-only milestone: account diagnostics, CPU/GPU image policy, machine-profile contract, documentation, and provider-separated OpenTofu scaffolds. No AWS resource mutation is authorized. The existing DigitalOcean implementation remains supported.
 
-No live GCP resource mutation is implied by this goal. Bootstrap state, persistent storage, persistent network, and disposable compute each retain separate human authorization gates.
+The GCP migration remains paused after Goal 04 verification. AWS bootstrap state, persistent storage, persistent network, direct compute, and recoverable Spot compute each retain separate implementation, review, and human authorization gates.
 
 # Legacy goal: secure temporary Ray worker infrastructure for ML HPO
 
