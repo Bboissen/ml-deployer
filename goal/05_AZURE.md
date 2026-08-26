@@ -1,6 +1,6 @@
 # Goal 05: Azure
 
-Status: **In progress — offline scaffold ready for review; no Azure mutation performed**.
+Status: **In progress — offline scaffold ready; no Azure mutation performed**.
 
 ## Objective
 

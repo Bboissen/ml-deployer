@@ -1,6 +1,8 @@
 # Workstation quickstart
 
-The provider implementations are not runnable during Goal 02. These commands validate the repository and frozen provider-neutral contracts only.
+Goal 02 is accepted and offline AWS, Google Cloud and Azure scaffolds now exist.
+The provider goals remain in progress: no live account, backend, plan or
+deployment evidence has been accepted.
 
 ## Tools
 
@@ -17,10 +19,13 @@ Or install OpenTofu 1.12.x through the official OpenTofu installation method for
 ```bash
 make check
 make contract-test
+make scaffold-test
 make fmt-check
 ```
 
-All three commands are offline in the current milestone. They do not authenticate to or mutate a cloud provider.
+These commands do not authenticate to or call a cloud API. The provider
+scaffold target may download exactly locked provider packages from the
+OpenTofu registry when the local cache is empty.
 
 Validate one normalized request directly with:
 
@@ -42,3 +47,17 @@ Read the provider-specific account guide before installing or authenticating its
 Do not create storage, IAM or compute manually to get ahead of the implementation goals. Bootstrap and adoption paths must be reviewed first.
 
 The first parallel provider interaction is the separately reviewed read-only readiness probe described in [`operations/rights-readiness.md`](operations/rights-readiness.md). It proves visibility, not create authority.
+
+## Current stop point
+
+The next live milestone starts only after the owner manually configures
+temporary provider-native authentication and confirms the intended AWS account,
+GCP project and Azure tenant/subscription plus their initial regions. Run the
+three read-only readiness probes in parallel first. Do not initialize a backend
+or run an OpenTofu plan during that probe.
+
+After the probe evidence is reviewed, prepare provider-specific saved bootstrap
+plans. GCP additionally requires fresh historical-resource classification and
+state-lineage evidence before choosing its create or adoption path. Applying
+any bootstrap plan remains a later explicit authorization for that exact plan
+digest.

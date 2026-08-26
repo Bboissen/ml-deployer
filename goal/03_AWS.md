@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — offline scaffold awaiting review**.
+Status: **In progress — offline scaffold ready; no AWS mutation performed**.
 
 ## Objective
 

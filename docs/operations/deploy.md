@@ -1,6 +1,9 @@
 # Deployment lifecycle
 
-No provider stack is runnable during Goal 02. This document defines the lifecycle that the parallel provider goals must implement after the common contract is accepted.
+Goal 02 is accepted and each provider now has separate bootstrap, platform and
+runner scaffolds. They are ready for account-bound read-only readiness checks
+and, after that evidence is reviewed, saved-plan preparation. No provider goal
+or live stack is accepted yet, and no scaffold authorizes a cloud mutation.
 
 ## 1. Preflight
 

@@ -1,6 +1,6 @@
 # Goal 04: Google Cloud
 
-Status: **In progress — offline scaffold under review; no live GCP or state operation performed**.
+Status: **In progress — offline scaffold ready; no live GCP or state operation performed**.
 
 ## Objective
 
