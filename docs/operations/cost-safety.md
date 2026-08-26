@@ -17,7 +17,7 @@ Budget alerts are not treated as immediate hard caps because billing data and ev
 
 `standard` is the default while consuming credits. It provides the simplest failure model for whole fixed trials.
 
-`interruptible` is accepted only when:
+Contract version 1 rejects `interruptible`. A later contract revision may accept it only when:
 
 - the ML image writes durable checkpoints to results storage;
 - restart behavior is tested independently of this repository;

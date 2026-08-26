@@ -1,5 +1,18 @@
-# Runner contract fixtures
+# Runner contracts and fixtures
 
-Machine-readable contract fixtures will be added in Goal 02 after the remaining registry, run-spec and deployment-cardinality decisions are accepted.
+Goal 02 freezes these provider-neutral artifacts:
 
-The normative current design is [`../../docs/contract.md`](../../docs/contract.md).
+- `runner-request.schema.json`: one normalized request for one runner state;
+- `completion-receipt.schema.json`: authoritative atomic cloud completion receipt;
+- `local-execution-receipt.schema.json`: portable guest outcome before provider enrichment/upload;
+- `deployment-index.schema.json`: discoverability record for isolated runner states;
+- `command-result.schema.json`: common lifecycle command envelope;
+- `resource-profiles.json`: provider-neutral capacity floors and runtime bounds;
+- `fixtures/`: equivalent valid AWS/GCP/Azure requests and fail-closed examples;
+- `receipt-fixtures/`: terminal completion-receipt examples;
+- `index-fixtures/`: bound runner-state index examples;
+- `command-fixtures/`: lifecycle result-envelope examples.
+
+The JSON Schemas are structural interoperability documents. Draft 2020-12 cannot express sibling-field equality such as an embedded deployment/checksum path or a backend key derived from four other properties. Therefore acceptance always requires both structural conformance and the corresponding dependency-free semantic validator under [`../../scripts/`](../../scripts/README.md); schema-only acceptance is forbidden. The regression suite exercises the cross-field failures through those normative validators. Receipt payload validation is itself still insufficient: provider goals must additionally verify the authenticated publisher identity, conditional creation and provider-assigned object version returned outside the immutable payload.
+
+The normative design is [`../../docs/contract.md`](../../docs/contract.md).

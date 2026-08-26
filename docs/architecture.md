@@ -29,11 +29,20 @@ short-lived VM + native identity
   ├── reads provider-local Gold objects
   ├── pulls the exact OCI image
   ├── executes one whole trial at a time
-  ├── writes logs, receipts and results to provider-local result storage
+  ├── writes logs and results only to its isolated workload prefix
+  ├── leaves a private local execution receipt outside the container
   └── stops or is deleted at the provider-side deadline
+          │
+          ▼
+provider control-plane publisher
+  └── conditionally creates the final receipt in a reserved control prefix
 ```
 
 No trial is distributed across providers. Parallelism comes from deploying independent whole trials to different providers.
+
+The workload identity cannot create or overwrite final receipts. Each provider must implement a distinct control-plane receipt publisher whose credentials are not exposed to the VM or container. Success evaluation combines the closed receipt payload with provider-authenticated object metadata proving that identity performed a create-only publication.
+
+After the common contract is accepted, AWS, Google Cloud and Azure implementation proceeds as three sibling workstreams. Each starts from the same accepted Goal 02 commit and owns only its provider roots. Cross-cloud acceptance waits for all three; one provider must never block, mutate or share state with another.
 
 ## Root layout
 
@@ -64,7 +73,7 @@ Persistent roots must refuse accidental destroy through lifecycle controls, poli
 | Generic data | Private S3 bucket | Private Cloud Storage bucket | Private Blob container |
 | Generic results | Separate private S3 bucket | Separate private Cloud Storage bucket | Separate private Blob container |
 | Administration | Systems Manager | OS Login and IAP when enabled | Run Command |
-| Runtime bound | Scheduled termination plus guest fallback | `max_run_duration` with delete | Auto-shutdown plus explicit OpenTofu destroy |
+| Runtime bound | Scheduled termination plus guest fallback | `max_run_duration` with delete | Fresh absolute auto-shutdown schedule, guest fallback and explicit OpenTofu destroy |
 
 ## Resource profiles
 
@@ -85,3 +94,9 @@ Every provider preflight must resolve the requested profile to an available regi
 - Provider-specific security and lifecycle resources remain visible.
 - The platform does not parse ML run parameters.
 - OpenTofu is infrastructure provisioning, not the experiment scheduler.
+
+## Shared implementation boundary
+
+The shared layer may contain versioned request and receipt schemas, resource-profile capacity floors, valid and invalid fixtures, portable guest execution behavior, normalized command-result envelopes and lifecycle interface specifications.
+
+The shared layer does not contain provider configuration, backend configuration, IAM generation, registry authentication, storage resources, network resources, machine-SKU mapping or deadline resources. Those remain visible in each provider root even when their external behavior is equivalent.

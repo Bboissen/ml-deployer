@@ -17,6 +17,7 @@ Implement and accept the common platform contract on one standalone AWS account 
 
 - Create separate private data and results S3 buckets.
 - Create deployer/runtime IAM boundaries without long-lived access keys.
+- Create a distinct receipt-publisher control identity that the runner cannot assume.
 - Create the minimal network needed by a runner managed through Systems Manager.
 - Prove the runner identity has data read and results write access but no state access or infrastructure permissions.
 
@@ -31,7 +32,7 @@ Implement and accept the common platform contract on one standalone AWS account 
 ## Acceptance
 
 - Backend write, recovery version and bounded lock contention are proven.
-- A neutral smoke image produces a completion receipt in results storage.
+- A neutral smoke image produces a conditionally created completion receipt in the reserved control prefix, with publisher metadata independently verified.
 - No inbound SSH rule or static cloud credential exists.
 - Maximum runtime is visible through an independent AWS control.
 - A reviewed destroy removes the runner and leaves state/data/results storage intact.

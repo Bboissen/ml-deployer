@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "deployment_id": "contract-smoke-001",
+  "provider": "azure",
+  "oci_repository": "exampleml.azurecr.io/ml-runner",
+  "oci_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "run_spec_uri": "https://examplemlresults.blob.core.windows.net/results/run-specs/contract-smoke-001/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json?sig=forbidden",
+  "run_spec_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_spec_object_version": "2026-08-26T00:00:00.0000000Z",
+  "resource_profile": "smoke",
+  "capacity_mode": "standard",
+  "maximum_runtime_minutes": 60
+}

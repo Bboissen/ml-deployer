@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'invoked\n' >>"${FAKE_RUNTIME_COUNT:?}"
+printf '%s\n' "$@" >"${FAKE_RUNTIME_ARGUMENTS:?}"
+if [[ -n "${FAKE_RUNTIME_SLEEP_SECONDS:-}" ]]; then
+  if [[ -n "${FAKE_RUNTIME_PID_FILE:-}" ]]; then
+    printf '%d\n' "$$" >"$FAKE_RUNTIME_PID_FILE"
+  fi
+  if [[ "${FAKE_RUNTIME_IGNORE_TERM:-0}" == "1" ]]; then
+    trap '' HUP TERM
+    while :; do
+      sleep "$FAKE_RUNTIME_SLEEP_SECONDS"
+    done
+  else
+    sleep "$FAKE_RUNTIME_SLEEP_SECONDS"
+  fi
+fi
+exit "${FAKE_RUNTIME_EXIT_CODE:-0}"

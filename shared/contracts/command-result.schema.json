@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ray-terraform.invalid/contracts/command-result.schema.json",
+  "$comment": "Structural schema. validate-command-result.sh applies the normative bounded and cross-field semantic checks.",
+  "title": "Lifecycle command result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "provider",
+    "status",
+    "exit_code",
+    "generated_at_utc",
+    "deployment_id",
+    "scope",
+    "checks",
+    "artifacts",
+    "warnings",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "command": {"enum": ["doctor", "plan", "observe", "destroy"]},
+    "provider": {"enum": ["aws", "gcp", "azure"]},
+    "status": {"enum": ["pass", "fail", "blocked"]},
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 9},
+    "generated_at_utc": {"type": "string", "format": "date-time"},
+    "deployment_id": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 48,
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$"
+        }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "region", "root_kind"],
+      "properties": {
+        "account_id": {"type": ["string", "null"], "maxLength": 256},
+        "region": {"type": ["string", "null"], "maxLength": 64},
+        "root_kind": {"enum": ["bootstrap", "platform", "runner", null]}
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "summary"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"},
+          "status": {"enum": ["pass", "fail", "blocked", "unknown"]},
+          "summary": {"type": "string", "minLength": 1, "maxLength": 512},
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "maxProperties": 3,
+            "properties": {
+              "reference": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+              },
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "count": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "bytes", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 512}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "pass"}}},
+      "then": {
+        "properties": {
+          "exit_code": {"const": 0},
+          "errors": {"maxItems": 0},
+          "scope": {
+            "properties": {
+              "account_id": {"type": "string", "minLength": 1},
+              "region": {"type": "string", "minLength": 1}
+            }
+          },
+          "checks": {
+            "items": {
+              "properties": {"status": {"const": "pass"}},
+              "required": ["status"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"exit_code": {"const": 0}}},
+      "then": {"properties": {"status": {"const": "pass"}}}
+    },
+    {
+      "if": {"properties": {"command": {"const": "doctor"}}, "required": ["command"]},
+      "then": {
+        "properties": {
+          "deployment_id": {"type": "null"},
+          "scope": {"properties": {"root_kind": {"type": "null"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"command": {"const": "plan"}}, "required": ["command"]},
+      "then": {
+        "properties": {
+          "scope": {"properties": {"root_kind": {"enum": ["bootstrap", "platform", "runner"]}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"command": {"enum": ["observe", "destroy"]}},
+        "required": ["command"]
+      },
+      "then": {
+        "properties": {
+          "deployment_id": {"type": "string"},
+          "scope": {"properties": {"root_kind": {"const": "runner"}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {"const": "plan"},
+          "scope": {"properties": {"root_kind": {"const": "runner"}}}
+        },
+        "required": ["command", "scope"]
+      },
+      "then": {"properties": {"deployment_id": {"type": "string"}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {"const": "plan"},
+          "scope": {"properties": {"root_kind": {"enum": ["bootstrap", "platform"]}}}
+        },
+        "required": ["command", "scope"]
+      },
+      "then": {"properties": {"deployment_id": {"type": "null"}}}
+    }
+  ]
+}

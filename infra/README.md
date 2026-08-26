@@ -1,5 +1,5 @@
 # OpenTofu roots
 
-Provider roots will be added sequentially by Goals 03 through 05. There is intentionally no runnable OpenTofu configuration in the clean-reset milestone.
+Provider roots will be added as independent AWS, Google Cloud and Azure workstreams after Goal 02 is accepted. There is intentionally no runnable OpenTofu configuration in Goal 02.
 
 The accepted layout is documented in [`../docs/architecture.md`](../docs/architecture.md).

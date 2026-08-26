@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "deployment_id": "contract-smoke-001",
+  "provider": "gcp",
+  "oci_repository": "europe-west1-docker.pkg.dev/example-project/ml/ml-runner",
+  "oci_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "run_spec_uri": "gs://ml-results-gcp-example/run-specs/contract-smoke-001/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json",
+  "run_spec_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_spec_object_version": "1724630400000000",
+  "resource_profile": "smoke",
+  "capacity_mode": "standard",
+  "maximum_runtime_minutes": 60
+}

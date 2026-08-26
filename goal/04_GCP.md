@@ -18,6 +18,7 @@ Adopt the useful existing Google Cloud foundation and implement the common platf
 - Adopt or create separate generic data and results Cloud Storage buckets.
 - Enforce uniform bucket-level access and public access prevention.
 - Create a single-purpose runtime service account without a key.
+- Create a distinct receipt-publisher control identity that the runtime account cannot impersonate.
 - Prove effective IAM, including inherited project bindings, matches the storage contract.
 
 ## Task C: disposable runner
@@ -32,7 +33,7 @@ Adopt the useful existing Google Cloud foundation and implement the common platf
 
 - No live historical resource is silently replaced or orphaned.
 - Backend and workload IAM are tested through the intended identities.
-- A neutral smoke image produces a completion receipt in results storage.
+- A neutral smoke image produces a conditionally created completion receipt in the reserved control prefix, with publisher metadata independently verified.
 - The Compute Engine termination timestamp/action is independently visible.
 - The runner and its disposable disk are gone after the accepted lifecycle.
 

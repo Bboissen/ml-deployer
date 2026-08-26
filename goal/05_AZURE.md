@@ -17,6 +17,7 @@ Implement and accept the common platform contract on the Azure subscription usin
 
 - Create private generic data and results containers separate from state.
 - Create a managed identity for the runner.
+- Create a distinct receipt-publisher control identity unavailable to the runner.
 - Assign the narrowest data-read and results-create/write permissions.
 - Create a minimal virtual network and explicit outbound path without inbound SSH exposure.
 
@@ -31,7 +32,7 @@ Implement and accept the common platform contract on the Azure subscription usin
 ## Acceptance
 
 - No storage access key, SAS token or client secret is stored in configuration or state inputs.
-- A neutral smoke image produces a completion receipt in results storage.
+- A neutral smoke image produces a conditionally created completion receipt in the reserved control prefix, with publisher metadata independently verified.
 - Auto-shutdown is independently visible and compute is deallocated at the deadline.
 - The reviewed destroy removes disposable VM resources without touching state/data/results storage.
 

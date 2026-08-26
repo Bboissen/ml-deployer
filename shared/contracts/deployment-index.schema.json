@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ray-terraform.invalid/contracts/deployment-index.schema.json",
+  "$comment": "Structural schema. validate-deployment-index.sh is additionally required to derive and compare the exact backend key.",
+  "title": "Runner deployment index entry",
+  "description": "Discoverability record for one runner state. This is evidence, not OpenTofu state and not an apply authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider",
+    "account_scope",
+    "region",
+    "deployment_id",
+    "backend_key",
+    "request_sha256",
+    "platform_contract_sha256",
+    "lifecycle_status"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "provider": {"enum": ["aws", "gcp", "azure"]},
+    "account_scope": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+    },
+    "region": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 48,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$"
+    },
+    "backend_key": {
+      "type": "string",
+      "pattern": "^(aws|gcp|azure)/[A-Za-z0-9._-]+/[a-z0-9-]+/runner/[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])\\.tfstate$"
+    },
+    "request_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "platform_contract_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lifecycle_status": {
+      "enum": ["planned", "applied", "deadline_terminated", "destroyed", "reconciled"]
+    }
+  }
+}

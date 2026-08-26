@@ -6,7 +6,7 @@ The project is infrastructure-only. Model code, training logic, experiment defin
 
 ## Status
 
-The repository is in a clean-slate pivot. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. No new provider stack is runnable yet, and this branch does not authorize or perform any cloud mutation.
+Goal 02 of the clean-slate pivot is accepted. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. AWS, Google Cloud and Azure may now begin as isolated provider workstreams from the frozen common contract; no provider stack is runnable yet, and this branch does not authorize or perform any cloud mutation.
 
 The implementation sequence and acceptance gates are defined in [`goal/README.md`](goal/README.md).
 
@@ -25,6 +25,7 @@ This repository will provide:
 - separate protected state storage;
 - generic empty data and results object storage;
 - a provider-native workload identity;
+- a distinct provider control identity for create-only completion receipts;
 - one or more bounded-lifetime VM runners;
 - equivalent deployment outputs and lifecycle commands on all three clouds.
 
@@ -44,7 +45,7 @@ DigitalOcean is not supported.
 
 ```text
 docs/       Scope, architecture, contract, setup and operations
-goal/       Sequential implementation goals and acceptance gates
+goal/       Gated implementation goals and acceptance evidence
 infra/      Provider-specific OpenTofu roots, added by later goals
 shared/     Provider-neutral contracts and bootstrapping templates
 scripts/    Small validation and lifecycle entrypoints

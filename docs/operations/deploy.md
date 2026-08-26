@@ -1,6 +1,6 @@
 # Deployment lifecycle
 
-No provider stack is runnable during the clean-reset milestone. This document defines the lifecycle that later provider goals must implement.
+No provider stack is runnable during Goal 02. This document defines the lifecycle that the parallel provider goals must implement after the common contract is accepted.
 
 ## 1. Preflight
 
@@ -26,7 +26,7 @@ Planning produces a saved plan and a machine-readable summary. The summary must 
 - billable resources;
 - destruction or replacement.
 
-A plan that touches persistent storage, state resources, an unexpected provider, or more runners than requested fails policy validation.
+A plan that touches resources outside its selected root, an unexpected provider or more runners than requested fails policy validation. Bootstrap plans may touch only the reviewed state-backend scope; platform plans may touch only reviewed persistent platform resources; runner plans may not touch state, data or results storage. Destruction or replacement of persistent storage always fails the routine policy gate.
 
 ## 3. Review and authorization
 
@@ -43,7 +43,7 @@ Observation is provider-native and read-only. It reports:
 - runner lifecycle state;
 - provider-side deadline;
 - boot/container status;
-- result receipt presence;
+- reserved-control receipt presence plus provider-authenticated publisher and object-version evidence;
 - current resource identifiers;
 - a bounded log tail.
 
