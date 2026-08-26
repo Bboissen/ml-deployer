@@ -1,0 +1,45 @@
+runner_request = {
+  schema_version          = "1.0.0"
+  deployment_id           = "contract-smoke-001"
+  provider                = "gcp"
+  oci_repository          = "europe-west1-docker.pkg.dev/example-project/mlinfra-runtime/ml-runner"
+  oci_digest              = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  run_spec_uri            = "gs://mlinfra-example-project-a1b2c3-results/run-specs/contract-smoke-001/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+  run_spec_sha256         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  run_spec_object_version = "1724630400000000"
+  resource_profile        = "smoke"
+  capacity_mode           = "standard"
+  maximum_runtime_minutes = 60
+}
+
+platform_binding = {
+  schema_version                          = "1.0.0"
+  provider                                = "gcp"
+  project_id                              = "example-project"
+  region                                  = "europe-west1"
+  state_bucket_name                       = "ml-infra-example-project-gcp-state"
+  data_bucket_name                        = "mlinfra-example-project-a1b2c3-data"
+  results_bucket_name                     = "mlinfra-example-project-a1b2c3-results"
+  artifact_repository_id                  = "mlinfra-runtime"
+  artifact_repository_uri                 = "europe-west1-docker.pkg.dev/example-project/mlinfra-runtime"
+  network_self_link                       = "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/mlinfra-runner"
+  subnetwork_self_link                    = "https://www.googleapis.com/compute/v1/projects/example-project/regions/europe-west1/subnetworks/mlinfra-runner-europe-west1"
+  receipt_publisher_service_account_email = "mlinfra-receipt-pub@example-project.iam.gserviceaccount.com"
+  workload_results_prefix                 = "runs/"
+  reserved_control_prefix                 = "control/"
+  bootstrap_log_suffix                    = "/logs/bootstrap.log"
+  local_receipt_handoff_suffix            = "/control-input/execution-receipt.local.json"
+  interactive_access_enabled              = false
+}
+platform_binding_sha256 = "23078971e642652a11e828e3a55cabd5ab299eefb90bb68bef9002cfade7d578"
+
+deployer_principal = "user:platform-owner@example.com"
+zone               = "europe-west1-b"
+boot_image         = "projects/example-image-project/global/images/reviewed-runner-image-20260826"
+started_at_utc     = "2026-09-01T11:00:00Z"
+deadline_utc       = "2026-09-01T12:00:00Z"
+
+labels = {
+  environment = "smoke"
+  owner       = "platform"
+}

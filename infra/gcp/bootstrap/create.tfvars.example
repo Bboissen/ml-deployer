@@ -1,0 +1,9 @@
+project_id        = "example-project"
+region            = "europe-west1"
+state_bucket_name = "ml-infra-example-project-gcp-state"
+state_bucket_mode = "create"
+
+labels = {
+  environment = "foundation"
+  owner       = "platform"
+}

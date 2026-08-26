@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+export LC_ALL=C
+
+readonly DEPLOYMENT_ID='${deployment_id}'
+readonly OCI_REPOSITORY='${oci_repository}'
+readonly OCI_DIGEST='${oci_digest}'
+readonly RUN_SPEC_URI='${run_spec_uri}'
+readonly RUN_SPEC_SHA256='${run_spec_sha256}'
+readonly RUN_SPEC_OBJECT_VERSION='${run_spec_object_version}'
+readonly DATA_URI='${data_uri}'
+readonly RESULTS_URI='${results_uri}'
+readonly MAXIMUM_RUNTIME_MINUTES='${maximum_runtime_minutes}'
+readonly RESULTS_BUCKET_NAME='${results_bucket_name}'
+readonly BOOTSTRAP_LOG_ENCODED='${bootstrap_log_encoded}'
+readonly LOCAL_RECEIPT_ENCODED='${local_receipt_encoded}'
+readonly BOOTSTRAP_DIR='/opt/ml-runner'
+readonly PRIVATE_DIR='/var/lib/ml-runner/private'
+readonly RUN_SPEC_PATH='/var/lib/ml-runner/run-spec.json'
+readonly RAW_BOOTSTRAP_LOG='/var/lib/ml-runner/bootstrap.raw.log'
+readonly BOUNDED_BOOTSTRAP_LOG='/var/lib/ml-runner/bootstrap.log'
+readonly MAXIMUM_BOOTSTRAP_LOG_BYTES=1048576
+
+bounded_log_sink() {
+  local chunk=''
+  local bytes_since_trim=0
+  local temporary_log="$${RAW_BOOTSTRAP_LOG}.tmp"
+
+  while IFS= read -r -N 65536 chunk || [[ -n "$${chunk}" ]]; do
+    printf '%s' "$${chunk}" >&3
+    printf '%s' "$${chunk}" >>"$${RAW_BOOTSTRAP_LOG}"
+    bytes_since_trim="$((bytes_since_trim + $${#chunk}))"
+    chunk=''
+
+    if ((bytes_since_trim >= MAXIMUM_BOOTSTRAP_LOG_BYTES)); then
+      tail -c "$${MAXIMUM_BOOTSTRAP_LOG_BYTES}" "$${RAW_BOOTSTRAP_LOG}" >"$${temporary_log}"
+      mv -f "$${temporary_log}" "$${RAW_BOOTSTRAP_LOG}"
+      chmod 0600 "$${RAW_BOOTSTRAP_LOG}"
+      bytes_since_trim=0
+    fi
+  done
+}
+
+upload_create_only() {
+  local source_path="$1"
+  local encoded_object_name="$2"
+  local content_type="$3"
+  local access_token
+
+  access_token="$(gcloud auth print-access-token)" || return 1
+  curl --fail --silent --show-error \
+    --request POST \
+    --header "Authorization: Bearer $${access_token}" \
+    --header "Content-Type: $${content_type}" \
+    --data-binary "@$${source_path}" \
+    "https://storage.googleapis.com/upload/storage/v1/b/$${RESULTS_BUCKET_NAME}/o?uploadType=media&name=$${encoded_object_name}&ifGenerationMatch=0" \
+    >/dev/null
+}
+
+publish_control_input() {
+  local local_receipt="$${PRIVATE_DIR}/execution-receipt.local.json"
+  local publication_failed=0
+
+  tail -c "$${MAXIMUM_BOOTSTRAP_LOG_BYTES}" "$${RAW_BOOTSTRAP_LOG}" >"$${BOUNDED_BOOTSTRAP_LOG}" || publication_failed=1
+  chmod 0600 "$${BOUNDED_BOOTSTRAP_LOG}" || publication_failed=1
+  upload_create_only "$${BOUNDED_BOOTSTRAP_LOG}" "$${BOOTSTRAP_LOG_ENCODED}" 'text/plain' || publication_failed=1
+  if [[ -f "$${local_receipt}" ]]; then
+    upload_create_only "$${local_receipt}" "$${LOCAL_RECEIPT_ENCODED}" 'application/json' || publication_failed=1
+  else
+    printf 'gcp-startup: local execution receipt is unavailable for publication\n' >&2
+    publication_failed=1
+  fi
+
+  return "$${publication_failed}"
+}
+
+publish_on_early_exit() {
+  local original_exit_code="$?"
+  local publication_exit_code=0
+
+  trap - EXIT
+  publish_control_input || publication_exit_code="$?"
+  if command -v shutdown >/dev/null 2>&1; then
+    shutdown -h now || true
+  fi
+  if [[ "$${original_exit_code}" -eq 0 && "$${publication_exit_code}" -ne 0 ]]; then
+    exit 74
+  fi
+  exit "$${original_exit_code}"
+}
+trap publish_on_early_exit EXIT
+
+mkdir -p "$${PRIVATE_DIR}"
+chmod 0700 "$${PRIVATE_DIR}"
+touch "$${RAW_BOOTSTRAP_LOG}"
+chmod 0600 "$${RAW_BOOTSTRAP_LOG}"
+exec 3>&1
+exec > >(bounded_log_sink) 2>&1
+
+for required_command in base64 curl cut docker gcloud install mv sha256sum shutdown tail; do
+  command -v "$${required_command}" >/dev/null 2>&1 || {
+    printf 'gcp-startup: required command is unavailable: %s\n' "$${required_command}" >&2
+    exit 69
+  }
+done
+
+install -d -m 0755 "$${BOOTSTRAP_DIR}"
+install -d -m 0700 "$${PRIVATE_DIR}"
+printf '%s' '${guest_runner_b64}' | base64 --decode >"$${BOOTSTRAP_DIR}/guest-runner.sh"
+printf '%s' '${deadline_marker_b64}' | base64 --decode >"$${BOOTSTRAP_DIR}/deadline-marker.sh"
+chmod 0755 "$${BOOTSTRAP_DIR}/guest-runner.sh" "$${BOOTSTRAP_DIR}/deadline-marker.sh"
+
+# The generation suffix selects the exact immutable GCS object version.
+gcloud storage cat "$${RUN_SPEC_URI}#$${RUN_SPEC_OBJECT_VERSION}" >"$${RUN_SPEC_PATH}"
+readonly ACTUAL_RUN_SPEC_SHA256="$(sha256sum "$${RUN_SPEC_PATH}" | cut -d' ' -f1)"
+[[ "$${ACTUAL_RUN_SPEC_SHA256}" == "$${RUN_SPEC_SHA256}" ]] || {
+  printf 'gcp-startup: run-spec checksum mismatch\n' >&2
+  exit 65
+}
+chmod 0600 "$${RUN_SPEC_PATH}"
+
+readonly REGISTRY_HOST="$${OCI_REPOSITORY%%/*}"
+gcloud auth print-access-token |
+  docker login --username oauth2accesstoken --password-stdin "$${REGISTRY_HOST}" >/dev/null
+
+set +e
+ML_DEPLOYMENT_ID="$${DEPLOYMENT_ID}" \
+ML_OCI_REPOSITORY="$${OCI_REPOSITORY}" \
+ML_OCI_DIGEST="$${OCI_DIGEST}" \
+ML_RUN_SPEC_URI="$${RUN_SPEC_URI}" \
+ML_RUN_SPEC_SHA256="$${RUN_SPEC_SHA256}" \
+ML_RUN_SPEC_OBJECT_VERSION="$${RUN_SPEC_OBJECT_VERSION}" \
+ML_DATA_URI="$${DATA_URI}" \
+ML_RESULTS_URI="$${RESULTS_URI}" \
+ML_CLOUD_PROVIDER='gcp' \
+ML_MAX_RUNTIME_MINUTES="$${MAXIMUM_RUNTIME_MINUTES}" \
+ML_CONTAINER_RUNTIME_PATH="$(command -v docker)" \
+ML_RECEIPT_OUTPUT_DIRECTORY="$${PRIVATE_DIR}" \
+  "$${BOOTSTRAP_DIR}/guest-runner.sh"
+readonly GUEST_EXIT_CODE="$?"
+set -e
+
+trap - EXIT
+publication_exit_code=0
+publish_control_input || publication_exit_code="$?"
+shutdown -h now || true
+if [[ "$${GUEST_EXIT_CODE}" -eq 0 && "$${publication_exit_code}" -ne 0 ]]; then
+  exit 74
+fi
+exit "$${GUEST_EXIT_CODE}"
