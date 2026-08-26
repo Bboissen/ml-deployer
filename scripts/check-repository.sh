@@ -117,11 +117,6 @@ if [[ ! "$oci_repository" =~ ^[a-z0-9.-]+/[a-z0-9._/-]+$ ]] \
   exit 1
 fi
 
-if find infra -type f \( -name '*.tf' -o -name '*.tofu' \) -print -quit | grep -q .; then
-  printf 'ERROR: Goal 02 must not contain a runnable provider implementation.\n' >&2
-  exit 1
-fi
-
 if ! command -v rg >/dev/null 2>&1; then
   printf 'ERROR: repository checks require ripgrep (rg).\n' >&2
   exit 1
@@ -168,4 +163,4 @@ bash tests/bootstrap/test-guest-runner.sh
 git diff --check
 git diff --cached --check
 
-printf 'Goal 02 repository and contract checks passed. No cloud command was executed.\n'
+printf 'Repository and contract checks passed. No cloud command was executed.\n'
