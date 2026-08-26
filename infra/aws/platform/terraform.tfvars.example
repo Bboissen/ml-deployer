@@ -1,0 +1,19 @@
+aws_account_id  = "000000000000"
+aws_region      = "us-east-1"
+availability_zone = "us-east-1a"
+project_name    = "ml-infra"
+resource_prefix = "ml-infra"
+
+state_bucket_arn   = "arn:aws:s3:::replace-ml-infra-aws-state-unique"
+data_bucket_name   = "replace-ml-infra-aws-data-unique"
+results_bucket_name = "replace-ml-infra-aws-results-unique"
+ecr_repository_name = "ml-infra/runner"
+
+receipt_publisher_principal_arns = [
+  "arn:aws:iam::000000000000:role/replace-control-principal",
+]
+
+tags = {
+  Environment = "replace"
+  Owner       = "replace"
+}

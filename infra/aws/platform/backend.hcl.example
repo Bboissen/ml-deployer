@@ -1,0 +1,5 @@
+bucket       = "REPLACE_WITH_ACCEPTED_STATE_BUCKET"
+key          = "aws/REPLACE_ACCOUNT_ID/REPLACE_REGION/platform/platform.tfstate"
+region       = "REPLACE_REGION"
+encrypt      = true
+use_lockfile = true

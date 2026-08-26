@@ -1,0 +1,65 @@
+runner_request = {
+  schema_version = "1.0.0"
+  deployment_id  = "contract-smoke-001"
+  provider       = "aws"
+
+  oci_repository = "000000000000.dkr.ecr.us-east-1.amazonaws.com/ml-infra/runner"
+  oci_digest     = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+  run_spec_uri            = "s3://replace-ml-infra-aws-results-unique/run-specs/contract-smoke-001/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+  run_spec_sha256         = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  run_spec_object_version = "replace-version-id"
+
+  resource_profile        = "smoke"
+  capacity_mode           = "standard"
+  maximum_runtime_minutes = 60
+}
+
+platform_contract = {
+  schema_version                   = "1.0.0"
+  provider                         = "aws"
+  aws_account_id                   = "000000000000"
+  aws_region                       = "us-east-1"
+  state_bucket_name                = "replace-ml-infra-aws-state-unique"
+  state_bucket_arn                 = "arn:aws:s3:::replace-ml-infra-aws-state-unique"
+  data_bucket_name                 = "replace-ml-infra-aws-data-unique"
+  data_bucket_arn                  = "arn:aws:s3:::replace-ml-infra-aws-data-unique"
+  results_bucket_name              = "replace-ml-infra-aws-results-unique"
+  results_bucket_arn               = "arn:aws:s3:::replace-ml-infra-aws-results-unique"
+  runner_subnet_id                 = "subnet-00000000000000000"
+  runner_security_group_id         = "sg-00000000000000000"
+  ecr_repository_url               = "000000000000.dkr.ecr.us-east-1.amazonaws.com/ml-infra/runner"
+  ecr_repository_arn               = "arn:aws:ecr:us-east-1:000000000000:repository/ml-infra/runner"
+  runtime_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-runtime-boundary"
+  receipt_publisher_role_arn       = "arn:aws:iam::000000000000:role/ml-infra-receipt-publisher"
+}
+
+aws_account_id = "000000000000"
+aws_region     = "us-east-1"
+account_scope  = "000000000000"
+project_name   = "ml-infra"
+resource_prefix = "ml-infra"
+
+ami_id            = "ami-00000000000000000"
+subnet_id         = "subnet-00000000000000000"
+security_group_id = "sg-00000000000000000"
+
+state_bucket_arn               = "arn:aws:s3:::replace-ml-infra-aws-state-unique"
+data_bucket_name               = "replace-ml-infra-aws-data-unique"
+data_bucket_arn                = "arn:aws:s3:::replace-ml-infra-aws-data-unique"
+results_bucket_name            = "replace-ml-infra-aws-results-unique"
+results_bucket_arn             = "arn:aws:s3:::replace-ml-infra-aws-results-unique"
+ecr_repository_arn             = "arn:aws:ecr:us-east-1:000000000000:repository/ml-infra/runner"
+runtime_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-runtime-boundary"
+receipt_publisher_role_arn       = "arn:aws:iam::000000000000:role/ml-infra-receipt-publisher"
+
+backend_bucket_name = "replace-ml-infra-aws-state-unique"
+backend_key         = "aws/000000000000/us-east-1/runner/contract-smoke-001.tfstate"
+
+started_at_utc = "2099-01-01T00:00:00Z"
+deadline_utc   = "2099-01-01T01:00:00Z"
+
+tags = {
+  Environment = "replace"
+  Owner       = "replace"
+}
