@@ -1,6 +1,6 @@
 # Goal 01B: Legacy disposition and workspace purge
 
-Status: **Not started**.
+Status: **Accepted on 2026-08-26**.
 
 ## Objective
 
@@ -48,6 +48,22 @@ Use recoverable operations where practical. Report what was removed and what rem
 ## Live resources
 
 AWS, GCP and DigitalOcean resources are not deleted by this goal. Their time-specific inventory and adopt/retain/decommission decisions continue in the provider goals. Historical state in the external archive supports those decisions without polluting the new repository workspace.
+
+## Execution evidence
+
+Cleanup was executed on 2026-08-26 from branch `chore/legacy-disposition` at merged baseline `7821802180bca263b6bddd2a3be9e5dd52fd27d1`.
+
+- The approved 56-file evidence set was copied to `/home/user/archives/Ray_terraform/legacy-evidence-20260826` before any source was removed.
+- The payload is 244,258 bytes. Its `MANIFEST.tsv` has SHA-256 `71e74906fa57fbfc264fe6b121f76245021ec837bc97b3ccd654a52d52c5928a` and verifies every archived byte against its original repository-relative path.
+- The archive is owned by `bbsn:bbsn`; directories are mode `0700` and files are mode `0600`.
+- The credential scan found zero matching text files and zero matching plan archives after inspecting 37 ZIP members. The archive contains state, saved plans, ledgers and receipts only, not ML data or artifact bulk.
+- Exactly 23 reviewed targets were removed. Their pre-cleanup apparent size was 34,650,826,868 bytes.
+- The workspace fell from 12,139 non-Git entries to 41 entries and 55,651 apparent bytes. No approved target, provider state/cache, Python cache/environment, plan, runtime log, Parquet file or generated ML package material remains.
+- `git status --short --ignored` was empty immediately after cleanup and before this evidence update.
+- Matching read-only Google Cloud queries before and after cleanup returned identical canonical JSON digests: four buckets, four service accounts, and zero instances, disks or reserved addresses.
+- AWS read-only queries were unavailable before and after cleanup because profile `sposhfi-admin` requires `aws login`. DigitalOcean and Azure CLIs were absent. No cloud write command was run.
+
+The owner accepted this evidence by explicitly authorizing commit, pull request, merge and progression to Goal 02. Goal 02 remained untouched until that authorization.
 
 ## Acceptance
 

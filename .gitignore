@@ -20,7 +20,7 @@ id_rsa*
 crash.log
 crash.*.log
 
-# Local runtime evidence and historical material
+# Local runtime evidence and generated data
 .*-runtime/
 .tools/
 artifacts/
@@ -28,7 +28,7 @@ data/
 models/
 logs/
 
-# Historical Python environments retained outside the new project surface
+# Python environments and caches are never repository content
 .venv/
 __pycache__/
 *.pyc

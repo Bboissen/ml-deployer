@@ -6,7 +6,7 @@ The goals are sequential. A later goal may be designed in advance but is not imp
 | --- | --- | --- |
 | [00 Scope and preservation](00_SCOPE_AND_PRESERVATION.md) | Accepted | Infrastructure-only boundary and preservation rules |
 | [01 Clean reset](01_CLEAN_RESET.md) | Accepted | Minimal, honest tracked baseline |
-| [01B Legacy disposition and purge](01B_LEGACY_DISPOSITION_AND_PURGE.md) | Not started | Remove all quarantined legacy material from the workspace |
+| [01B Legacy disposition and purge](01B_LEGACY_DISPOSITION_AND_PURGE.md) | Accepted | Quarantined legacy material removed and recovery evidence archived externally |
 | [02 Common contract and tooling](02_COMMON_CONTRACT_AND_TOOLING.md) | Not started | Frozen OCI, storage, runner and command contracts |
 | [03 AWS](03_AWS.md) | Not started | Accepted AWS bootstrap, platform and disposable runner |
 | [04 Google Cloud](04_GCP.md) | Not started | Adopted GCP foundation and accepted disposable runner |

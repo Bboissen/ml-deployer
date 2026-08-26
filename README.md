@@ -6,7 +6,7 @@ The project is infrastructure-only. Model code, training logic, experiment defin
 
 ## Status
 
-The repository is in a clean-slate pivot. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from the tracked project surface. No new provider stack is runnable yet, and this branch does not authorize or perform any cloud mutation.
+The repository is in a clean-slate pivot. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. No new provider stack is runnable yet, and this branch does not authorize or perform any cloud mutation.
 
 The implementation sequence and acceptance gates are defined in [`goal/README.md`](goal/README.md).
 
@@ -53,4 +53,4 @@ tests/      Offline and plan-only infrastructure tests
 
 ## Safety
 
-OpenTofu implementation and cloud application are separate gates. A passing validation or plan does not authorize an apply. Historical local material is temporarily quarantined for safe disposition, but it is not part of the target workspace and must be removed before provider implementation begins; see [`docs/preservation.md`](docs/preservation.md).
+OpenTofu implementation and cloud application are separate gates. A passing validation or plan does not authorize an apply. Goal 01B removed the temporary quarantine and preserved only the reviewed historical recovery evidence in a verified archive outside the repository; see [`docs/preservation.md`](docs/preservation.md). Common-contract work now proceeds through Goal 02; provider implementation remains gated on its separate review.
