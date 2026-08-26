@@ -1,6 +1,6 @@
 # Goal 05: Azure
 
-Status: **Not started**.
+Status: **In progress — offline scaffold ready for review; no Azure mutation performed**.
 
 ## Objective
 
@@ -37,3 +37,46 @@ Implement and accept the common platform contract on the Azure subscription usin
 - The reviewed destroy removes disposable VM resources without touching state/data/results storage.
 
 Every cloud mutation requires its own reviewed saved plan and explicit authorization.
+
+## Scaffold evidence (2026-08-26)
+
+The first provider-specific implementation milestone is limited to offline,
+plan-ready configuration:
+
+- `infra/azure/bootstrap` retains local state and defines a dedicated state
+  resource group, Entra-only versioned Blob account and private state container;
+- `infra/azure/platform` defines the persistent workload account with separate
+  empty `data`, `results` and `control` containers, a private Blob endpoint,
+  Basic ACR with admin/anonymous access disabled, a no-ingress VNet with NAT,
+  a reusable no-delete Blob writer role and a distinct unattached receipt
+  publisher with evidence-read ABAC;
+- `infra/azure/runner` defines one private-NIC Linux VM, encrypted managed disk,
+  one unique per-deployment user-assigned runtime identity, exact request and
+  platform/backend binding, Azure daily auto-shutdown with a closed five-minute
+  apply window and absolute deadline, and the portable guest timeout fallback.
+  Runner-state role assignments provide data read, ACR pull, exact immutable
+  run-spec read and create/write to only this deployment's exact bootstrap log,
+  results prefix and exact non-authoritative local-receipt handoff;
+- all three roots pin OpenTofu `1.12.3` and AzureRM `5.0.1` exactly and contain
+  an independently generated dependency lock file;
+- `tests/azure/test-scaffold.sh` proves the OpenTofu request hash equals the
+  normative canonical hash and passes one valid scaffold plus seventeen
+  fail-closed policy mutations without contacting Azure.
+
+Offline commands completed successfully:
+
+```text
+tofu fmt -recursive infra/azure
+tofu -chdir=infra/azure/<bootstrap|platform|runner> init -backend=false
+tofu -chdir=infra/azure/<bootstrap|platform|runner> validate
+tests/azure/test-scaffold.sh
+```
+
+`init -backend=false` installed only the pinned provider package. It did not
+initialize Blob state or call Azure APIs. Azure CLI installation, interactive
+authentication, subscription/tenant/region confirmation, quota and policy
+inventory, backend creation, saved plans, applies, role changes, smoke execution,
+receipt publication and destruction evidence are all still pending their exact
+review gates. The first live plan must also prove that subscription policy and
+the target storage account accept the version-2 Blob-path ABAC conditions. None
+of the Goal 05 acceptance bullets is claimed by this scaffold.

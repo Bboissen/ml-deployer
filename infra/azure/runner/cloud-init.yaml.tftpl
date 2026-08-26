@@ -1,0 +1,45 @@
+#cloud-config
+write_files:
+  - path: /etc/ml-runner/request.json
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${guest_request_base64}
+  - path: /opt/ml/bin/guest-runner.sh
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${guest_runner_base64}
+  - path: /opt/ml/bin/deadline-marker.sh
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${deadline_helper_base64}
+  - path: /opt/ml/bin/azure-runner-wrapper.sh
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${azure_wrapper_base64}
+  - path: /etc/systemd/system/ml-runner.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=One-shot digest-pinned ML runner
+      Wants=network-online.target docker.service
+      After=network-online.target docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/opt/ml/bin/azure-runner-wrapper.sh
+      TimeoutStartSec=infinity
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [mkdir, -p, /var/lib/ml-runner/private-receipt]
+  - [chmod, '0700', /var/lib/ml-runner/private-receipt]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, ml-runner.service]
