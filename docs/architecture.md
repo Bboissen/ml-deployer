@@ -1,58 +1,87 @@
 # Architecture
 
-> Provider status: DigitalOcean remains supported, GCP is paused, and the new provider-separated AWS design is in [architecture-aws.md](architecture-aws.md).
+## Design principle
 
-## Production topology
+The three providers implement one behavioral contract, not one shared resource graph. AWS, Google Cloud and Azure have different identity, storage, networking and lifecycle semantics, so each provider keeps independent OpenTofu roots.
 
-```text
-home-server
-  tailscale0: 100.x.y.z
-  ray head: binds to tailscale0
-  artifacts/live/
-  artifacts/ray_results/
-  Terraform/OpenTofu runner
-  Codex/subagent runner
+Common work is limited to:
 
-DigitalOcean temporary workers
-  Ubuntu
-  named AMS3 VPC
-  Tailscale ephemeral nodes
-  Ray workers
-  local /data/tune
-  local /data/demo-cache/<snapshot-hash>/
+- input and output names;
+- OCI and run-spec validation;
+- resource-profile semantics;
+- cloud-init behavior where it is truly portable;
+- lifecycle commands and acceptance evidence;
+- documentation and offline tests.
 
-DigitalOcean persistent layer
-  private infrastructure-state Space
-  private Demo Bronze Space
-    smoke/<test-pack-hash>/
-    bronze/snapshots/<accepted-content-hash>/
-  named AMS3 VPC
-```
-
-## Why this architecture
-
-The workload is many independent CPU-bound ML trials: feature block tests, checkpoint-specific models, rolling validation folds, and HPO. The workers do not need shared memory; they need reliable scheduling, local data, and metric reporting back to the head.
-
-Ray Tune provides scheduling and metric aggregation. Tailscale provides a private network so Ray does not need public exposure.
-
-Spaces is the permanent infrastructure-state and Bronze layer. Droplet disks are disposable caches only, so destroying every Ray worker does not remove accepted Bronze snapshots or infrastructure state. The storage Terraform root and state lifecycle are independent from the worker root; routine `do-down` affects workers only. Silver and later data layers require a new reviewed phase.
-
-## Network flow
+## Deployment flow
 
 ```text
-worker -> tailscale -> home Ray head:6379
-worker <-> tailscale <-> home Ray head and scheduler ports
-worker -> named AMS3 VPC route -> regional Spaces endpoint
-trial -> tune.report(...) -> Ray head -> LiveJsonlCallback -> artifacts/live/trial_events.jsonl
-watcher -> artifacts/live/latest_summary.md -> Codex/subagent review
+ML repository
+  │
+  ├── OCI image pinned by sha256 digest
+  └── opaque run specification URI
+          │
+          ▼
+provider preflight ──> reviewed OpenTofu plan ──> explicit apply authorization
+          │
+          ▼
+short-lived VM + native identity
+  ├── reads provider-local Gold objects
+  ├── pulls the exact OCI image
+  ├── executes one whole trial at a time
+  ├── writes logs, receipts and results to provider-local result storage
+  └── stops or is deleted at the provider-side deadline
 ```
 
-## Repo boundaries
+No trial is distributed across providers. Parallelism comes from deploying independent whole trials to different providers.
 
-This infra repo is not the ML model repo. It should be able to run synthetic tests by itself and call external ML code through configurable commands later.
+## Root layout
 
-## VPC and storage authority
+Each provider will have:
 
-`terraform/digitalocean-storage` owns the persistent VPC and exports its UUID. Operators pass that exact UUID into `terraform/digitalocean-workers`; workers do not look up a VPC by name and the roots do not use Terraform remote-state coupling. A syntactically valid sentinel UUID is acceptable only for code-only plan validation. Live receipts must prove the worker used the exported UUID.
+```text
+infra/<provider>/
+  bootstrap/   # local-state, one-time creation of the remote backend
+  platform/    # generic data/results storage, identity and network foundation
+  runner/      # disposable compute and maximum-runtime controls
+```
 
-Workers use the VPC-local DNS resolver (the second-to-last address of the VPC CIDR) exclusively, as required for private Spaces routing. Phase 2 records that resolver, resolved endpoint addresses, VPC CIDR, and route/source-interface selection. Interface discovery follows metadata and the assigned private address; it never assumes a device name such as `eth1`. See [DigitalOcean's VPC-local resolver guidance](https://docs.digitalocean.com/products/networking/vpc/how-to/use-local-dns-resolver/).
+The roots are separate state boundaries:
+
+- `bootstrap` is rarely changed and cannot depend on its own remote backend.
+- `platform` owns persistent generic infrastructure.
+- `runner` owns disposable, billable compute.
+
+Persistent roots must refuse accidental destroy through lifecycle controls, policy checks and operational gates. Disposable compute must be destroyable without targeting persistent storage.
+
+## Provider mapping
+
+| Capability | AWS | Google Cloud | Azure |
+| --- | --- | --- | --- |
+| Compute | EC2 | Compute Engine | Linux Virtual Machine |
+| Runtime identity | IAM role / instance profile | User-managed service account | Managed identity |
+| State | Versioned S3 backend with native lockfile | Versioned GCS backend with locking | Versioned Blob backend with native locking |
+| Generic data | Private S3 bucket | Private Cloud Storage bucket | Private Blob container |
+| Generic results | Separate private S3 bucket | Separate private Cloud Storage bucket | Separate private Blob container |
+| Administration | Systems Manager | OS Login and IAP when enabled | Run Command |
+| Runtime bound | Scheduled termination plus guest fallback | `max_run_duration` with delete | Auto-shutdown plus explicit OpenTofu destroy |
+
+## Resource profiles
+
+Profiles describe capacity, not provider SKU names:
+
+| Profile | Minimum shape | Intended use |
+| --- | --- | --- |
+| `smoke` | 2 vCPU, 8 GiB memory | Runtime and access verification |
+| `balanced` | 4 vCPU, 16 GiB memory | Normal fixed trials |
+| `highmem` | 4 vCPU, 32 GiB memory | Memory-heavy feature matrices |
+
+Every provider preflight must resolve the requested profile to an available regional SKU and fail closed when quota, capacity or subscription policy does not allow it.
+
+## Deliberate non-abstractions
+
+- Provider configuration is never hidden inside a common module.
+- IAM policies are not generated from one cross-cloud policy language.
+- Provider-specific security and lifecycle resources remain visible.
+- The platform does not parse ML run parameters.
+- OpenTofu is infrastructure provisioning, not the experiment scheduler.

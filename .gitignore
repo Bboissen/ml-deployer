@@ -1,4 +1,34 @@
-# Python
+# Local credentials and configuration
+.env
+*.env
+!*.env.example
+project.env
+*.pem
+*.key
+id_rsa*
+
+# OpenTofu working material
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan.json
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+crash.log
+crash.*.log
+
+# Local runtime evidence and historical material
+.*-runtime/
+.tools/
+artifacts/
+data/
+models/
+logs/
+
+# Historical Python environments retained outside the new project surface
 .venv/
 __pycache__/
 *.pyc
@@ -6,58 +36,12 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
-# Env and secrets
-.env
-*.env
-!configs/gcp/constants.env
-!configs/aws/constants.env
-*.pem
-*.key
-id_rsa*
-terraform.tfvars
-*.tfvars
-!.tfvars.example
+# Package manager state
+mise.lock
+uv.lock
 
-# Terraform/OpenTofu
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
-*.plan.json
-crash.log
-crash.*.log
-
-# GCP private runtime material
-.gcp-runtime/
-.aws-runtime/
-.tools/
-tofu/gcp/bootstrap/.bootstrap-state/
-artifacts/audits/*.json
-artifacts/receipts/*
-!artifacts/receipts/.gitkeep
-
-# Runtime artifacts
-artifacts/*
-!artifacts/progress/
-!artifacts/progress/gcp.md
-!artifacts/progress/aws.md
-!artifacts/receipts/
-!artifacts/receipts/.gitkeep
-ray_results/
-logs/
-*.log
-
-# Data/model artifacts
-data/
-models/
-*.parquet
-*.csv
-*.pkl
-*.joblib
-*.cbm
-*.model
-
-# OS/editor
+# Editor and operating-system state
+.claude/settings.local.json
 .DS_Store
 .vscode/
 .idea/
