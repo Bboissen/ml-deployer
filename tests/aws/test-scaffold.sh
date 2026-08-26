@@ -5,6 +5,7 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 readonly VALID_AWS_REQUEST="${REPOSITORY_ROOT}/shared/contracts/fixtures/valid-aws.json"
 
 "${REPOSITORY_ROOT}/scripts/aws/validate-scaffold.sh" >/dev/null
+"${REPOSITORY_ROOT}/tests/aws/test-platform-live-validator.sh" >/dev/null
 
 for root_name in bootstrap platform runner; do
   jq -e --raw-input --slurp 'length > 0' \

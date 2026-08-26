@@ -1,21 +1,22 @@
 locals {
   platform_contract = {
-    schema_version                   = "1.0.0"
-    provider                         = "aws"
-    aws_account_id                   = var.aws_account_id
-    aws_region                       = var.aws_region
-    state_bucket_name                = trimprefix(var.state_bucket_arn, "arn:${data.aws_partition.current.partition}:s3:::")
-    state_bucket_arn                 = var.state_bucket_arn
-    data_bucket_name                 = aws_s3_bucket.workload["data"].id
-    data_bucket_arn                  = aws_s3_bucket.workload["data"].arn
-    results_bucket_name              = aws_s3_bucket.workload["results"].id
-    results_bucket_arn               = aws_s3_bucket.workload["results"].arn
-    runner_subnet_id                 = aws_subnet.runner.id
-    runner_security_group_id         = aws_security_group.runner.id
-    ecr_repository_url               = aws_ecr_repository.runner.repository_url
-    ecr_repository_arn               = aws_ecr_repository.runner.arn
-    runtime_permissions_boundary_arn = aws_iam_policy.runtime_boundary.arn
-    receipt_publisher_role_arn       = aws_iam_role.receipt_publisher.arn
+    schema_version                     = "1.0.0"
+    provider                           = "aws"
+    aws_account_id                     = var.aws_account_id
+    aws_region                         = var.aws_region
+    state_bucket_name                  = trimprefix(var.state_bucket_arn, "arn:${data.aws_partition.current.partition}:s3:::")
+    state_bucket_arn                   = var.state_bucket_arn
+    data_bucket_name                   = aws_s3_bucket.workload["data"].id
+    data_bucket_arn                    = aws_s3_bucket.workload["data"].arn
+    results_bucket_name                = aws_s3_bucket.workload["results"].id
+    results_bucket_arn                 = aws_s3_bucket.workload["results"].arn
+    runner_subnet_id                   = aws_subnet.runner.id
+    runner_security_group_id           = aws_security_group.runner.id
+    ecr_repository_url                 = aws_ecr_repository.runner.repository_url
+    ecr_repository_arn                 = aws_ecr_repository.runner.arn
+    runtime_permissions_boundary_arn   = aws_iam_policy.runtime_boundary.arn
+    scheduler_permissions_boundary_arn = aws_iam_policy.scheduler_boundary.arn
+    receipt_publisher_role_arn         = aws_iam_role.receipt_publisher.arn
   }
 
   platform_contract_sha256 = sha256(jsonencode(local.platform_contract))
@@ -79,6 +80,16 @@ output "runner_security_group_id" {
 output "runtime_permissions_boundary_arn" {
   description = "Maximum permissions boundary required by every per-deployment runner role."
   value       = aws_iam_policy.runtime_boundary.arn
+}
+
+output "scheduler_permissions_boundary_arn" {
+  description = "Maximum permissions boundary required by every provider-side runner deadline role."
+  value       = aws_iam_policy.scheduler_boundary.arn
+}
+
+output "deployer_role_arn" {
+  description = "Least-privilege role used for routine disposable-runner OpenTofu operations."
+  value       = aws_iam_role.deployer.arn
 }
 
 output "receipt_publisher_role_arn" {

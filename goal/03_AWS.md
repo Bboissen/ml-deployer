@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — account readiness verified; state bootstrap pending**.
+Status: **In progress — Task A accepted; Task B saved plan awaiting exact apply review**.
 
 ## Objective
 
@@ -47,35 +47,84 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
 - Standard On-Demand and Spot quotas are both 8 vCPUs. The account-level S3
   Block Public Access controls and default EBS encryption are enabled.
 - A USD 25 monthly budget and a service anomaly monitor are present.
-- The live inventory contains no S3 buckets, EC2 instances, EBS volumes or
-  Elastic IP addresses. Default networking remains visible but is not adopted
+- The initial live inventory contained no S3 buckets, EC2 instances, EBS
+  volumes or Elastic IP addresses. Task A subsequently created exactly one S3
+  state-backend bucket. Default networking remains visible but is not adopted
   by this evidence.
 - The broad setup user is authenticated. The historical proposed
   `spotify-tofu-deployer` role is absent and is not an accepted neutral
   identity name. Task B still owns the reviewed least-privilege IAM boundary;
   readiness does not authorize creating it.
 
-## Current offline scaffold evidence
+## Current scaffold and Task A evidence
 
+- The sealed Task A receipt is retained outside the repository at
+  `/home/user/evidence/Ray_terraform/aws/goal-03-task-a/backend-acceptance/46b4c94/smoke-01/revision-2-plan-01/task-a-acceptance-receipt.json`
+  with SHA-256
+  `7eae60b3d390495a63f1930bfdecb8293e0d2daf2ea0e823dc3fd42cc499cc04`.
 - The bootstrap, platform and runner roots are separate flat state boundaries
   under `infra/aws/` with root-owned provider configuration.
 - OpenTofu is pinned to `1.12.3`; every root pins `hashicorp/aws` `6.61.0` and
   owns a dependency lock file.
-- The bootstrap scaffold has local state only. Platform and runner backend
-  examples require the accepted S3 bucket and native `use_lockfile = true`.
+- The bootstrap local state remains retained as evidence. The accepted S3 state
+  bucket is protected and versioned; platform and runner backend examples use
+  native `use_lockfile = true`.
 - Offline validation covers protected storage, immutable ECR, no-ingress
   networking, SSM/runtime boundaries, isolated conditional receipt publication,
-  IMDSv2, encrypted runner storage and an absolute EventBridge Scheduler stop.
+  IMDSv2, encrypted runner storage and absolute EventBridge Scheduler
+  termination.
 - The platform emits a closed canonical binding for the account, region,
   storage, network, registry and distinct control identities; the runner binds
   those exact inputs and derives both request and platform hashes locally.
 - The reviewed start and derived five-minute latest-apply window prevent an
   early or stale apply from extending the provider deadline beyond the accepted
   maximum runtime.
-- No backend initialization, cloud plan, apply, import or state command has
-  been run for this scaffold.
+- The disposable backend acceptance root proved a state write, two retrievable
+  state versions and bounded native lock contention. The platform root has now
+  been initialized against its empty protected backend key solely to prepare a
+  saved plan; neither the platform nor runner root has been applied.
+- A fresh read-only review on 2026-08-26 reconfirmed the accepted account and
+  region, both 8-vCPU Standard quotas, the cost controls, all state-bucket
+  protections, both state versions and released native lock history. It also
+  reconfirmed that no Task B or Task C IAM, ECR, Scheduler, EC2 or workload
+  storage resource exists.
 
-The account inventory portion of Task A is current, but no backend resource or
-acceptance mutation exists. Backend write/recovery/locking, live IAM, the
-neutral smoke receipt and reviewed runner destruction remain blocked on
-separate plans and explicit authorization.
+## Task B saved-plan evidence (2026-08-27)
+
+- The approved binding targets account `000000000000`, region `us-east-1`,
+  availability zone `us-east-1a`, resource prefix `demo`, data bucket
+  `demo-data-000000000000-us-east-1`, results bucket
+  `demo-results-000000000000-us-east-1`, ECR repository `demo/runner`, VPC
+  `10.80.0.0/20`, runner subnet `10.80.0.0/24`, and temporary deployer trust
+  principal `arn:aws:iam::000000000000:user/sposhfi-admin`.
+- The sealed source manifest has SHA-256
+  `89a89c5f03e13f0c05d595b6fa5a4677def5875db45be3604b0c7d4f84ee102e`.
+- Exactly one saved plan was prepared outside the repository at
+  `/home/user/evidence/Ray_terraform/aws/goal-03-task-b/platform/source-89a89c5f03e1/plan-01/platform.tfplan`.
+  Its SHA-256 is
+  `d51074489e47fdfc04fe9558bea108cb81d703e3067acdd3b8ebccf0f425adb2`.
+- The plan contains 27 creates, zero updates, zero replacements and zero
+  deletes: 14 persistent S3 resources, six IAM resources, six network
+  resources and one ECR repository. It does not create a runner.
+- The plan-time review discloses IAM and bucket-policy JSON fields whose values
+  remain known only after apply because they consume ARNs created by the same
+  saved plan. Their deterministic names and exact configuration references are
+  sealed and reviewed; they are not mislabeled as plan-time known.
+- Read-only AWS inventories immediately before and after planning match. Only
+  the accepted state bucket exists, the platform state and lock keys remain
+  empty, and no Task B or Task C resource was created.
+- The saved-plan review receipt is retained beside the plan as
+  `task-b-plan-review-receipt.json` with SHA-256
+  `b97085f55b80c8ba743c769505d9cb3f05f9fdbfa87ac0f49fc3bf747c19a913`.
+- Evidence-bound plan and IAM contract tests now enforce the exact create/read
+  allowlists and fail closed on deletion, binding drift, ingress, removed state
+  denial, weakened receipt deletion and broadened publisher reads.
+- Read-only post-apply validators are prepared for the closed platform output,
+  S3/ECR/network/IAM inventory, resolved same-plan policies and positive and
+  negative IAM simulations. They do not apply infrastructure or write test
+  objects. The acceptance procedure is documented in
+  `docs/operations/aws-platform-acceptance.md`.
+
+Task A is accepted. Task B's exact saved plan is prepared and awaits a separate
+explicit apply decision bound to the plan SHA-256 above. No AWS mutation, Task
+C action, push, pull request, merge or other publication is authorized.

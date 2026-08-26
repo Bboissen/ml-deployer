@@ -76,7 +76,7 @@ variable "platform_contract" {
 
   validation {
     condition = try(
-      length(keys(var.platform_contract)) == 16 &&
+      length(keys(var.platform_contract)) == 17 &&
       length(setsubtract(toset(keys(var.platform_contract)), toset([
         "schema_version",
         "provider",
@@ -93,11 +93,12 @@ variable "platform_contract" {
         "ecr_repository_url",
         "ecr_repository_arn",
         "runtime_permissions_boundary_arn",
+        "scheduler_permissions_boundary_arn",
         "receipt_publisher_role_arn",
       ]))) == 0,
       false,
     )
-    error_message = "platform_contract must contain exactly the 16 documented AWS binding fields."
+    error_message = "platform_contract must contain exactly the 17 documented AWS binding fields."
   }
 
   validation {
@@ -272,6 +273,16 @@ variable "runtime_permissions_boundary_arn" {
   validation {
     condition     = can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:policy/[A-Za-z0-9+=,.@_/-]+$", var.runtime_permissions_boundary_arn))
     error_message = "runtime_permissions_boundary_arn must be an IAM policy ARN."
+  }
+}
+
+variable "scheduler_permissions_boundary_arn" {
+  description = "Accepted persistent maximum-permissions boundary for provider-side deadline roles."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:policy/[A-Za-z0-9+=,.@_/-]+$", var.scheduler_permissions_boundary_arn))
+    error_message = "scheduler_permissions_boundary_arn must be an IAM policy ARN."
   }
 }
 

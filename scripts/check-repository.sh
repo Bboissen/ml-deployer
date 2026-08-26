@@ -10,6 +10,7 @@ required_files=(
   docs/architecture.md
   docs/contract.md
   docs/operations/interface.md
+  docs/operations/aws-platform-acceptance.md
   docs/operations/rights-readiness.md
   docs/preservation.md
   docs/scope.md
@@ -68,12 +69,17 @@ required_files=(
   scripts/validate-deployment-index.sh
   scripts/validate-command-result.sh
   scripts/load-cloud-env.sh
+  scripts/aws/validate-platform-live.sh
+  scripts/aws/validate-platform-iam-simulation.sh
   tests/bootstrap/test-guest-runner.sh
   tests/bootstrap/fixtures/docker
   tests/contracts/test-runner-contract.sh
   tests/contracts/test-completion-receipt.sh
   tests/contracts/test-deployment-index.sh
   tests/contracts/test-command-result.sh
+  tests/aws/test-platform-plan.sh
+  tests/aws/test-platform-iam-contract.sh
+  tests/aws/test-platform-live-validator.sh
 )
 
 for required_file in "${required_files[@]}"; do

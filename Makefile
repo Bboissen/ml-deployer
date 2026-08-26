@@ -4,7 +4,7 @@ TOFU ?= tofu
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check contract-test scaffold-test cloud-env cloud-env-command fmt fmt-check
+.PHONY: help check contract-test scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
@@ -23,6 +23,19 @@ scaffold-test: ## Validate all provider scaffolds without cloud credentials or A
 	@bash tests/aws/test-scaffold.sh
 	@bash infra/gcp/tests/validate-offline.sh
 	@bash tests/azure/test-scaffold.sh
+
+aws-platform-plan-test: ## Validate a sealed AWS platform plan and its review receipt offline.
+	@test -n "$(PLAN_JSON)" || { echo 'ERROR: set PLAN_JSON to the sealed tofu show -json artifact.' >&2; exit 2; }
+	@test -n "$(REVIEW_RECEIPT)" || { echo 'ERROR: set REVIEW_RECEIPT to the Task B saved-plan review receipt.' >&2; exit 2; }
+	@bash tests/aws/test-platform-plan.sh "$(PLAN_JSON)" "$(REVIEW_RECEIPT)"
+	@bash tests/aws/test-platform-iam-contract.sh "$(PLAN_JSON)" "$(REVIEW_RECEIPT)"
+
+aws-platform-live-check: ## Read-only validation of an applied AWS platform; never applies or writes test objects.
+	@test -n "$(REVIEW_RECEIPT)" || { echo 'ERROR: set REVIEW_RECEIPT to the Task B saved-plan review receipt.' >&2; exit 2; }
+	@test -n "$(PLATFORM_OUTPUTS)" || { echo 'ERROR: set PLATFORM_OUTPUTS to a captured tofu output -json artifact.' >&2; exit 2; }
+	@test -n "$(AWS_PROFILE)" || { echo 'ERROR: set AWS_PROFILE to the reviewed temporary-login profile.' >&2; exit 2; }
+	@bash scripts/aws/validate-platform-live.sh "$(REVIEW_RECEIPT)" "$(PLATFORM_OUTPUTS)" "$(AWS_PROFILE)"
+	@bash scripts/aws/validate-platform-iam-simulation.sh "$(REVIEW_RECEIPT)" "$(AWS_PROFILE)"
 
 cloud-env: ## Validate canonical .env values for CLOUD=aws, gcp or azure.
 	@test -n "$(CLOUD)" || { echo 'ERROR: set CLOUD=aws, gcp or azure.' >&2; exit 2; }

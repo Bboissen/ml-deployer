@@ -19,8 +19,8 @@ object. This preserves the shared contract names; an object is required because
 The platform emits a closed AWS binding object and its canonical OpenTofu JSON
 SHA-256. The runner recomputes that hash and refuses any object that does not
 exactly match its account, region, distinct state/data/results buckets,
-subnet, no-ingress security group, ECR repository, runtime boundary and receipt
-publisher inputs. The external S3 backend remains separately configured, while
+subnet, no-ingress security group, ECR repository, runtime and deadline
+boundaries, and receipt publisher inputs. The external S3 backend remains separately configured, while
 the runner binds its expected bucket and deterministic key as reviewed inputs.
 The request SHA-256 is derived inside the runner from `jsonencode` of the closed
 request; offline tests prove it equals the normative `jq -cS` request hash.
@@ -51,6 +51,19 @@ bash tests/aws/test-scaffold.sh
 Provider downloads may occur during `init -backend=false`; no AWS API is
 contacted by these commands.
 
+For a real Task B plan, run the evidence-bound plan and IAM contract checks via
+`make aws-platform-plan-test PLAN_JSON=... REVIEW_RECEIPT=...`. After an
+explicitly authorized apply, `make aws-platform-live-check
+REVIEW_RECEIPT=... PLATFORM_OUTPUTS=... AWS_PROFILE=...` performs only read-only
+AWS inventory and IAM simulation calls. The full gated procedure is documented
+in [AWS persistent-platform acceptance](../../docs/operations/aws-platform-acceptance.md).
+
+The platform creates a neutral OpenTofu deployer role for routine disposable
+runner operations. Its trust is limited to reviewed temporary-login principals,
+its state access is limited to the AWS runner prefix, and it may create only
+runner-prefixed IAM roles carrying the accepted runtime or deadline boundary.
+It cannot edit its own role, the persistent boundaries or the receipt publisher.
+
 The workload identity may conditionally create only its private local receipt
 handoff below `runs/<deployment>/control-input/`. It cannot write the final
 `control/` namespace. The distinct receipt publisher can read that handoff and
@@ -69,6 +82,10 @@ Runner apply is accepted only from `started_at_utc` through the derived
 window and within the request's maximum runtime measured from the reviewed
 start. A plan may be prepared earlier, but applying early or after the bounded
 window fails closed.
+
+Both the guest shutdown behavior and the independent EventBridge Scheduler
+deadline terminate the disposable instance. The deadline role has a separate
+maximum-permissions boundary and may terminate only project-tagged runners.
 
 The instance requires IMDSv2 tokens and uses AWS's documented two-hop response
 limit for a containerized workload. The role itself is deployment-scoped and

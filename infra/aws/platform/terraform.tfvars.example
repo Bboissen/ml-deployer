@@ -9,8 +9,8 @@ data_bucket_name   = "replace-ml-infra-aws-data-unique"
 results_bucket_name = "replace-ml-infra-aws-results-unique"
 ecr_repository_name = "ml-infra/runner"
 
-receipt_publisher_principal_arns = [
-  "arn:aws:iam::000000000000:role/replace-control-principal",
+deployer_principal_arns = [
+  "arn:aws:iam::000000000000:user/replace-temporary-login-principal",
 ]
 
 tags = {
