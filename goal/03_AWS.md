@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — Task A accepted; Task B saved plan awaiting exact apply review**.
+Status: **In progress — Tasks A and B accepted; Task C pending reviewed runner preparation**.
 
 ## Objective
 
@@ -81,8 +81,8 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
   maximum runtime.
 - The disposable backend acceptance root proved a state write, two retrievable
   state versions and bounded native lock contention. The platform root has now
-  been initialized against its empty protected backend key solely to prepare a
-  saved plan; neither the platform nor runner root has been applied.
+  been applied from its exact accepted saved plan into the protected backend;
+  the runner root has not been applied.
 - A fresh read-only review on 2026-08-26 reconfirmed the accepted account and
   region, both 8-vCPU Standard quotas, the cost controls, all state-bucket
   protections, both state versions and released native lock history. It also
@@ -119,12 +119,40 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
 - Evidence-bound plan and IAM contract tests now enforce the exact create/read
   allowlists and fail closed on deletion, binding drift, ingress, removed state
   denial, weakened receipt deletion and broadened publisher reads.
-- Read-only post-apply validators are prepared for the closed platform output,
+- Read-only post-apply validators cover the closed platform output,
   S3/ECR/network/IAM inventory, resolved same-plan policies and positive and
   negative IAM simulations. They do not apply infrastructure or write test
   objects. The acceptance procedure is documented in
   `docs/operations/aws-platform-acceptance.md`.
 
-Task A is accepted. Task B's exact saved plan is prepared and awaits a separate
-explicit apply decision bound to the plan SHA-256 above. No AWS mutation, Task
-C action, push, pull request, merge or other publication is authorized.
+## Task B acceptance evidence (2026-08-27)
+
+- The user authorized the exact saved-plan SHA-256, account and region. The
+  authorization is sealed with SHA-256
+  `ad41a86939ec61a2317e6db4d895946210f2e2bd50981e5c6a2bbe8f46952487`.
+- The exact saved plan completed once with terminal exit `0`: 27 resources
+  added, zero changed and zero destroyed. The apply ran from the sealed source
+  and external initialized data directory; no Task C resource was present in
+  the plan.
+- The resulting platform contract SHA-256 is
+  `6dda6749f95e1deb449ad2f2bd27dab92d6f29b87ad92621ad41f30c92622131`.
+  Platform state version `BuuRrxboRUOfyvvvrLmS0egu7WXUlAFK` is current and no
+  native lock remains.
+- The live platform inventory and positive/negative IAM simulation matrix both
+  passed read-only. Data, results and ECR were empty; Task C roles, instances
+  and schedules remained absent.
+- Two local validator defects were exposed by the first post-apply attempts:
+  jq pipeline precedence and an unsupported IAM simulation context type. Both
+  failed attempts are retained, regression-covered and superseded by one
+  consolidated live/IAM run with terminal exit `0`.
+- A sealed-source convergence plan returned detailed exit `0` and reported no
+  changes. No corrective plan was saved or applied.
+- The Task B acceptance receipt is retained outside the repository at
+  `/home/user/evidence/Ray_terraform/aws/goal-03-task-b/platform/source-89a89c5f03e1/plan-01/apply-01/task-b-acceptance-receipt.json`
+  with SHA-256
+  `85f11d07476b153f7312c8c4642971164f08c0f4b9ea6dce328b68e08c029a65`.
+
+Tasks A and B are accepted. Task C is unlocked for a separately reviewed
+runner binding and saved-plan preparation. Applying any future Task C plan,
+publishing OCI or run-spec bytes, destroying resources, pushing, opening a pull
+request or merging requires its applicable explicit gate.
