@@ -13,11 +13,33 @@ fail() {
 bash -n "$VALIDATOR" || fail 'live validator has invalid shell syntax'
 bash -n "$IAM_VALIDATOR" || fail 'IAM simulation validator has invalid shell syntax'
 
+if rg -n '\] \| sort ==' "$VALIDATOR" >/dev/null; then
+  fail 'live validator contains an unparenthesized jq pipeline before a boolean expression'
+fi
+if rg -n '^[[:space:]]*\.[[:alnum:]_.]+ \| length == .*and' "$VALIDATOR" >/dev/null; then
+  fail 'live validator contains an object-losing jq length pipeline before a boolean expression'
+fi
+
+jq -ne '
+  {Statement:[{Sid:"Expected",Effect:"Deny"}]} |
+  (([.Statement[].Sid] | sort) == (["Expected"] | sort) and
+   all(.Statement[]; .Effect == "Deny"))
+' >/dev/null || fail 'bucket-policy jq regression fixture failed'
+
+jq -ne '
+  {RouteTables:[{Routes:[{DestinationCidrBlock:"0.0.0.0/0",GatewayId:"igw-1"}]}]} |
+  ((.RouteTables | length) == 1 and
+   ([.RouteTables[0].Routes[] | select(.GatewayId == "igw-1")] | length) == 1)
+' >/dev/null || fail 'object-preserving jq length regression fixture failed'
+
 if rg -n 'aws_read[[:space:]]+(s3api|ecr|ec2|iam|scheduler)[[:space:]]+(put|create|delete|update|modify|attach|detach|run|start|stop|terminate|set|enable|disable|associate|disassociate|register|deregister|import|copy|upload)' "$VALIDATOR" >/dev/null; then
   fail 'live validator contains a mutating AWS operation'
 fi
 if rg -n 'aws_read[[:space:]]+(s3api|ecr|ec2|iam|scheduler)[[:space:]]+(put|create|delete|update|modify|attach|detach|run|start|stop|terminate|set|enable|disable|associate|disassociate|register|deregister|import|copy|upload)' "$IAM_VALIDATOR" >/dev/null; then
   fail 'IAM simulation validator contains a mutating AWS operation'
+fi
+if rg -F 'ContextKeyType=arn' "$IAM_VALIDATOR" >/dev/null; then
+  fail 'IAM simulation validator uses the unsupported arn context-entry type'
 fi
 
 for expected_read in \

@@ -156,8 +156,8 @@ validate_bucket() {
 
   encryption_json="$(aws_read s3api get-bucket-encryption --bucket "$bucket_name")"
   jq -e '
-    .ServerSideEncryptionConfiguration.Rules | length == 1 and
-    .[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm == "AES256"
+    (.ServerSideEncryptionConfiguration.Rules | length) == 1 and
+    .ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm == "AES256"
   ' <<<"$encryption_json" >/dev/null || fail "${bucket_kind} bucket encryption is not AES256"
 
   ownership_json="$(aws_read s3api get-bucket-ownership-controls --bucket "$bucket_name")"
@@ -180,16 +180,16 @@ validate_bucket() {
   if [[ "$bucket_kind" == "data" ]]; then
     jq -e --arg bucket_arn "arn:aws:s3:::${bucket_name}" '
       def arr: if type == "array" then . else [.] end;
-      .Statement | length == 1 and
-      .[0].Sid == "DenyInsecureTransport" and
-      .[0].Effect == "Deny" and
-      (.[0].Action | arr) == ["s3:*"] and
-      (.[0].Resource | arr | sort) == ([$bucket_arn, $bucket_arn + "/*"] | sort) and
-      .[0].Condition.Bool["aws:SecureTransport"] == "false"
+      (.Statement | length) == 1 and
+      .Statement[0].Sid == "DenyInsecureTransport" and
+      .Statement[0].Effect == "Deny" and
+      (.Statement[0].Action | arr) == ["s3:*"] and
+      (.Statement[0].Resource | arr | sort) == ([$bucket_arn, $bucket_arn + "/*"] | sort) and
+      .Statement[0].Condition.Bool["aws:SecureTransport"] == "false"
     ' <<<"$policy_json" >/dev/null || fail 'data bucket policy violates the TLS-only contract'
   else
     jq -e '
-      [.Statement[].Sid] | sort == ([
+      ([.Statement[].Sid] | sort) == ([
         "DenyControlDeletion",
         "DenyControlOverwrite",
         "DenyControlWritesFromOtherPrincipals",
@@ -220,12 +220,12 @@ ecr_json="$(aws_read ecr describe-repositories --repository-names "$ECR_REPOSITO
 jq -e \
   --arg name "$ECR_REPOSITORY" \
   --arg arn "$ECR_REPOSITORY_ARN" '
-    .repositories | length == 1 and
-    .[0].repositoryName == $name and
-    .[0].repositoryArn == $arn and
-    .[0].imageTagMutability == "IMMUTABLE" and
-    .[0].imageScanningConfiguration.scanOnPush == true and
-    .[0].encryptionConfiguration.encryptionType == "AES256"
+    (.repositories | length) == 1 and
+    .repositories[0].repositoryName == $name and
+    .repositories[0].repositoryArn == $arn and
+    .repositories[0].imageTagMutability == "IMMUTABLE" and
+    .repositories[0].imageScanningConfiguration.scanOnPush == true and
+    .repositories[0].encryptionConfiguration.encryptionType == "AES256"
   ' <<<"$ecr_json" >/dev/null || fail 'ECR repository violates the reviewed contract'
 ecr_tags_json="$(aws_read ecr list-tags-for-resource --resource-arn "$ECR_REPOSITORY_ARN")"
 assert_expected_tags "$(jq -c '.tags' <<<"$ecr_tags_json")" 'ECR repository'
@@ -236,16 +236,16 @@ subnet_id="$(jq -er '.runner_subnet_id' <<<"$contract_json")"
 security_group_id="$(jq -er '.runner_security_group_id' <<<"$contract_json")"
 subnet_json="$(aws_read ec2 describe-subnets --subnet-ids "$subnet_id")"
 jq -e --arg cidr "$SUBNET_CIDR" --arg az "$AVAILABILITY_ZONE" '
-  .Subnets | length == 1 and
-  .[0].CidrBlock == $cidr and
-  .[0].AvailabilityZone == $az and
-  .[0].MapPublicIpOnLaunch == false
+  (.Subnets | length) == 1 and
+  .Subnets[0].CidrBlock == $cidr and
+  .Subnets[0].AvailabilityZone == $az and
+  .Subnets[0].MapPublicIpOnLaunch == false
 ' <<<"$subnet_json" >/dev/null || fail 'runner subnet violates the reviewed binding'
 assert_expected_tags "$(jq -c '.Subnets[0].Tags' <<<"$subnet_json")" 'runner subnet'
 vpc_id="$(jq -er '.Subnets[0].VpcId' <<<"$subnet_json")"
 
 vpc_json="$(aws_read ec2 describe-vpcs --vpc-ids "$vpc_id")"
-jq -e --arg cidr "$VPC_CIDR" '.Vpcs | length == 1 and .[0].CidrBlock == $cidr' <<<"$vpc_json" >/dev/null ||
+jq -e --arg cidr "$VPC_CIDR" '(.Vpcs | length) == 1 and .Vpcs[0].CidrBlock == $cidr' <<<"$vpc_json" >/dev/null ||
   fail 'runner VPC violates the reviewed binding'
 assert_expected_tags "$(jq -c '.Vpcs[0].Tags' <<<"$vpc_json")" 'runner VPC'
 vpc_dns_support_json="$(aws_read ec2 describe-vpc-attribute --vpc-id "$vpc_id" --attribute enableDnsSupport)"
@@ -260,15 +260,15 @@ assert_expected_tags "$(jq -c '.InternetGateways[0].Tags' <<<"$igw_json")" 'runn
 
 route_json="$(aws_read ec2 describe-route-tables --filters "Name=association.subnet-id,Values=${subnet_id}")"
 jq -e --arg gateway "$internet_gateway_id" '
-  .RouteTables | length == 1 and
+  (.RouteTables | length) == 1 and
   ([.RouteTables[0].Routes[] | select(.DestinationCidrBlock == "0.0.0.0/0" and .GatewayId == $gateway)] | length) == 1
 ' <<<"$route_json" >/dev/null || fail 'runner subnet default route does not bind the platform internet gateway'
 assert_expected_tags "$(jq -c '.RouteTables[0].Tags' <<<"$route_json")" 'runner route table'
 
 security_group_json="$(aws_read ec2 describe-security-groups --group-ids "$security_group_id")"
 jq -e --arg vpc "$vpc_id" '
-  .SecurityGroups | length == 1 and
-  .[0].VpcId == $vpc and
+  (.SecurityGroups | length) == 1 and
+  .SecurityGroups[0].VpcId == $vpc and
   (.SecurityGroups[0].IpPermissions | length) == 0 and
   (.SecurityGroups[0].IpPermissionsEgress | length) == 1 and
   .SecurityGroups[0].IpPermissionsEgress[0].IpProtocol == "-1" and
@@ -306,7 +306,7 @@ jq -e \
   --arg scheduler "$SCHEDULER_BOUNDARY_ARN" \
   --arg publisher "$PUBLISHER_ROLE_ARN" '
     def statement($sid): first(.PolicyDocument.Statement[] | select(.Sid == $sid));
-    [.PolicyDocument.Statement[].Sid] | sort == ([
+    ([.PolicyDocument.Statement[].Sid] | sort) == ([
       "AssumeReceiptPublisherForControlPublication",
       "LaunchTaggedRunner",
       "ManageOnlyBoundedRunnerRoles",
@@ -328,7 +328,7 @@ jq -e \
 
 publisher_policy_json="$(aws_read iam get-role-policy --role-name "$PUBLISHER_ROLE_NAME" --policy-name "${RESOURCE_PREFIX}-conditional-receipt-create")"
 jq -e '
-  [.PolicyDocument.Statement[].Sid] | sort == ([
+  ([.PolicyDocument.Statement[].Sid] | sort) == ([
     "ConditionallyCreateControlEvidenceAndReceipts",
     "ReadBoundedRunnerEvidence",
     "ReadResultsBucketLocation",
@@ -354,7 +354,7 @@ jq -e \
   --arg results "$RESULTS_BUCKET_ARN" \
   --arg publisher "$PUBLISHER_ROLE_ARN" '
     def statement($sid): first(.Statement[] | select(.Sid == $sid));
-    [.Statement[].Sid] | sort == ([
+    ([.Statement[].Sid] | sort) == ([
       "ConditionallyCreateOwnLocalReceiptHandoff",
       "DenyReceiptControlNamespace",
       "DenyReceiptPublisherAssumption",

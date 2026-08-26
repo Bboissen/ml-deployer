@@ -94,15 +94,15 @@ expect_decision implicitDeny \
   'deployer platform-state read'
 expect_decision allowed \
   "$(simulate_principal iam:CreateRole "$RUNNER_ROLE_ARN" \
-    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=${RUNTIME_BOUNDARY_ARN},ContextKeyType=arn")" \
+    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=${RUNTIME_BOUNDARY_ARN},ContextKeyType=string")" \
   'bounded runner-role creation'
 expect_decision implicitDeny \
   "$(simulate_principal iam:CreateRole "$OTHER_ROLE_ARN" \
-    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=${RUNTIME_BOUNDARY_ARN},ContextKeyType=arn")" \
+    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=${RUNTIME_BOUNDARY_ARN},ContextKeyType=string")" \
   'non-runner role creation'
 expect_decision implicitDeny \
   "$(simulate_principal iam:CreateRole "$RUNNER_ROLE_ARN" \
-    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=arn:aws:iam::${ACCOUNT_ID}:policy/not-accepted,ContextKeyType=arn")" \
+    --context-entries "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=arn:aws:iam::${ACCOUNT_ID}:policy/not-accepted,ContextKeyType=string")" \
   'runner-role creation with wrong boundary'
 expect_decision allowed \
   "$(simulate_principal iam:PassRole "$RUNNER_ROLE_ARN" \
