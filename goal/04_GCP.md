@@ -1,6 +1,6 @@
 # Goal 04: Google Cloud
 
-Status: **In progress — offline scaffold ready; no live GCP or state operation performed**.
+Status: **In progress — account readiness verified; adoption decision pending**.
 
 ## Objective
 
@@ -39,7 +39,25 @@ Adopt the useful existing Google Cloud foundation and implement the common platf
 
 Every cloud mutation requires its own reviewed saved plan and explicit authorization.
 
-## Current offline evidence
+## Account-readiness evidence (2026-08-26)
+
+- Human account `owner@example.com` is active on project
+  `example-project`, region `us-central1` and zone
+  `us-central1-a`.
+- Application Default Credentials impersonate the keyless
+  `tofu-deployer@example-project.iam.gserviceaccount.com`
+  service account. It has no user-managed keys, and the human account has the
+  explicit Token Creator binding.
+- Billing is enabled. The EUR 250 budget has 70%, 90% and 100% current-spend
+  thresholds. Global CPU quota is 12; regional N2 quota is 32 and E2 quota is
+  8, with zero current usage.
+- Four historical buckets and four service accounts remain; there are no
+  instances, disks or reserved addresses. The state bucket still exposes all
+  four `roles/storage.legacy*` convenience bindings through project roles.
+- Artifact Registry and Cloud Scheduler APIs are disabled. Enabling them and
+  changing bucket IAM are later reviewed mutations, not readiness actions.
+
+## Current offline scaffold evidence
 
 - Three flat, provider-owned roots now exist under `infra/gcp/`: local-state
   bootstrap, persistent platform, and one-deployment disposable runner.
@@ -66,9 +84,9 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
   can read only those handoffs and Compute facts, while only it can create
   reserved `control/evidence/` and `control/receipts/.../completion.v1.json`
   objects.
-- Provider initialization for validation uses `-backend=false`; no `gcloud`,
-  plan, apply, import, state, or remote-backend operation is part of this
-  evidence.
+- Provider initialization for validation uses `-backend=false`; no plan,
+  apply, import, state or remote-backend operation is part of this evidence.
 
-Tasks A-C and every acceptance item remain open until their live read-only and
-separately authorized mutation evidence is reviewed.
+The fresh read-only inventory portion of Task A is complete. Historical-resource
+classification, state-lineage verification, Tasks B-C and every acceptance
+mutation remain open until separately reviewed and authorized.

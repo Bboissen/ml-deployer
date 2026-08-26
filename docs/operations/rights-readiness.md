@@ -78,10 +78,10 @@ That result remains advisory and does not become apply authorization.
 
 ## AWS boundary
 
-Current prerequisite: the previous `sposhfi-admin` temporary CLI session had
-expired. The operator must renew the supported temporary/MFA session before the
-probe. No static access key is created or stored. The owner must confirm the
-expected account identifier and initial region.
+Readiness snapshot 2026-08-26: profile `sposhfi-admin` uses temporary AWS CLI
+`login` credentials for account `000000000000` in `us-east-1`. No static access
+key is created or stored. Because the session expires, every later task must
+reauthenticate and recheck the binding before planning.
 
 The AWS probe may perform only read operations equivalent to:
 
@@ -108,11 +108,12 @@ request-time conditions.
 
 ## Google Cloud boundary
 
-Current prerequisite: the owner must confirm the selected project, region and
-the intended deployer service account. The probe must not guess an identity or
-change the active `gcloud` configuration. User credentials and Application
-Default Credentials must already be available; no service-account key file is
-used.
+Readiness snapshot 2026-08-26: the owner confirmed project
+`example-project`, region `us-central1`, zone `us-central1-a`
+and the keyless `tofu-deployer` service account. Application Default
+Credentials impersonate that account; no service-account key file is used. A
+later task must recheck these bindings without changing the active `gcloud`
+configuration.
 
 The Google Cloud probe may perform only read operations equivalent to:
 
@@ -154,11 +155,11 @@ publisher and cannot write the reserved receipt prefix.
 
 ## Azure boundary
 
-Current prerequisite: Azure CLI was not installed during the cleanup audit.
-The operator must install it through Microsoft's supported method, authenticate
-interactively, and confirm the intended tenant, subscription and initial
-region. The probe does not call `az account set` and does not store a client
-secret.
+Readiness snapshot 2026-08-26: Azure CLI `2.89.1` is installed and interactive
+authentication binds the intended Azure for Students tenant and subscription
+to `swedencentral`. The four required resource providers are registered, and
+the student spending limit plus annual budget are visible. The probe does not
+call `az account set` and no client secret is stored.
 
 The Azure probe may perform only read operations equivalent to:
 

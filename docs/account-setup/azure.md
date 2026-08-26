@@ -4,7 +4,19 @@ This guide covers subscription and workstation readiness only. It does not autho
 
 ## Current status
 
-Azure CLI was not installed during the pivot audit, and the repository has no prior Azure implementation.
+As of 2026-08-26, Azure CLI `2.89.1` is installed and interactive authentication
+is verified for the intended Azure for Students tenant and subscription. Sweden
+Central is the accepted region. Compute, Network, Storage and Managed Identity
+providers are registered, the student spending limit is on, and an annual USD
+80 budget has five actual-cost thresholds.
+
+The subscription has 6 standard regional vCPUs. The accepted CPU mappings are
+`Standard_B2ms` for verification, `Standard_D4s_v4` for balanced work and
+`Standard_E4ds_v4` for the maximum solo/high-memory profile. A T4-family quota
+request was unsuccessful, so GPU capacity is not configured or accepted.
+
+This is account readiness only. No state storage, platform resource or runner
+has been created by the provider goal.
 
 ## Manual subscription prerequisites
 

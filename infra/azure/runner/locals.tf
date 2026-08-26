@@ -30,17 +30,17 @@ locals {
 
   profiles = {
     smoke = {
-      vm_size    = "Standard_D2s_v5"
+      vm_size    = "Standard_B2ms"
       vcpu       = 2
       memory_mib = 8192
     }
     balanced = {
-      vm_size    = "Standard_D4s_v5"
+      vm_size    = "Standard_D4s_v4"
       vcpu       = 4
       memory_mib = 16384
     }
     highmem = {
-      vm_size    = "Standard_E4s_v5"
+      vm_size    = "Standard_E4ds_v4"
       vcpu       = 4
       memory_mib = 32768
     }

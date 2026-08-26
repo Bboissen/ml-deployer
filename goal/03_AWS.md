@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — offline scaffold ready; no AWS mutation performed**.
+Status: **In progress — account readiness verified; state bootstrap pending**.
 
 ## Objective
 
@@ -39,7 +39,23 @@ Implement and accept the common platform contract on one standalone AWS account 
 
 Every cloud mutation requires its own reviewed saved plan and explicit authorization.
 
-## Current offline evidence
+## Account-readiness evidence (2026-08-26)
+
+- AWS CLI temporary `login` credentials bind profile `sposhfi-admin` to account
+  `000000000000` in `us-east-1`; no static access key is configured for this
+  repository.
+- Standard On-Demand and Spot quotas are both 8 vCPUs. The account-level S3
+  Block Public Access controls and default EBS encryption are enabled.
+- A USD 25 monthly budget and a service anomaly monitor are present.
+- The live inventory contains no S3 buckets, EC2 instances, EBS volumes or
+  Elastic IP addresses. Default networking remains visible but is not adopted
+  by this evidence.
+- The broad setup user is authenticated. The historical proposed
+  `spotify-tofu-deployer` role is absent and is not an accepted neutral
+  identity name. Task B still owns the reviewed least-privilege IAM boundary;
+  readiness does not authorize creating it.
+
+## Current offline scaffold evidence
 
 - The bootstrap, platform and runner roots are separate flat state boundaries
   under `infra/aws/` with root-owned provider configuration.
@@ -56,9 +72,10 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
 - The reviewed start and derived five-minute latest-apply window prevent an
   early or stale apply from extending the provider deadline beyond the accepted
   maximum runtime.
-- No AWS CLI, backend initialization, cloud plan, apply, import or state command
-  has been run for this scaffold.
+- No backend initialization, cloud plan, apply, import or state command has
+  been run for this scaffold.
 
-This evidence does not satisfy Task A inventory or any acceptance mutation.
-Backend write/recovery/locking, live IAM, the neutral smoke receipt and reviewed
-runner destruction remain blocked on separate plans and explicit authorization.
+The account inventory portion of Task A is current, but no backend resource or
+acceptance mutation exists. Backend write/recovery/locking, live IAM, the
+neutral smoke receipt and reviewed runner destruction remain blocked on
+separate plans and explicit authorization.

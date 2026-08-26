@@ -46,6 +46,25 @@ Read the provider-specific account guide before installing or authenticating its
 
 Do not create storage, IAM or compute manually to get ahead of the implementation goals. Bootstrap and adoption paths must be reviewed first.
 
+Keep one non-secret canonical value per provider fact in the ignored `.env`.
+Validate a provider binding with:
+
+```bash
+make cloud-env CLOUD=gcp
+```
+
+Make recipes cannot export variables back into their parent shell. To propagate
+the validated aliases used by the provider CLI, SDK and OpenTofu, source the
+single loader:
+
+```bash
+source scripts/load-cloud-env.sh gcp
+```
+
+Use `aws` or `azure` instead when working in those provider roots. The loader
+fails closed for missing or inconsistent account, project, region or zone
+values and never reads or emits provider credentials.
+
 The first parallel provider interaction is the separately reviewed read-only readiness probe described in [`operations/rights-readiness.md`](operations/rights-readiness.md). It proves visibility, not create authority.
 
 ## Current stop point

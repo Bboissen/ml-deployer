@@ -1,6 +1,6 @@
 # Goal 05: Azure
 
-Status: **In progress — offline scaffold ready; no Azure mutation performed**.
+Status: **In progress — account readiness verified; state bootstrap pending**.
 
 ## Objective
 
@@ -73,10 +73,29 @@ tests/azure/test-scaffold.sh
 ```
 
 `init -backend=false` installed only the pinned provider package. It did not
-initialize Blob state or call Azure APIs. Azure CLI installation, interactive
-authentication, subscription/tenant/region confirmation, quota and policy
-inventory, backend creation, saved plans, applies, role changes, smoke execution,
-receipt publication and destruction evidence are all still pending their exact
-review gates. The first live plan must also prove that subscription policy and
-the target storage account accept the version-2 Blob-path ABAC conditions. None
-of the Goal 05 acceptance bullets is claimed by this scaffold.
+initialize Blob state or call Azure APIs.
+
+## Account-readiness evidence (2026-08-26)
+
+- Azure CLI `2.89.1` uses interactive user authentication for tenant
+  `91c31672-e62e-4050-9113-4eb29a04a47d` and enabled `Azure for Students`
+  subscription `878254b0-ec7f-48bf-ad76-3ef8ff61872b`.
+- The accepted location is `swedencentral`. Subscription policy permits only
+  Sweden Central, Spain Central, Poland Central, Italy North and UAE North.
+- Compute, Network, Storage and Managed Identity providers are registered. The
+  student spending limit is on, and annual USD 80 budget
+  `demo-azure-student` has actual-cost alerts at 25%, 50%, 75%, 90% and 100%.
+- The regional limit is 6 standard vCPUs. Available profile-family limits bind
+  `smoke` to `Standard_B2ms`, `balanced` to `Standard_D4s_v4` and `highmem`
+  to `Standard_E4ds_v4`. The T4 GPU-family quota remains zero after an
+  unsuccessful increase request; GPU support is outside the frozen contract.
+- The subscription has no storage account, VM, managed disk, public IP or
+  billable resource. One empty pre-existing resource group,
+  `rg-demo-ml-se`, remains outside any adoption claim.
+
+Azure CLI installation, authentication and the read-only inventory portion of
+Task A are complete. Backend creation, saved plans, applies, role changes,
+smoke execution, receipt publication and destruction evidence remain pending
+their exact review gates. The first live plan must also prove that subscription
+policy and the target storage account accept the version-2 Blob-path ABAC
+conditions. None of the Goal 05 acceptance bullets is claimed by readiness.

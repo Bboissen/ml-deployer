@@ -67,6 +67,7 @@ required_files=(
   scripts/validate-completion-receipt.sh
   scripts/validate-deployment-index.sh
   scripts/validate-command-result.sh
+  scripts/load-cloud-env.sh
   tests/bootstrap/test-guest-runner.sh
   tests/bootstrap/fixtures/docker
   tests/contracts/test-runner-contract.sh
@@ -154,6 +155,11 @@ fi
 while IFS= read -r shell_file; do
   bash -n "$shell_file"
 done < <(find scripts shared tests -type f -name '*.sh' -print | LC_ALL=C sort)
+
+bash scripts/load-cloud-env.sh invalid >/dev/null 2>&1 && {
+  printf 'ERROR: cloud environment loader accepted an unknown provider.\n' >&2
+  exit 1
+}
 
 bash tests/contracts/test-runner-contract.sh
 bash tests/contracts/test-completion-receipt.sh

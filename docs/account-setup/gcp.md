@@ -26,7 +26,10 @@ gcloud auth application-default login --impersonate-service-account DEPLOYER_SER
 gcloud config get-value project
 ```
 
-The exact deployer identity will be decided during the adoption/bootstrap goal. Do not run the impersonation command with a guessed identity.
+The accepted local deployer is the keyless `tofu-deployer` service account in
+the selected project. Its exact email remains a canonical ignored `.env` value;
+later tasks must validate that binding rather than guess or create another
+identity.
 
 ## Read-only quota checks
 
