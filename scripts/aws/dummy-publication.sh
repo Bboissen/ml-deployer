@@ -126,7 +126,7 @@ review_object() {
   esac
   target_before="${AWS_EVIDENCE_DIRECTORY}/target-object-before.json"
   aws_dummy_aws s3api list-objects-v2 --bucket "$bucket" --prefix "$key" >"$target_before"
-  jq -e --arg key "$key" '.KeyCount == 0 and ([.Contents[]? | select(.Key == $key)] | length) == 0' \
+  jq -e --arg key "$key" '([.Contents[]? | select(.Key == $key)] | length) == 0' \
     "$target_before" >/dev/null || aws_dummy_fail 'target S3 object already exists and conditional publication is closed'
   jq -cn \
     --arg reviewed_at_utc "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
@@ -251,7 +251,7 @@ case "$AWS_PUBLICATION_KIND" in
   input|run-spec)
     aws_dummy_aws s3api list-objects-v2 --bucket "$bucket" --prefix "$key" \
       >"${AWS_EVIDENCE_DIRECTORY}/target-object-before.json"
-    jq -e '.KeyCount == 0' "${AWS_EVIDENCE_DIRECTORY}/target-object-before.json" >/dev/null ||
+    jq -e '([.Contents[]?] | length) == 0' "${AWS_EVIDENCE_DIRECTORY}/target-object-before.json" >/dev/null ||
       aws_dummy_fail 'target S3 object appeared after review'
     checksum_base64="$(aws_dummy_file_sha256 "$source_file" | xxd -r -p | base64 -w0)"
     aws_dummy_aws s3api put-object --bucket "$bucket" --key "$key" --body "$source_file" \

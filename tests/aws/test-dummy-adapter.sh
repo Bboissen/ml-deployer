@@ -111,6 +111,9 @@ jq -en '{SecurityGroups:[{IpPermissions:[]}]}
 jq -en '{Prefix:"absent/"}
   | ([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' >/dev/null ||
   fail 'empty S3 prefix response without KeyCount is rejected'
+grep -Fq '([.Contents[]?] | length) == 0' \
+  "${REPOSITORY_ROOT}/scripts/aws/dummy-publication.sh" ||
+  fail 'publication review does not normalize an empty S3 response without KeyCount'
 if jq -en '{Contents:[{Key:"present"}]}
     | ([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' >/dev/null; then
   fail 'non-empty S3 prefix response was accepted as empty'
