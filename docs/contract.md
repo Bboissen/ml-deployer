@@ -147,6 +147,27 @@ The provider implementation must prove all of the following before accepting suc
 
 The JSON payload cannot self-attest its writer or contain the version that the provider assigns only after creation; schema validation without provider metadata is insufficient. Logs, result objects, VM shutdown, a workload-written lookalike or a nonterminal receipt never imply success. `container_exit_code` is `-1` only for `bootstrap_failed`, when no container or local guest receipt exists; that status is bound instead to the immutable control-evidence object and bounded log. `interrupted` may or may not include a local-receipt or result-manifest checksum depending on where interruption occurred. A timeout is recorded as `timed_out` with code `124` and requires a local-receipt checksum.
 
+## Persistent storage
+
+Every provider keeps three distinct durable concerns:
+
+| Concern | AWS | Google Cloud | Azure |
+| --- | --- | --- | --- |
+| OpenTofu state | Dedicated S3 bucket | Dedicated GCS bucket | Dedicated storage account/container |
+| Generic data | Private S3 bucket | Private GCS bucket | Private Blob container |
+| Results/control | Private S3 bucket | Private GCS bucket | Separate results/control containers |
+
+State storage is never reused for workload objects. Persistent storage is
+private, encrypted, recoverable through versioning or soft deletion, and not
+included in runner state. Completed data, results, evidence, and receipts have
+no automatic expiry in contract version 1; only incomplete or explicitly
+temporary uploads may receive bounded cleanup rules.
+
+The Gold dataset is not created or uploaded by the current platform roots. A
+later integration must choose `create`, `adopt_managed`, or
+`external_reference`, verify ownership and state lineage, and define teardown
+without deleting externally owned data.
+
 ## Common outputs
 
 Every runner root exposes equivalent outputs:

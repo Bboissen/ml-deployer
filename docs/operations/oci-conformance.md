@@ -1,79 +1,43 @@
 # OCI conformance workflow
 
-This workflow prepares one test-only ML image and proves its immutable manifest
-across AWS, Google Cloud, and Azure. It does not authorize a registry push,
-run-spec upload, runner apply, receipt publication, or runner destroy.
+The bounded conformance image tests the infrastructure runtime contract. It is
+not production model code and runs only on reviewed cloud runners.
 
-## What the smoke proves
+## Sequence
 
-The cloud-only workload exercises the pinned Python scientific stack, performs
-deterministic statistical and ML calculations, round-trips Parquet through
-PyArrow, DuckDB, and Polars, and writes three create-only result objects:
-
-```text
-conformance.parquet
-summary.json
-result-manifest.json
-```
-
-The manifest is uploaded last. Its SHA-256, the container exit code, bounded
-bootstrap-log hash, and local execution-receipt hash are inputs to the trusted
-provider control-plane completion receipt. Output existence by itself is never
-success authority.
-
-## Gated sequence
-
-1. Review the conformance source, fully hashed dependency lock, base-image
-   digest, run-spec bytes, target platform, and registry destinations.
-2. Optionally build the image locally without running the workload:
+1. Run `make check` and review the Dockerfile, base digest, dependency lock,
+   run-spec bytes, and provider adapters.
+2. Optionally import a local `linux/amd64` image without executing or pushing it:
 
    ```bash
    make oci-conformance-build
    ```
 
-3. After exact publication authorization, perform one BuildKit build for
-   `linux/amd64` with all three provider-local repository tags in the same
-   invocation. Do not rebuild independently per provider. Capture BuildKit's
-   metadata and canonical manifest digest.
-4. Verify that ECR, Artifact Registry, and ACR each expose the exact manifest
-   bytes:
+3. Under a separate publication authorization, build once and attach all three
+   provider-local repository names to the same manifest. Do not rebuild per
+   provider.
+4. Verify registry manifest identity:
 
    ```bash
    scripts/oci/verify-provider-digests.sh \
      sha256:EXPECTED \
-     000000000000.dkr.ecr.us-east-1.amazonaws.com/demo/runner \
-     REGION-docker.pkg.dev/PROJECT/REPOSITORY/runner \
-     REGISTRY.azurecr.io/runner
+     AWS_ECR_REPOSITORY \
+     GCP_ARTIFACT_REPOSITORY \
+     AZURE_ACR_REPOSITORY
    ```
 
-5. Upload the exact bytes of `run-spec.example.json` to each provider-local
-   content-addressed run-spec key. Record the S3 version ID, GCS generation, and
-   Blob version ID. This is a separately authorized storage mutation.
-6. Before the AWS runner plan, verify that the accepted receipt-publisher
-   policy can read only `runs/*/results/result-manifest.json` in addition to
-   the local receipt and bounded log. Any required persistent-policy update is
-   a separate reviewed platform plan and apply.
-7. Resolve the AWS runner AMI from the reviewed Amazon ECS-optimized Amazon
-   Linux 2023 public SSM parameter and bind the returned x86-64 AMI ID in the
-   saved plan. The image must provide Docker, AWS CLI and SSM Agent; the runner
-   bootstrap starts Docker and SSM explicitly.
-8. Prepare and review one disposable-runner saved plan per provider, using the
-   provider-local repository, common digest, provider-local run-spec URI and
-   immutable object version.
-9. Apply, observe, publish the trusted final receipt, and destroy one provider
-   at a time under separate exact authorizations. Never treat one provider's
-   acceptance as authorization for another.
+5. Under separate object-write authorization, upload the exact run-spec bytes
+   to each content-addressed provider key and record S3 version, GCS generation,
+   or Blob version plus SHA-256.
+6. Verify the trusted publisher can read the exact canonical
+   `runs/<deployment>/results/result-manifest.json`, bounded log, and local
+   receipt handoff—but no arbitrary results—and can conditionally create only
+   control evidence/final receipts.
+7. Plan, authorize, apply, observe, publish the trusted receipt, and destroy one
+   provider runner at a time.
 
-## Cross-cloud pass conditions
-
-- all registries return the same OCI manifest digest;
-- all run-spec objects return identical bytes and SHA-256;
-- each result manifest validates and names the same artifact hashes;
-- each independently published final receipt binds the reviewed provider,
-  request, platform contract, deadline, local receipt, log and result manifest;
-- each disposable runner is destroyed while state, platform, data, results and
-  audit evidence remain.
-
-The image is intentionally `linux/amd64` because all currently mapped CPU
-profiles are x86-64. Arm64 becomes a separate reviewed multi-platform contract;
-it must not silently change the accepted manifest identity.
+The workload writes Parquet and summary output, then creates
+`result-manifest.json` last. Output presence is not success. Acceptance requires
+the validated manifest, local receipt/log hashes, provider lifecycle facts, and
+a conditionally created final receipt whose publisher and object version are
+verified through provider APIs.

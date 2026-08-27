@@ -368,7 +368,7 @@ variable "root_volume_size_gib" {
 }
 
 variable "tags" {
-  description = "Additional non-secret ownership and cost-allocation tags."
+  description = "Additional non-secret ownership tags."
   type        = map(string)
   default     = {}
 }
