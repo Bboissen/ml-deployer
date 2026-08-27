@@ -91,7 +91,7 @@ for readiness_token in \
 done
 for readiness_shape_token in \
   "jq -cSj '.platform_contract.value'" \
-  '.repositories | length == 1' \
+  '(.repositories | length) == 1' \
   '([.Contents[]?] | length) == 0'; do
   grep -Fq "$readiness_shape_token" \
     "${REPOSITORY_ROOT}/scripts/aws/collect-dummy-readiness.sh" ||
@@ -102,7 +102,7 @@ platform_contract_hash="$(printf '%s' "$platform_contract_fixture" | sha256sum |
 [[ "$(jq -cnj --argjson contract "$platform_contract_fixture" '$contract' | sha256sum | cut -d' ' -f1)" == \
   "$platform_contract_hash" ]] || fail 'platform contract canonical hash includes serialization whitespace'
 jq -en '{repositories:[{imageTagMutability:"IMMUTABLE"}]}
-  | .repositories | length == 1 and .[0].imageTagMutability == "IMMUTABLE"' >/dev/null ||
+  | (.repositories | length) == 1 and .repositories[0].imageTagMutability == "IMMUTABLE"' >/dev/null ||
   fail 'current ECR response shape is rejected'
 jq -en '{Prefix:"absent/"}
   | ([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' >/dev/null ||

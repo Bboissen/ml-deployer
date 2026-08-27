@@ -191,7 +191,7 @@ jq -e --arg instance_type "$INSTANCE_TYPE" --arg zone "$AVAILABILITY_ZONE" '
 state_lineage_ok=false
 [[ "$LIVE_STATE_VERSION" == "$ACCEPTED_STATE_VERSION" && "$LIVE_PLATFORM_SHA256" == "$ACCEPTED_PLATFORM_SHA256" ]] && state_lineage_ok=true
 platform_resources_ok=false
-jq -e '.repositories | length == 1 and .repositories[0].imageTagMutability == "IMMUTABLE"' \
+jq -e '(.repositories | length) == 1 and .repositories[0].imageTagMutability == "IMMUTABLE"' \
   "${EVIDENCE_DIRECTORY}/ecr-repository.json" >/dev/null &&
   jq -e '.Vpcs | length == 1' "${EVIDENCE_DIRECTORY}/vpc.json" >/dev/null &&
   jq -e '.Subnets | length == 1' "${EVIDENCE_DIRECTORY}/subnet.json" >/dev/null &&
