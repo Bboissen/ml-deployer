@@ -195,7 +195,7 @@ jq -e '(.repositories | length) == 1 and .repositories[0].imageTagMutability == 
   "${EVIDENCE_DIRECTORY}/ecr-repository.json" >/dev/null &&
   jq -e '.Vpcs | length == 1' "${EVIDENCE_DIRECTORY}/vpc.json" >/dev/null &&
   jq -e '.Subnets | length == 1' "${EVIDENCE_DIRECTORY}/subnet.json" >/dev/null &&
-  jq -e '.SecurityGroups | length == 1 and (.SecurityGroups[0].IpPermissions | length) == 0' \
+  jq -e '(.SecurityGroups | length) == 1 and (.SecurityGroups[0].IpPermissions | length) == 0' \
     "${EVIDENCE_DIRECTORY}/security-group.json" >/dev/null && platform_resources_ok=true
 runner_absent=false
 jq -e '[.Reservations[].Instances[] | select(.State.Name != "terminated")] | length == 0' \

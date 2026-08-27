@@ -92,6 +92,7 @@ done
 for readiness_shape_token in \
   "jq -cSj '.platform_contract.value'" \
   '(.repositories | length) == 1' \
+  '(.SecurityGroups | length) == 1' \
   '([.Contents[]?] | length) == 0'; do
   grep -Fq "$readiness_shape_token" \
     "${REPOSITORY_ROOT}/scripts/aws/collect-dummy-readiness.sh" ||
@@ -104,6 +105,9 @@ platform_contract_hash="$(printf '%s' "$platform_contract_fixture" | sha256sum |
 jq -en '{repositories:[{imageTagMutability:"IMMUTABLE"}]}
   | (.repositories | length) == 1 and .repositories[0].imageTagMutability == "IMMUTABLE"' >/dev/null ||
   fail 'current ECR response shape is rejected'
+jq -en '{SecurityGroups:[{IpPermissions:[]}]}
+  | (.SecurityGroups | length) == 1 and (.SecurityGroups[0].IpPermissions | length) == 0' >/dev/null ||
+  fail 'no-ingress security group response is rejected'
 jq -en '{Prefix:"absent/"}
   | ([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' >/dev/null ||
   fail 'empty S3 prefix response without KeyCount is rejected'
