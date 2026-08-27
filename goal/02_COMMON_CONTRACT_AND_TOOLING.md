@@ -21,3 +21,19 @@ Status: **Accepted**.
 change must keep valid AWS/GCP/Azure fixtures aligned and preserve negative
 tests for secrets, mutable tags, unbounded runtime, backend binding, deadline,
 receipt authority, and runner-only destruction.
+
+## Accepted contract boundary
+
+Goal 02 proves the portable lifecycle with a bounded single-node smoke
+workload. It does not yet prove that the dummy image contains the complete
+reviewed ML toolchain or that the final lifecycle works on all three providers.
+[Goal 06](06_CROSS_CLOUD_ACCEPTANCE.md) closes that gap without adding
+production Gold data, model code, large-scale training, or a production ML
+service. The version-1 request, receipt, deadline, identity, and runner-only
+destruction semantics remain the acceptance contract for that final dummy run.
+
+The Goal 06 fixture binds its exact input without changing the accepted
+version-1 schemas: the request binds a content-addressed run-spec object and
+SHA-256; that run spec binds the synthetic Parquet object key, byte size,
+SHA-256, schema, and logical results. Mutable names such as `latest` and broad
+input-prefix discovery are rejected.

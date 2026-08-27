@@ -22,5 +22,7 @@ same binding in a subprocess without changing the caller's environment.
 
 The executable lifecycle and current entry points are summarized in
 [`../docs/operations/lifecycle.md`](../docs/operations/lifecycle.md). Provider
-CLIs and provider-specific scripts remain separate; this directory does not
-pretend a common apply wrapper exists.
+CLIs and provider-specific scripts remain separate. `dummy/dispatch.sh` is only
+a common fail-closed gate and one-provider router: later provider work supplies
+`dummy/providers/PROVIDER.sh`. It never contains provider commands or an
+implicit plan/apply sequence, and a missing adapter is a hard failure.

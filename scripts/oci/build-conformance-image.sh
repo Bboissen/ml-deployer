@@ -5,7 +5,7 @@ set -euo pipefail
 readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIRECTORY}/../.." && pwd -P)"
 readonly BUILD_CONTEXT="${REPOSITORY_ROOT}/shared/conformance/oci-ml-smoke"
-readonly IMAGE_TAG="${1:-demo/ml-conformance:review}"
+readonly IMAGE_TAG="${1:-demo/tool-complete-dummy:review}"
 
 fail() {
   printf 'build-conformance-image: ERROR: %s\n' "$1" >&2
@@ -17,13 +17,12 @@ fail() {
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 docker buildx version >/dev/null 2>&1 || fail "docker buildx is required"
 
-source_manifest="$({
-  for relative_path in .dockerignore Dockerfile conformance.py requirements.in requirements.lock; do
-    printf '%s  %s\n' "$(sha256sum "${BUILD_CONTEXT}/${relative_path}" | cut -d' ' -f1)" "$relative_path"
-  done
-} | sha256sum | cut -d' ' -f1)"
+"${SCRIPT_DIRECTORY}/verify-image-source-manifest.sh" >/dev/null
+source_manifest="$(sha256sum "${BUILD_CONTEXT}/image-source-manifest.json" | cut -d' ' -f1)"
 
-metadata_path="$(mktemp)"
+runtime_directory="${REPOSITORY_ROOT}/.dummy-runtime/build"
+mkdir -p "$runtime_directory"
+metadata_path="$(mktemp "${runtime_directory}/metadata.XXXXXX.json")"
 trap 'rm -f -- "$metadata_path"' EXIT
 
 docker buildx build \

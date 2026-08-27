@@ -1,0 +1,13 @@
+{
+  "files": [
+    {"bytes": 113, "path": ".dockerignore", "sha256": "97eed0eb4917f75dda5efe54d2915cb2b1272225bf7769fb24c08197f2366901"},
+    {"bytes": 1761, "path": "Dockerfile", "sha256": "75e27879469d582b069af79a1ad4f0c7cac4896e9ba4d6ab76999da97f2ada9e"},
+    {"bytes": 47326, "path": "conformance.py", "sha256": "61d0497edaafb4a7c6c6e349ba4e80bf171eb21d7faf95a7308ab93228c12240"},
+    {"bytes": 2214, "path": "expected-output.json", "sha256": "faf89998eeb0867eb9cb3034f14d97f865b5f2992ee2f1554bb0b8a9685b14e5"},
+    {"bytes": 4041, "path": "package-matrix.json", "sha256": "4215dc8a4aa7d8ba9a4083017fe36bf89298fe6b74cc399f6a18c9bb6fb2ab41"},
+    {"bytes": 509, "path": "requirements.in", "sha256": "0b94044188a07e561e61a9ccfa8940142d8115dacd270c3983326743644991d6"},
+    {"bytes": 243663, "path": "requirements.lock", "sha256": "b0da526c30d04795e051671353ccafc85c99fb4ecaf8ee7b88e934659715aec3"},
+    {"bytes": 3027, "path": "test_conformance.py", "sha256": "872edce5786c7da9e397e26430157d1cd1e9d42f025a068b2a6ea55e64b3ebfd"}
+  ],
+  "schema_version": "1.0.0"
+}
