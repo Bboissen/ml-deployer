@@ -6,7 +6,7 @@ The project is infrastructure-only. Model code, training logic, experiment defin
 
 ## Status
 
-Goal 02 of the clean-slate pivot is accepted. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. AWS, Google Cloud and Azure may now begin as isolated provider workstreams from the frozen common contract; no provider stack is runnable yet, and this branch does not authorize or perform any cloud mutation.
+Goal 02 of the clean-slate pivot is accepted. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. AWS Tasks A and B are accepted and applied; no AWS runner exists. Google Cloud and Azure have offline scaffolds and read-only readiness evidence but no accepted platform apply. This branch prepares the common conformance artifact and does not authorize or perform any cloud mutation.
 
 The implementation sequence and acceptance gates are defined in [`goal/README.md`](goal/README.md).
 
@@ -30,6 +30,12 @@ This repository will provide:
 - equivalent deployment outputs and lifecycle commands on all three clouds.
 
 See [`docs/contract.md`](docs/contract.md) and [`docs/architecture.md`](docs/architecture.md).
+
+The repository also contains one bounded, test-only
+[`OCI ML conformance workload`](shared/conformance/README.md). It exercises the
+accepted runtime and representative scientific Python libraries but is not
+model or training code. Its gated cross-cloud workflow is documented in
+[`docs/operations/oci-conformance.md`](docs/operations/oci-conformance.md).
 
 ## Supported platforms
 

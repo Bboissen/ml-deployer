@@ -1,0 +1,16 @@
+# Numerical, tabular, statistical, and machine-learning stack.
+numpy==2.5.2
+scipy==1.18.1
+pandas==3.0.5
+polars==1.44.1
+pyarrow==25.0.1
+duckdb==1.5.5
+scikit-learn==1.9.0
+statsmodels==0.14.6
+xgboost-cpu==3.4.1
+
+# Provider-native object storage through temporary workload identity.
+boto3==1.43.81
+google-cloud-storage==3.13.1
+azure-identity==1.25.3
+azure-storage-blob==12.30.0

@@ -99,3 +99,9 @@ smoke execution, receipt publication and destruction evidence remain pending
 their exact review gates. The first live plan must also prove that subscription
 policy and the target storage account accept the version-2 Blob-path ABAC
 conditions. None of the Goal 05 acceptance bullets is claimed by readiness.
+
+The common `oci-ml-smoke` fixture is the intended Task C workload after state
+and platform acceptance. ACR must expose the exact manifest digest proven in
+ECR and Artifact Registry, and the same run-spec bytes must be stored as an
+immutable Blob version. Fixture preparation does not authorize any Azure
+resource creation, image push, object upload or runner apply.

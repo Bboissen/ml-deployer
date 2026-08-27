@@ -10,6 +10,7 @@ required_files=(
   docs/architecture.md
   docs/contract.md
   docs/operations/interface.md
+  docs/operations/oci-conformance.md
   docs/operations/aws-platform-acceptance.md
   docs/operations/rights-readiness.md
   docs/preservation.md
@@ -27,11 +28,20 @@ required_files=(
   shared/bootstrap/README.md
   shared/bootstrap/deadline-marker.sh
   shared/bootstrap/guest-runner.sh
+  shared/conformance/README.md
+  shared/conformance/oci-ml-smoke/.dockerignore
+  shared/conformance/oci-ml-smoke/Dockerfile
+  shared/conformance/oci-ml-smoke/conformance.py
+  shared/conformance/oci-ml-smoke/requirements.in
+  shared/conformance/oci-ml-smoke/requirements.lock
+  shared/conformance/oci-ml-smoke/run-spec.example.json
   shared/contracts/command-result.schema.json
   shared/contracts/completion-receipt.schema.json
   shared/contracts/deployment-index.schema.json
   shared/contracts/local-execution-receipt.schema.json
   shared/contracts/resource-profiles.json
+  shared/contracts/result-manifest.schema.json
+  shared/contracts/result-manifest-fixtures/valid-conformance.json
   shared/contracts/runner-request.schema.json
   shared/contracts/fixtures/valid-aws.json
   shared/contracts/fixtures/valid-gcp.json
@@ -68,15 +78,22 @@ required_files=(
   scripts/validate-completion-receipt.sh
   scripts/validate-deployment-index.sh
   scripts/validate-command-result.sh
+  scripts/validate-result-manifest.sh
   scripts/load-cloud-env.sh
+  scripts/oci/build-conformance-image.sh
+  scripts/oci/verify-provider-digests.sh
   scripts/aws/validate-platform-live.sh
   scripts/aws/validate-platform-iam-simulation.sh
   tests/bootstrap/test-guest-runner.sh
   tests/bootstrap/fixtures/docker
+  tests/conformance/test-oci-ml-smoke.sh
+  tests/conformance/test-oci-tools.sh
+  tests/conformance/fixtures/docker
   tests/contracts/test-runner-contract.sh
   tests/contracts/test-completion-receipt.sh
   tests/contracts/test-deployment-index.sh
   tests/contracts/test-command-result.sh
+  tests/contracts/test-result-manifest.sh
   tests/aws/test-platform-plan.sh
   tests/aws/test-platform-iam-contract.sh
   tests/aws/test-platform-live-validator.sh
@@ -98,6 +115,7 @@ done
 
 if find . -xdev -mindepth 1 \
   -not -path './.git' -not -path './.git/*' \
+  -not -path './shared/conformance/oci-ml-smoke/conformance.py' \
   \( -name '*.py' -o -name 'requirements*.txt' -o -name 'pyproject.toml' \) \
   -print -quit | grep -q .; then
   printf 'ERROR: Python/ML project files remain in the infrastructure repository.\n' >&2
@@ -171,7 +189,10 @@ bash tests/contracts/test-runner-contract.sh
 bash tests/contracts/test-completion-receipt.sh
 bash tests/contracts/test-deployment-index.sh
 bash tests/contracts/test-command-result.sh
+bash tests/contracts/test-result-manifest.sh
 bash tests/bootstrap/test-guest-runner.sh
+bash tests/conformance/test-oci-ml-smoke.sh
+bash tests/conformance/test-oci-tools.sh
 git diff --check
 git diff --cached --check
 

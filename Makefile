@@ -4,7 +4,7 @@ TOFU ?= tofu
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check contract-test scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
+.PHONY: help check contract-test conformance-test oci-conformance-build scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
@@ -17,7 +17,15 @@ contract-test: ## Run the offline provider-neutral request and guest contract te
 	@bash tests/contracts/test-completion-receipt.sh
 	@bash tests/contracts/test-deployment-index.sh
 	@bash tests/contracts/test-command-result.sh
+	@bash tests/contracts/test-result-manifest.sh
 	@bash tests/bootstrap/test-guest-runner.sh
+
+conformance-test: ## Validate the OCI ML smoke source and dependency contract without running it.
+	@bash tests/conformance/test-oci-ml-smoke.sh
+	@bash tests/conformance/test-oci-tools.sh
+
+oci-conformance-build: conformance-test ## Build/import the linux/amd64 smoke image locally; never pushes or runs it.
+	@bash scripts/oci/build-conformance-image.sh
 
 scaffold-test: ## Validate all provider scaffolds without cloud credentials or API calls.
 	@bash tests/aws/test-scaffold.sh

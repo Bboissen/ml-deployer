@@ -7,6 +7,7 @@ Status: **Accepted on 2026-08-26**.
 - Support AWS, Google Cloud and Azure only.
 - Remove DigitalOcean and the old Ray/ML implementation from the active tracked project.
 - Keep model code, XGBoost configuration, trials, ablations, years and result analysis in the ML repository.
+- Permit one bounded test-only OCI fixture to exercise representative Python, statistics, Parquet, DuckDB and CPU XGBoost capabilities without owning a real model or experiment.
 - Accept only an OCI image pinned by digest and an opaque run specification from the ML repository.
 - Let this repository create provider-native runner identities and narrowly scoped storage bindings.
 - Create generic empty object storage on every provider; integrate the Gold lakehouse later through a separate review.

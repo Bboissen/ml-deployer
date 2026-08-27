@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — Tasks A and B accepted; Task C pending reviewed runner preparation**.
+Status: **In progress — Tasks A and B accepted; Task C local conformance build verified, publication review pending**.
 
 ## Objective
 
@@ -156,3 +156,20 @@ Tasks A and B are accepted. Task C is unlocked for a separately reviewed
 runner binding and saved-plan preparation. Applying any future Task C plan,
 publishing OCI or run-spec bytes, destroying resources, pushing, opening a pull
 request or merging requires its applicable explicit gate.
+
+## Task C conformance prerequisite
+
+The test-only `oci-ml-smoke` source now defines the intended first workload. It
+imports and exercises the pinned CPU statistics/ML stack, reads the exact S3
+run-spec version, probes generic data access, and conditionally writes Parquet,
+summary and result-manifest objects through the EC2 workload identity. Its
+source, lock, base image and run-spec hash require review before building the
+publication artifact. A non-running local `linux/amd64` build verified the
+fully hashed 48-package install and all required imports. Its source-manifest
+SHA-256 is `fccf12644384bccb8b603784dd56a69c4c31dfea184063d46bb3cabf8cb0b23e`
+and its local-only image digest is
+`sha256:2a707abb42abaf41eafeab42458bc7aae817d4cb6eb7411d3b2c451cb25ca15c`.
+These are preparation evidence, not an authorized registry digest. ECR
+publication remains a separate mutation, followed by
+a separately reviewed runner saved plan and apply; none is authorized by source
+preparation.

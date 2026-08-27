@@ -13,6 +13,7 @@ This repository creates equivalent, disposable ML execution environments on AWS,
 | Generic data and results storage | Owns resources and access policy | Owns object content and layout |
 | VM image, network and workload identity | Owns | Consumes |
 | OCI training image | Validates digest and launches | Builds, tests and publishes |
+| Test-only OCI conformance image | Owns the bounded acceptance fixture | Replaces it with the real workload image |
 | Run specification | Treats as opaque URI | Defines and validates |
 | Gold manifest, ERD and dataset semantics | Does not interpret | Owns |
 | Trial allocation across clouds | Exposes capacity and deployment interface | Decides |
@@ -26,11 +27,12 @@ This repository creates equivalent, disposable ML execution environments on AWS,
 - Provider-native identities and least-privilege storage access.
 - Single-node CPU runners with bounded lifetimes.
 - Equivalent inputs, outputs, operations and offline tests across providers.
+- One bounded OCI conformance fixture that exercises the infrastructure contract without containing production model logic.
 - Optional interruptible capacity after checkpoint recovery is proven by the ML repository.
 
 ## Out of scope
 
-- Model or feature code, including XGBoost configuration.
+- Production model or feature code, including real XGBoost configuration. The tiny deterministic XGBoost conformance probe is an infrastructure acceptance fixture only.
 - Run, year, family or ablation scheduling logic.
 - Data transformation or Gold lakehouse construction.
 - Cross-cloud distributed clusters or networking.

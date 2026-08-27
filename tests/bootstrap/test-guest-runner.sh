@@ -147,6 +147,7 @@ azure_receipts="${TEMPORARY_DIRECTORY}/azure-receipts"
 mkdir "$azure_receipts"
 run_guest "$azure_receipts" 0 \
   ML_CLOUD_PROVIDER="azure" \
+  ML_WORKLOAD_IDENTITY_CLIENT_ID="44444444-4444-4444-4444-444444444444" \
   ML_OCI_REPOSITORY="exampleml.azurecr.io/ml-runner" \
   ML_RUN_SPEC_URI="https://examplemlresults.blob.core.windows.net/results/run-specs/smoke-001/${RUN_SPEC_SHA256}.json" \
   ML_RUN_SPEC_OBJECT_VERSION="2026-08-26T00:00:00.0000000Z" \
@@ -154,6 +155,7 @@ run_guest "$azure_receipts" 0 \
   ML_RESULTS_URI="https://examplemlresults.blob.core.windows.net/results/runs/smoke-001/results/"
 assert_contains "${azure_receipts}/execution-receipt.local.json" '"provider": "azure"'
 assert_contains "${azure_receipts}/execution-receipt.local.json" '"status": "succeeded"'
+assert_contains "$FAKE_ARGUMENTS" "ML_WORKLOAD_IDENTITY_CLIENT_ID=44444444-4444-4444-4444-444444444444"
 
 failure_receipts="${TEMPORARY_DIRECTORY}/failure-receipts"
 mkdir "$failure_receipts"
@@ -234,6 +236,8 @@ assert_rejected_without_runtime invalid-provider \
   ML_CLOUD_PROVIDER="digitalocean"
 assert_rejected_without_runtime wrong-provider-binding \
   ML_CLOUD_PROVIDER="gcp"
+assert_rejected_without_runtime azure-identity-on-aws \
+  ML_WORKLOAD_IDENTITY_CLIENT_ID="44444444-4444-4444-4444-444444444444"
 assert_rejected_without_runtime credential-query \
   ML_RUN_SPEC_URI="${RUN_SPEC_URI}?sig=secret"
 assert_rejected_without_runtime arbitrary-runtime \

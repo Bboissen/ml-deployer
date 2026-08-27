@@ -90,6 +90,13 @@ The runner must:
 
 The portable guest core is [`../shared/bootstrap/guest-runner.sh`](../shared/bootstrap/guest-runner.sh). Provider wrappers on the runner own image login, run-spec download/checksum verification, bounded-log handling and shutdown integration. They pass typed values and static commands; they may not inject shell fragments into the portable core. They do not possess receipt-publisher authority. A separate provider control-plane publisher enriches the private local outcome with provider facts and conditionally creates the final receipt. A local execution receipt alone is not cloud success evidence.
 
+When a successful workload publishes results, it creates
+`result-manifest.json` last. The manifest follows
+[`../shared/contracts/result-manifest.schema.json`](../shared/contracts/result-manifest.schema.json),
+uses sorted unique safe paths, and binds every preceding result object by byte
+length, media type and SHA-256. The executable validator is normative for the
+ordering, path and aggregate-size semantics that JSON Schema cannot fully bind.
+
 ## Container environment
 
 The final environment names are:
@@ -105,6 +112,11 @@ ML_CLOUD_PROVIDER
 ML_MAX_RUNTIME_MINUTES
 ML_OCI_DIGEST
 ```
+
+Azure runners additionally expose `ML_WORKLOAD_IDENTITY_CLIENT_ID`, a validated
+non-secret UUID that lets the Azure SDK select the exact attached user-assigned
+managed identity. AWS and GCP reject that variable. No token, key, secret or
+provider credential is passed to the container.
 
 No explicit cloud credential is passed. Provider SDKs inside the container discover temporary credentials from the native workload identity.
 

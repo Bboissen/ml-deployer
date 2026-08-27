@@ -8,7 +8,7 @@ Prove that the ML repository can select AWS, Google Cloud or Azure without chang
 
 ## Acceptance scenario
 
-Use one OCI image digest and one semantically identical smoke run specification on all three providers. Provider-local object URIs may differ; the run-spec content and container digest may not.
+Use one OCI image digest and byte-identical `oci-ml-smoke` run specification on all three providers. Provider-local repositories, object URIs and immutable object-version identifiers may differ; the run-spec bytes, container manifest digest and numerical workload may not.
 
 For every provider, capture:
 
@@ -19,6 +19,7 @@ For every provider, capture:
 - provider-side maximum-runtime evidence;
 - container exit status;
 - result and completion-receipt checksums;
+- package-version evidence and deterministic Parquet, summary and result-manifest hashes;
 - post-destroy inventory proving disposable compute is gone;
 - persistent storage verification.
 
@@ -30,6 +31,8 @@ For every provider, capture:
 - One provider failure does not change or corrupt another provider's state or results.
 - Duplicate deployment identifiers fail closed or write to isolated result prefixes.
 - Partial/interrupted output cannot be mistaken for successful completion.
+- ECR, Artifact Registry and ACR expose byte-identical OCI manifest content, not merely equal tags.
+- The smoke proves NumPy, SciPy, pandas, Polars, PyArrow, DuckDB, scikit-learn, statsmodels and CPU XGBoost inside the cloud runner image.
 
 ## Final documentation
 

@@ -8,7 +8,7 @@ Goals 00, 01, 01B and 02 are sequential. After Goal 02 is accepted, the AWS, Goo
 | [01 Clean reset](01_CLEAN_RESET.md) | Accepted | Minimal, honest tracked baseline |
 | [01B Legacy disposition and purge](01B_LEGACY_DISPOSITION_AND_PURGE.md) | Accepted | Quarantined legacy material removed and recovery evidence archived externally |
 | [02 Common contract and tooling](02_COMMON_CONTRACT_AND_TOOLING.md) | Accepted | Frozen OCI, storage, runner and command contracts |
-| [03 AWS](03_AWS.md) | In progress — Tasks A and B accepted | Disposable runner acceptance pending |
+| [03 AWS](03_AWS.md) | In progress — Tasks A and B accepted | Conformance artifact review and disposable runner acceptance pending |
 | [04 Google Cloud](04_GCP.md) | In progress — account readiness verified | Historical-resource adoption, platform and runner acceptance pending |
 | [05 Azure](05_AZURE.md) | In progress — account readiness verified | State bootstrap, platform and runner acceptance pending |
 | [06 Cross-cloud acceptance](06_CROSS_CLOUD_ACCEPTANCE.md) | Not started | One common run contract proven on all providers |
@@ -23,3 +23,4 @@ Goals 00, 01, 01B and 02 are sequential. After Goal 02 is accepted, the AWS, Goo
 - Goal 01B must be accepted before Goal 02 or any provider implementation begins.
 - Goals 03, 04 and 05 branch independently from the accepted Goal 02 baseline; none may alter the frozen common contract or another provider's roots without a separate review.
 - Goal 06 requires accepted evidence from all three provider workstreams.
+- The shared OCI conformance fixture is built once and mirrored without rebuilding; each provider still owns separate publication, runner-apply, receipt and destroy authorization gates.

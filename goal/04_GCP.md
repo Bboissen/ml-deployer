@@ -90,3 +90,10 @@ Every cloud mutation requires its own reviewed saved plan and explicit authoriza
 The fresh read-only inventory portion of Task A is complete. Historical-resource
 classification, state-lineage verification, Tasks B-C and every acceptance
 mutation remain open until separately reviewed and authorized.
+
+The common `oci-ml-smoke` fixture is the intended Task C workload after the
+provider foundation is accepted. Artifact Registry must contain the exact
+manifest digest proven in ECR and ACR, and the same run-spec bytes must be stored
+under a provider-local immutable GCS generation. Fixture preparation does not
+authorize enabling APIs, creating the registry, uploading objects or applying a
+runner.

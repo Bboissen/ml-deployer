@@ -51,3 +51,16 @@ Freeze the provider-neutral interface before any new cloud resource implementati
 The contract is reviewed and frozen before Goal 03 begins. Provider-specific needs may extend implementation details but may not silently change the common interface.
 
 Owner acceptance recorded on 2026-08-26. Provider Goals 03, 04 and 05 may now begin as isolated sibling workstreams from this accepted baseline.
+
+## Post-acceptance conformance fixture
+
+Preparation of the bounded `shared/conformance/oci-ml-smoke` fixture does not
+change contract version `1.0.0`. It supplies the neutral smoke image anticipated
+by the accepted decision and must be reviewed before any registry publication.
+The fixture is built once for `linux/amd64`, mirrored without rebuilding, and
+bound by one manifest digest across ECR, Artifact Registry and ACR. Static tests
+and an optional local image build are preparation only; the workload is executed
+only on reviewed cloud runners. The Azure adapter receives only its attached
+user-assigned identity's non-secret client UUID; a regression rejects this hint
+on AWS/GCP and rejects a missing or malformed Azure hint. This is a typed
+provider adapter detail, not a credential or a new request field.

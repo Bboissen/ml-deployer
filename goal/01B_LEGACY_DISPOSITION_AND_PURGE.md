@@ -68,6 +68,7 @@ The owner accepted this evidence by explicitly authorizing commit, pull request,
 ## Acceptance
 
 - No `artifacts/`, `data/`, old `tofu/`, old `terraform/`, `.gcp-runtime/`, old virtual environment, Python cache or generated ML package metadata remains under the repository root.
+- Any later Python or dependency file is limited to the separately reviewed OCI conformance source; it does not revive the removed legacy ML project.
 - `git status --short --ignored` contains only current-project tooling material expected by the new repository.
 - The external evidence archive passes its SHA-256 manifest verification.
 - The archive contains no ML dataset/artifact bulk and no credential material.

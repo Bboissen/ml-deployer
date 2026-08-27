@@ -25,6 +25,7 @@ runner workload.
 | `ML_DATA_URI` | Absolute object URI under the same URI restrictions |
 | `ML_RESULTS_URI` | Absolute object URI under the same URI restrictions |
 | `ML_CLOUD_PROVIDER` | `aws`, `gcp`, or `azure` |
+| `ML_WORKLOAD_IDENTITY_CLIENT_ID` | Required only for Azure; the non-secret client UUID of the exact user-assigned managed identity |
 | `ML_MAX_RUNTIME_MINUTES` | Integer from 15 through 720 |
 | `ML_CONTAINER_RUNTIME_PATH` | Absolute executable path whose basename is `docker` or `podman` |
 | `ML_RECEIPT_OUTPUT_DIRECTORY` | Existing, writable, non-symlink local directory |
@@ -33,7 +34,9 @@ The script accepts no positional arguments. It invokes the runtime exactly once
 as an attached `run`, using
 `ML_OCI_REPOSITORY@ML_OCI_DIGEST`. The image entrypoint is executed without an
 injected command or shell fragment. The common `ML_*` run values are passed to
-the container as environment variables; cloud credentials are not.
+the container as environment variables; cloud credentials are not. Azure also
+receives the validated workload-identity client UUID so its SDK selects the
+attached user-assigned identity instead of an unavailable system identity.
 
 ## Guest bound and receipt
 
