@@ -15,6 +15,11 @@ readonly OPERATION="$1"
 for command_name in aws base64 jq xxd; do aws_dummy_require_command "$command_name"; done
 aws_dummy_load_scope
 aws_dummy_require_task_b_evidence
+if [[ "$OPERATION" == receipt-publish ]]; then
+  aws_dummy_verify_file_sha256 RECEIPT_BUNDLE RECEIPT_BUNDLE_SHA256
+  aws_dummy_verify_exact_authorization \
+    RECEIPT_PUBLISH_AUTHORIZATION receipt-publish "$RECEIPT_BUNDLE_SHA256"
+fi
 aws_dummy_prepare_fresh_evidence_directory
 
 validate_terminal_receipt_bindings() {

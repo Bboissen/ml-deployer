@@ -240,7 +240,8 @@ if [[ "$OPERATION" == plan ]]; then
 fi
 
 if [[ "$OPERATION" == apply ]]; then
-  aws_dummy_require_file SAVED_PLAN
+  aws_dummy_verify_file_sha256 SAVED_PLAN SAVED_PLAN_SHA256
+  aws_dummy_verify_exact_authorization APPLY_AUTHORIZATION apply "$SAVED_PLAN_SHA256"
   plan_directory="$(cd -- "$(dirname -- "$SAVED_PLAN")" && pwd -P)"
   [[ "$SAVED_PLAN" == "${plan_directory}/runner.tfplan" ]] || aws_dummy_fail 'SAVED_PLAN must be the sealed runner.tfplan'
   AWS_RUNNER_PLAN_DIRECTORY="$plan_directory"
@@ -364,7 +365,8 @@ if [[ "$OPERATION" == destroy-plan ]]; then
 fi
 
 if [[ "$OPERATION" == destroy ]]; then
-  aws_dummy_require_file SAVED_PLAN
+  aws_dummy_verify_file_sha256 SAVED_PLAN SAVED_PLAN_SHA256
+  aws_dummy_verify_exact_authorization DESTROY_AUTHORIZATION destroy "$SAVED_PLAN_SHA256"
   destroy_dir="$(cd -- "$(dirname -- "$SAVED_PLAN")" && pwd -P)"
   [[ "$SAVED_PLAN" == "${destroy_dir}/destroy.tfplan" ]] || aws_dummy_fail 'SAVED_PLAN must be the sealed destroy.tfplan'
   metadata="${destroy_dir}/destroy-plan-metadata.json"

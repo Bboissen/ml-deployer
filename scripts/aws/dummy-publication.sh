@@ -168,7 +168,8 @@ if [[ "$OPERATION" == publication-review ]]; then
   exit 0
 fi
 
-aws_dummy_require_file PUBLICATION_BUNDLE
+aws_dummy_verify_file_sha256 PUBLICATION_BUNDLE PUBLICATION_BUNDLE_SHA256
+aws_dummy_verify_exact_authorization PUBLICATION_AUTHORIZATION publish "$PUBLICATION_BUNDLE_SHA256"
 jq -e \
   --arg kind "$AWS_PUBLICATION_KIND" --arg account "$AWS_ACCOUNT_ID" --arg region "$AWS_REGION" \
   --arg deployment "$DEPLOYMENT_ID" '

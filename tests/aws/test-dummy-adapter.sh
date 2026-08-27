@@ -90,6 +90,17 @@ for readiness_token in \
     fail "readiness collector is missing ${readiness_token}"
 done
 
+for gate_binding in \
+  'dummy-publication.sh:aws_dummy_verify_exact_authorization PUBLICATION_AUTHORIZATION publish' \
+  'dummy-runner.sh:aws_dummy_verify_exact_authorization APPLY_AUTHORIZATION apply' \
+  'dummy-runner.sh:aws_dummy_verify_exact_authorization DESTROY_AUTHORIZATION destroy' \
+  'dummy-receipt.sh:RECEIPT_PUBLISH_AUTHORIZATION receipt-publish'; do
+  gate_script="${gate_binding%%:*}"
+  gate_token="${gate_binding#*:}"
+  grep -Fq "$gate_token" "${REPOSITORY_ROOT}/scripts/aws/${gate_script}" ||
+    fail "direct AWS mutation entrypoint lacks exact authorization gate: ${gate_script}"
+done
+
 readonly POLICY_RESULTS_BUCKET=adapter-results-123456789012-us-east-1
 readonly POLICY_RESULTS_ARN="arn:aws:s3:::${POLICY_RESULTS_BUCKET}"
 readonly POLICY_PATH="${TEST_ROOT}/publisher-policy.json"
@@ -186,6 +197,18 @@ if env PATH="$TEST_PATH" "${common_environment[@]}" \
   fail 'authorized but unsealed runner plan was accepted'
 fi
 [[ ! -e "$MUTATION_MARKER" ]] || fail 'unsealed apply reached AWS/OpenTofu'
+if env PATH="$TEST_PATH" "${common_environment[@]}" \
+  SAVED_PLAN="${TEST_ROOT}/runner.tfplan" SAVED_PLAN_SHA256="$plan_sha" \
+  "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" apply >/dev/null 2>&1; then
+  fail 'direct runner apply without exact authorization was accepted'
+fi
+[[ ! -e "$MUTATION_MARKER" ]] || fail 'unauthorized direct runner apply reached AWS/OpenTofu'
+if env PATH="$TEST_PATH" "${common_environment[@]}" \
+  SAVED_PLAN="${TEST_ROOT}/runner.tfplan" SAVED_PLAN_SHA256="$plan_sha" \
+  "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" destroy >/dev/null 2>&1; then
+  fail 'direct runner destroy without exact authorization was accepted'
+fi
+[[ ! -e "$MUTATION_MARKER" ]] || fail 'unauthorized direct runner destroy reached AWS/OpenTofu'
 
 package_lock_sha="$(sha256sum "${REPOSITORY_ROOT}/shared/conformance/oci-ml-smoke/requirements.lock" | cut -d' ' -f1)"
 source_manifest_sha="$(sha256sum "${REPOSITORY_ROOT}/shared/conformance/oci-ml-smoke/image-source-manifest.json" | cut -d' ' -f1)"
@@ -209,6 +232,15 @@ if env PATH="$TEST_PATH" "${common_environment[@]}" \
   fail 'wrong-account AWS publication binding was accepted'
 fi
 [[ ! -e "$MUTATION_MARKER" ]] || fail 'wrong publication binding reached AWS/Docker'
+if env PATH="$TEST_PATH" "${common_environment[@]}" \
+  PACKAGE_LOCK_SHA256="$package_lock_sha" IMAGE_SOURCE_MANIFEST_SHA256="$source_manifest_sha" \
+  OCI_MANIFEST_DIGEST="sha256:${manifest_hex}" RUN_SPEC_SHA256="$run_spec_sha" INPUT_SHA256="$input_sha" \
+  AWS_PUBLICATION_KIND=input PUBLICATION_BUNDLE="${TEST_ROOT}/wrong-publication.json" \
+  PUBLICATION_BUNDLE_SHA256="$publication_sha" \
+  "${REPOSITORY_ROOT}/scripts/aws/dummy-publication.sh" publish >/dev/null 2>&1; then
+  fail 'direct AWS publication without exact authorization was accepted'
+fi
+[[ ! -e "$MUTATION_MARKER" ]] || fail 'unauthorized direct publication reached AWS/Docker'
 
 jq -n --arg source "${REPOSITORY_ROOT}/shared/conformance/oci-ml-smoke/fixtures/synthetic-input.parquet" \
   --arg source_sha "$input_sha" \
@@ -275,6 +307,15 @@ jq -n --arg sha "$receipt_bundle_sha" '{schema_version:"1.0.0",operation:"receip
 jq -n '{status:"SAVED_PLAN_READY_FOR_EXACT_APPLY_REVIEW", binding:{
   aws_account_id:"123456789012", aws_region:"us-east-1", results_bucket:"ml-results-aws-example",
   resource_prefix:"ml"}}' >"${TEST_ROOT}/receipt-task-b-review.json"
+if env PATH="$TEST_PATH" AWS_PROFILE=test AWS_ACCOUNT_ID=123456789012 AWS_REGION=us-east-1 \
+  AWS_TASK_B_REVIEW="${TEST_ROOT}/receipt-task-b-review.json" \
+  AWS_TASK_B_ACCEPTANCE="${TEST_ROOT}/task-b-acceptance.json" \
+  AWS_PLATFORM_OUTPUTS="${TEST_ROOT}/receipt-platform-outputs.json" \
+  RECEIPT_BUNDLE="${TEST_ROOT}/receipt-bundle.json" RECEIPT_BUNDLE_SHA256="$receipt_bundle_sha" \
+  "${REPOSITORY_ROOT}/scripts/aws/dummy-receipt.sh" receipt-publish >/dev/null 2>&1; then
+  fail 'direct receipt publication without exact authorization was accepted'
+fi
+[[ ! -e "$MUTATION_MARKER" ]] || fail 'unauthorized direct receipt publication reached AWS'
 if env PATH="$TEST_PATH" AWS_PROFILE=test AWS_ACCOUNT_ID=123456789012 AWS_REGION=us-east-1 \
   AWS_TASK_B_REVIEW="${TEST_ROOT}/receipt-task-b-review.json" \
   AWS_TASK_B_ACCEPTANCE="${TEST_ROOT}/task-b-acceptance.json" \

@@ -37,6 +37,36 @@ aws_dummy_require_file() {
     aws_dummy_fail "${name} must name a non-empty regular non-symlink file"
 }
 
+aws_dummy_verify_file_sha256() {
+  local path_name="$1"
+  local hash_name="$2"
+  aws_dummy_require_file "$path_name"
+  aws_dummy_require_sha256 "$hash_name"
+  [[ "$(aws_dummy_file_sha256 "${!path_name}")" == "${!hash_name}" ]] ||
+    aws_dummy_fail "${path_name} does not match ${hash_name}"
+}
+
+aws_dummy_verify_exact_authorization() {
+  local authorization_name="$1"
+  local operation="$2"
+  local artifact_sha256="$3"
+  local expected_sentence
+  aws_dummy_require_file "$authorization_name"
+  expected_sentence="${operation^^} EXACT ARTIFACT sha256:${artifact_sha256} FOR aws"
+  jq -e \
+    --arg operation "$operation" \
+    --arg artifact_sha256 "$artifact_sha256" \
+    --arg authorization "$expected_sentence" \
+    'keys == ["artifact_sha256", "authorization", "operation", "provider", "schema_version"]
+     and .schema_version == "1.0.0"
+     and .operation == $operation
+     and .provider == "aws"
+     and .artifact_sha256 == $artifact_sha256
+     and .authorization == $authorization' \
+    "${!authorization_name}" >/dev/null ||
+    aws_dummy_fail "${authorization_name} does not exactly authorize the reviewed ${operation} artifact"
+}
+
 aws_dummy_require_deployment() {
   [[ "${DEPLOYMENT_ID:-}" =~ ^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$ ]] ||
     aws_dummy_fail 'DEPLOYMENT_ID is required and invalid'
