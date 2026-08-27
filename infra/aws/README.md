@@ -72,10 +72,9 @@ create final control evidence and the terminal receipt.
 
 The receipt publisher receives only `ec2:DescribeInstances` plus scoped
 `scheduler:GetSchedule` for provider lifecycle and independent deadline facts,
-and read access to the exact bounded bootstrap-log and local receipt handoff
-patterns. The common contract does not yet define a canonical result-manifest
-object path, so publisher access to result objects remains explicitly pending
-that reviewed definition.
+and read access to the exact bounded bootstrap-log, local receipt handoff and
+`runs/*/results/result-manifest.json` patterns. It cannot read arbitrary result
+objects.
 
 Runner apply is accepted only from `started_at_utc` through the derived
 `started_at_utc + 5m` latest-apply boundary. The deadline must be after that

@@ -84,7 +84,11 @@ finalize() {
 
 trap finalize EXIT
 
-for executable in /usr/bin/aws /usr/bin/base64 /usr/bin/docker /usr/bin/sha256sum /usr/bin/tail; do
+for service_name in amazon-ssm-agent docker; do
+  /usr/bin/systemctl enable --now "$service_name"
+done
+
+for executable in /usr/bin/aws /usr/bin/base64 /usr/bin/docker /usr/bin/sha256sum /usr/bin/systemctl /usr/bin/tail; do
   [[ -x "$executable" ]] || {
     printf 'aws-runner: required executable is missing: %s\n' "$executable" >&2
     exit 69

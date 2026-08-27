@@ -89,6 +89,7 @@ data "aws_iam_policy_document" "receipt_publisher" {
     resources = [
       "${aws_s3_bucket.workload["results"].arn}/runs/*/control-input/execution-receipt.local.json",
       "${aws_s3_bucket.workload["results"].arn}/runs/*/logs/bootstrap.log",
+      "${aws_s3_bucket.workload["results"].arn}/runs/*/results/result-manifest.json",
     ]
   }
 

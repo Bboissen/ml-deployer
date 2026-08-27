@@ -184,6 +184,12 @@ expect_decision allowed "$(jq -er '.EvaluationResults[0].EvalDecision' <<<"$publ
 publisher_simulation_json="$(aws_read iam simulate-principal-policy \
   --policy-source-arn "$PUBLISHER_ROLE_ARN" \
   --action-names s3:GetObject \
+  --resource-arns "arn:aws:s3:::${RESULTS_BUCKET}/runs/contract-test/results/result-manifest.json")"
+expect_decision allowed "$(jq -er '.EvaluationResults[0].EvalDecision' <<<"$publisher_simulation_json")" 'publisher canonical result-manifest read'
+
+publisher_simulation_json="$(aws_read iam simulate-principal-policy \
+  --policy-source-arn "$PUBLISHER_ROLE_ARN" \
+  --action-names s3:GetObject \
   --resource-arns "arn:aws:s3:::${RESULTS_BUCKET}/runs/contract-test/results/output.json")"
 expect_decision implicitDeny "$(jq -er '.EvaluationResults[0].EvalDecision' <<<"$publisher_simulation_json")" 'publisher arbitrary-result read'
 

@@ -1,6 +1,6 @@
 # Goal 03: AWS
 
-Status: **In progress — Tasks A and B accepted; Task C local conformance build verified, publication review pending**.
+Status: **In progress — Tasks A and B accepted; Task C local conformance build verified, AWS publication and publisher-policy review pending**.
 
 ## Objective
 
@@ -174,3 +174,18 @@ These are preparation evidence, not an authorized registry digest. ECR
 publication remains a separate mutation, followed by
 a separately reviewed runner saved plan and apply; none is authorized by source
 preparation.
+
+The live Task C preflight resolved AWS public SSM parameter
+`/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id` to
+`ami-0fe74bfcad4fd6bd2`, an available x86-64 Amazon Linux 2023 ECS-optimized
+AMI with Docker 25.0.16. `t3.large` is offered in `us-east-1a`; the accepted
+ECR repository and the `run-specs/` results prefix remain empty. The runner
+bootstrap now starts the preinstalled Docker and SSM services explicitly.
+
+The accepted persistent publisher policy predates the canonical result
+manifest and therefore cannot yet attest a successful run. The reviewed source
+extension grants it read access only to
+`runs/*/results/result-manifest.json`, while continuing to deny arbitrary
+result reads. That one-policy platform update requires its own saved plan,
+review and exact apply authorization before Task C can produce a trusted final
+receipt.

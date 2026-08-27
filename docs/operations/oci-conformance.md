@@ -49,10 +49,18 @@ success authority.
 5. Upload the exact bytes of `run-spec.example.json` to each provider-local
    content-addressed run-spec key. Record the S3 version ID, GCS generation, and
    Blob version ID. This is a separately authorized storage mutation.
-6. Prepare and review one disposable-runner saved plan per provider, using the
+6. Before the AWS runner plan, verify that the accepted receipt-publisher
+   policy can read only `runs/*/results/result-manifest.json` in addition to
+   the local receipt and bounded log. Any required persistent-policy update is
+   a separate reviewed platform plan and apply.
+7. Resolve the AWS runner AMI from the reviewed Amazon ECS-optimized Amazon
+   Linux 2023 public SSM parameter and bind the returned x86-64 AMI ID in the
+   saved plan. The image must provide Docker, AWS CLI and SSM Agent; the runner
+   bootstrap starts Docker and SSM explicitly.
+8. Prepare and review one disposable-runner saved plan per provider, using the
    provider-local repository, common digest, provider-local run-spec URI and
    immutable object version.
-7. Apply, observe, publish the trusted final receipt, and destroy one provider
+9. Apply, observe, publish the trusted final receipt, and destroy one provider
    at a time under separate exact authorizations. Never treat one provider's
    acceptance as authorization for another.
 

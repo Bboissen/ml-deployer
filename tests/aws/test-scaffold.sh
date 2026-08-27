@@ -28,9 +28,19 @@ publisher_policy="$({
   sed -n '/data "aws_iam_policy_document" "receipt_publisher"/,/resource "aws_iam_role_policy" "receipt_publisher"/p' \
     "${REPOSITORY_ROOT}/infra/aws/platform/iam.tf"
 })"
-if grep -F '/runs/*/results/' <<<"$publisher_policy" >/dev/null; then
-  printf 'test-aws-scaffold: publisher must not read results before a canonical manifest path is accepted\n' >&2
+grep -F '/runs/*/results/result-manifest.json' <<<"$publisher_policy" >/dev/null || {
+  printf 'test-aws-scaffold: publisher cannot read the exact canonical result manifest\n' >&2
+  exit 1
+}
+if grep -F '/runs/*/results/*' <<<"$publisher_policy" >/dev/null; then
+  printf 'test-aws-scaffold: publisher has broad result-object read access\n' >&2
   exit 1
 fi
+
+rg -F '/usr/bin/systemctl enable --now "$service_name"' \
+  "${REPOSITORY_ROOT}/infra/aws/runner/templates/user-data.sh.tftpl" >/dev/null || {
+  printf 'test-aws-scaffold: runner does not start its reviewed Docker and SSM services\n' >&2
+  exit 1
+}
 
 printf 'test-aws-scaffold: PASS\n'

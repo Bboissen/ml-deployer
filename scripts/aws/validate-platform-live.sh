@@ -327,7 +327,8 @@ jq -e \
   ' <<<"$deployer_policy_json" >/dev/null || fail 'live deployer policy violates the closed runner boundary'
 
 publisher_policy_json="$(aws_read iam get-role-policy --role-name "$PUBLISHER_ROLE_NAME" --policy-name "${RESOURCE_PREFIX}-conditional-receipt-create")"
-jq -e '
+jq -e --arg results "$RESULTS_BUCKET_ARN" '
+  def statement($sid): first(.PolicyDocument.Statement[] | select(.Sid == $sid));
   ([.PolicyDocument.Statement[].Sid] | sort) == ([
     "ConditionallyCreateControlEvidenceAndReceipts",
     "ReadBoundedRunnerEvidence",
@@ -335,7 +336,11 @@ jq -e '
     "ReadRunnerDeadlineSchedule",
     "ReadRunnerLifecycleFacts"
   ] | sort) and
-  (.PolicyDocument.Statement | tostring | contains("/runs/*/results/") | not)
+  (statement("ReadBoundedRunnerEvidence").Resource | sort) == ([
+    $results + "/runs/*/control-input/execution-receipt.local.json",
+    $results + "/runs/*/logs/bootstrap.log",
+    $results + "/runs/*/results/result-manifest.json"
+  ] | sort)
 ' <<<"$publisher_policy_json" >/dev/null || fail 'live receipt publisher policy violates the bounded evidence contract'
 
 get_managed_policy_document() {

@@ -152,7 +152,7 @@ variable "resource_prefix" {
 }
 
 variable "ami_id" {
-  description = "Reviewed CPU-only Linux AMI with AWS CLI, Docker, SSM Agent and GNU coreutils installed."
+  description = "Reviewed x86-64 Amazon ECS-optimized Linux AMI with AWS CLI, Docker, SSM Agent and GNU coreutils installed."
   type        = string
 
   validation {
