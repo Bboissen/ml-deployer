@@ -4,12 +4,14 @@ TOFU ?= tofu
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check contract-test conformance-test oci-conformance-build scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
+.PHONY: help check repository-check contract-test conformance-test oci-conformance-build scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
 
-check: ## Run offline repository checks; never contacts a cloud provider.
+check: repository-check contract-test conformance-test scaffold-test fmt-check ## Run every routine offline check; never contacts a cloud provider.
+
+repository-check: ## Check repository structure, documents, JSON and shell syntax.
 	@bash scripts/check-repository.sh
 
 contract-test: ## Run the offline provider-neutral request and guest contract tests.
@@ -29,7 +31,7 @@ oci-conformance-build: conformance-test ## Build/import the linux/amd64 smoke im
 
 scaffold-test: ## Validate all provider scaffolds without cloud credentials or API calls.
 	@bash tests/aws/test-scaffold.sh
-	@bash infra/gcp/tests/validate-offline.sh
+	@bash tests/gcp/test-scaffold.sh
 	@bash tests/azure/test-scaffold.sh
 
 aws-platform-plan-test: ## Validate a sealed AWS platform plan and its review receipt offline.

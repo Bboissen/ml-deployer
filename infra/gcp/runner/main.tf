@@ -170,6 +170,10 @@ resource "google_compute_instance" "runner" {
   network_interface {
     network    = local.platform_binding.network_self_link
     subnetwork = local.platform_binding.subnetwork_self_link
+
+    access_config {
+      network_tier = "STANDARD"
+    }
   }
 
   service_account {

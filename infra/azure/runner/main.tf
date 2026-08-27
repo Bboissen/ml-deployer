@@ -11,6 +11,15 @@ resource "azurerm_user_assigned_identity" "runtime" {
   tags                = merge(local.tags, { request-sha256 = local.request_sha256 })
 }
 
+resource "azurerm_public_ip" "runner" {
+  name                = "${local.name_prefix}-egress"
+  resource_group_name = azurerm_resource_group.runner.name
+  location            = azurerm_resource_group.runner.location
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = local.tags
+}
+
 resource "azurerm_network_interface" "runner" {
   name                = "${local.name_prefix}-nic"
   resource_group_name = azurerm_resource_group.runner.name
@@ -21,6 +30,7 @@ resource "azurerm_network_interface" "runner" {
     name                          = "private"
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.runner.id
   }
 }
 

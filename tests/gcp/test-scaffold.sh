@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# Keep provider scaffold entry points together under tests/<provider>.
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tofu_bin="${TOFU:-tofu}"
-validation_root="$(mktemp -d)"
+test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
+mkdir -p "$test_cache_root"
+chmod 700 "$test_cache_root"
+validation_root="$(mktemp -d "${test_cache_root}/gcp-scaffold.XXXXXX")"
 
 cleanup() {
   if [[ -n "${validation_root:-}" && -d "$validation_root" ]]; then
@@ -60,11 +65,6 @@ if rg -n \
   exit 1
 fi
 
-if rg -n 'access_config[[:space:]]*\{' infra/gcp/runner; then
-  printf 'ERROR: the GCP runner must not define an external-IP access_config block.\n' >&2
-  exit 1
-fi
-
 require_literal() {
   local file="$1"
   local literal="$2"
@@ -113,6 +113,11 @@ validate_policy_shape() {
   local runner_variables="$gcp_root/runner/variables.tf"
   local startup_template="$gcp_root/runner/templates/startup.sh.tftpl"
 
+  reject_literal "$platform_main" 'resource "google_compute_router" "runner"' 'persistent runner-only Cloud Router' || return 1
+  reject_literal "$platform_main" 'resource "google_compute_router_nat" "runner"' 'persistent runner-only Cloud NAT' || return 1
+  require_literal "$runner_main" 'access_config {' 'runner-owned ephemeral public egress address' || return 1
+  require_literal "$runner_main" 'network_tier = "STANDARD"' 'bounded runner-owned network tier' || return 1
+  reject_literal "$runner_main" 'nat_ip =' 'persistent or preallocated runner public IP' || return 1
   reject_literal "$platform_main" 'resource "google_service_account" "runtime"' 'a shared persistent workload service account' || return 1
   reject_literal "$platform_main" 'runtime_data_reader' 'persistent generic workload data IAM' || return 1
   reject_literal "$platform_main" 'deployer_runtime_user' 'persistent deployer actAs IAM' || return 1
