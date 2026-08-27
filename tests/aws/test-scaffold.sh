@@ -6,6 +6,7 @@ readonly VALID_AWS_REQUEST="${REPOSITORY_ROOT}/shared/contracts/fixtures/valid-a
 
 "${REPOSITORY_ROOT}/scripts/aws/validate-scaffold.sh" >/dev/null
 "${REPOSITORY_ROOT}/tests/aws/test-platform-live-validator.sh" >/dev/null
+"${REPOSITORY_ROOT}/tests/aws/test-dummy-adapter.sh" >/dev/null
 
 test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
 mkdir -p "$test_cache_root"

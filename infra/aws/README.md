@@ -24,4 +24,7 @@ make scaffold-test
 For evidence-bound persistent-platform validation, use the explicit
 `aws-platform-plan-test` and `aws-platform-live-check` Make targets described in
 [the acceptance runbook](../../docs/operations/aws-platform-acceptance.md).
+The AWS dummy lifecycle adapter and its required durable evidence inputs are
+documented in
+[the AWS dummy runbook](../../docs/operations/aws-dummy-lifecycle.md).
 No command here authorizes plan application or cloud mutation.

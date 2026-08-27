@@ -1,6 +1,7 @@
 # Goal 03: AWS
 
-Status: **Tasks A and B accepted; runner lifecycle pending**.
+Status: **Tasks A and B accepted; Task C implementation prepared; live
+publisher policy, publication, runner, receipt and destroy acceptance pending**.
 
 The repository records prior acceptance of the state bootstrap and persistent
 platform. External plan/apply evidence and fresh AWS CLI output, not this file,
@@ -37,3 +38,11 @@ Image push and object upload are independent authorized mutations.
   while S3, ECR, platform IAM/network, control evidence, and receipts remain.
 
 No step authorizes the next one automatically.
+
+The accepted Goal 06 Tasks A-C base for this AWS implementation is commit
+`a64586739539e797f829aeeb80b2f974823962d8`. The AWS adapter is
+`scripts/dummy/providers/aws.sh`; its read-only readiness collector, immutable
+publication operations, saved-plan lifecycle and trusted receipt publisher are
+separate narrow scripts under `scripts/aws/`. See
+[`docs/operations/aws-dummy-lifecycle.md`](../docs/operations/aws-dummy-lifecycle.md)
+for the exact evidence and authorization sequence.
