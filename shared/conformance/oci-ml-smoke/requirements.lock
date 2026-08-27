@@ -166,21 +166,21 @@ azure-identity==1.25.3 \
     --hash=sha256:ab23c0d63015f50b630ef6c6cf395e7262f439ce06e5d07a64e874c724f8d9e6 \
     --hash=sha256:f4d0b956a8146f30333e071374171f3cfa7bdb8073adb8c3814b65567aa7447c
     # via -r shared/conformance/oci-ml-smoke/requirements.in
-azure-storage-blob==12.30.0 \
-    --hash=sha256:2cd74d4d5731e5eb6b8d5c5056ee115a5e88f8fdf22517b739836fda685018be \
-    --hash=sha256:d415ac50b67a8da6b3ae7e9f1014b1b55cd7aafa0b8d4ca9b380568dc7360423
+azure-storage-blob==12.30.1 \
+    --hash=sha256:7a24f978c51d56a0375beebffcbe8453e59ae390d2695705848edc75083e4184 \
+    --hash=sha256:7dc09c37f4f58508e20532b4b4c178f4763f41b01e0b9063835b994fd9d2a7b3
     # via -r shared/conformance/oci-ml-smoke/requirements.in
 blinker==1.9.0 \
     --hash=sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf \
     --hash=sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc
     # via flask
-boto3==1.43.81 \
-    --hash=sha256:62ecf695088e06f37500d6cc49a240dc1331379bd5ae992d185fef212038ca29 \
-    --hash=sha256:6e24f98974400a3845223bba77f457be92517f78e2cffadfa273e18ea1fe1944
+boto3==1.43.82 \
+    --hash=sha256:65319e8bba6e30f74a6e2727a5688725222da2ab71c6069bc484ce5bfd101c73 \
+    --hash=sha256:bc5a7824568c117110bac8fe7ccfac63f0a946f253953d42e73a8c1fb65162e0
     # via -r shared/conformance/oci-ml-smoke/requirements.in
-botocore==1.43.81 \
-    --hash=sha256:49eb02dac7eb4418ae589dc0da816d47bf40be1a7ccfdbed5f772c7a2efcf64d \
-    --hash=sha256:a5d343674b63a619b7f1f3caef4eedb403500c7a8b95a9e7d8cac98b95501adb
+botocore==1.43.82 \
+    --hash=sha256:347573c0bab52e29c923e28128764fcc50f469ed98dc5460220026cd3672ac0c \
+    --hash=sha256:97b3e89061decc91e7745d726dae595cbe2053894611c49ea91d6fdcb2ecc36b
     # via
     #   boto3
     #   s3transfer
@@ -2983,10 +2983,7 @@ typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
-    #   aiohttp
-    #   aiosignal
     #   alembic
-    #   anyio
     #   azure-core
     #   azure-identity
     #   azure-storage-blob
@@ -3000,9 +2997,7 @@ typing-extensions==4.16.0 \
     #   pandera
     #   pydantic
     #   pydantic-core
-    #   referencing
     #   sqlalchemy
-    #   starlette
     #   typeguard
     #   typing-inspect
     #   typing-inspection
