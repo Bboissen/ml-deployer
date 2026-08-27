@@ -161,7 +161,7 @@ unset assume_json
 readonly SOURCE_CALLER_ARN="$(jq -er '.Arn' "${EVIDENCE_DIRECTORY}/source-caller.json")"
 readonly ASSUMED_CALLER_ARN="$(jq -er '.Arn' "${EVIDENCE_DIRECTORY}/deployer-assumed-caller.json")"
 readonly LIVE_STATE_VERSION="$(jq -er '.VersionId' "${EVIDENCE_DIRECTORY}/state-object.json")"
-readonly LIVE_PLATFORM_SHA256="$(jq -cS '.platform_contract.value' "$PLATFORM_OUTPUTS" | sha256sum | cut -d' ' -f1)"
+readonly LIVE_PLATFORM_SHA256="$(jq -cSj '.platform_contract.value' "$PLATFORM_OUTPUTS" | sha256sum | cut -d' ' -f1)"
 readonly QUOTA_VALUE="$(jq -er '.Quota.Value' "${EVIDENCE_DIRECTORY}/ec2-standard-quota.json")"
 readonly REQUIRED_VCPU="$(jq -er '.InstanceTypes[0].VCpuInfo.DefaultVCpus' "${EVIDENCE_DIRECTORY}/instance-type.json")"
 readonly PUBLISHER_POLICY="${EVIDENCE_DIRECTORY}/publisher-policy.json"
@@ -191,7 +191,7 @@ jq -e --arg instance_type "$INSTANCE_TYPE" --arg zone "$AVAILABILITY_ZONE" '
 state_lineage_ok=false
 [[ "$LIVE_STATE_VERSION" == "$ACCEPTED_STATE_VERSION" && "$LIVE_PLATFORM_SHA256" == "$ACCEPTED_PLATFORM_SHA256" ]] && state_lineage_ok=true
 platform_resources_ok=false
-jq -e '.Repositories | length == 1 and .Repositories[0].imageTagMutability == "IMMUTABLE"' \
+jq -e '.repositories | length == 1 and .repositories[0].imageTagMutability == "IMMUTABLE"' \
   "${EVIDENCE_DIRECTORY}/ecr-repository.json" >/dev/null &&
   jq -e '.Vpcs | length == 1' "${EVIDENCE_DIRECTORY}/vpc.json" >/dev/null &&
   jq -e '.Subnets | length == 1' "${EVIDENCE_DIRECTORY}/subnet.json" >/dev/null &&
@@ -203,10 +203,14 @@ jq -e '[.Reservations[].Instances[] | select(.State.Name != "terminated")] | len
 schedules_absent=false
 jq -e '.Schedules | length == 0' "${EVIDENCE_DIRECTORY}/schedules.json" >/dev/null && schedules_absent=true
 target_prefixes_empty=false
-jq -e '.KeyCount == 0' "${EVIDENCE_DIRECTORY}/input-prefix.json" >/dev/null &&
-  jq -e '.KeyCount == 0' "${EVIDENCE_DIRECTORY}/run-spec-prefix.json" >/dev/null &&
-  jq -e '.KeyCount == 0' "${EVIDENCE_DIRECTORY}/deployment-prefix.json" >/dev/null &&
-  jq -e '.KeyCount == 0' "${EVIDENCE_DIRECTORY}/receipt-prefix.json" >/dev/null && target_prefixes_empty=true
+jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+  "${EVIDENCE_DIRECTORY}/input-prefix.json" >/dev/null &&
+  jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+    "${EVIDENCE_DIRECTORY}/run-spec-prefix.json" >/dev/null &&
+  jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+    "${EVIDENCE_DIRECTORY}/deployment-prefix.json" >/dev/null &&
+  jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+    "${EVIDENCE_DIRECTORY}/receipt-prefix.json" >/dev/null && target_prefixes_empty=true
 publisher_trust_ok=false
 jq -e --arg deployer "$DEPLOYER_ROLE_ARN" '
   .Role.AssumeRolePolicyDocument.Statement == [{
