@@ -148,12 +148,14 @@ assume_json="$(aws_read sts assume-role \
   --role-arn "$DEPLOYER_ROLE_ARN" \
   --role-session-name "dummy-readiness-${DEPLOYMENT_ID:0:32}" \
   --duration-seconds 900)"
-AWS_ACCESS_KEY_ID="$(jq -er '.Credentials.AccessKeyId' <<<"$assume_json")" \
-AWS_SECRET_ACCESS_KEY="$(jq -er '.Credentials.SecretAccessKey' <<<"$assume_json")" \
-AWS_SESSION_TOKEN="$(jq -er '.Credentials.SessionToken' <<<"$assume_json")" \
-AWS_PROFILE='' AWS_DEFAULT_PROFILE='' AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION" AWS_PAGER='' \
-  command aws sts get-caller-identity --no-cli-pager --output json \
-  >"${EVIDENCE_DIRECTORY}/deployer-assumed-caller.json"
+(
+  unset AWS_PROFILE AWS_DEFAULT_PROFILE
+  AWS_ACCESS_KEY_ID="$(jq -er '.Credentials.AccessKeyId' <<<"$assume_json")" \
+  AWS_SECRET_ACCESS_KEY="$(jq -er '.Credentials.SecretAccessKey' <<<"$assume_json")" \
+  AWS_SESSION_TOKEN="$(jq -er '.Credentials.SessionToken' <<<"$assume_json")" \
+  AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION" AWS_PAGER='' \
+    command aws sts get-caller-identity --no-cli-pager --output json
+) >"${EVIDENCE_DIRECTORY}/deployer-assumed-caller.json"
 unset assume_json
 
 readonly SOURCE_CALLER_ARN="$(jq -er '.Arn' "${EVIDENCE_DIRECTORY}/source-caller.json")"

@@ -90,6 +90,19 @@ for readiness_token in \
     fail "readiness collector is missing ${readiness_token}"
 done
 
+if rg -F "AWS_PROFILE=''" \
+    "${REPOSITORY_ROOT}/scripts/aws/collect-dummy-readiness.sh" \
+    "${REPOSITORY_ROOT}/scripts/aws/prepare-dummy-receipt.sh" \
+    "${REPOSITORY_ROOT}/scripts/aws/dummy-receipt.sh" >/dev/null; then
+  fail 'temporary-role AWS calls select an invalid empty profile instead of unsetting profile variables'
+fi
+for temporary_role_script in \
+  collect-dummy-readiness.sh prepare-dummy-receipt.sh dummy-receipt.sh; do
+  grep -Fq 'unset AWS_PROFILE AWS_DEFAULT_PROFILE' \
+    "${REPOSITORY_ROOT}/scripts/aws/${temporary_role_script}" ||
+    fail "temporary-role AWS calls do not unset inherited profile selection: ${temporary_role_script}"
+done
+
 for gate_binding in \
   'dummy-publication.sh:aws_dummy_verify_exact_authorization PUBLICATION_AUTHORIZATION publish' \
   'dummy-runner.sh:aws_dummy_verify_exact_authorization APPLY_AUTHORIZATION apply' \

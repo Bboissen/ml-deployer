@@ -41,9 +41,10 @@ deployer_access_key="$(jq -er '.Credentials.AccessKeyId' <<<"$source_assume_json
 deployer_secret_key="$(jq -er '.Credentials.SecretAccessKey' <<<"$source_assume_json")"
 deployer_session_token="$(jq -er '.Credentials.SessionToken' <<<"$source_assume_json")"
 publisher_assume_json="$(
+  unset AWS_PROFILE AWS_DEFAULT_PROFILE
   AWS_ACCESS_KEY_ID="$deployer_access_key" AWS_SECRET_ACCESS_KEY="$deployer_secret_key" \
-  AWS_SESSION_TOKEN="$deployer_session_token" AWS_PROFILE='' AWS_DEFAULT_PROFILE='' \
-  AWS_REGION="$AWS_REGION" AWS_DEFAULT_REGION="$AWS_REGION" AWS_PAGER='' \
+  AWS_SESSION_TOKEN="$deployer_session_token" AWS_REGION="$AWS_REGION" \
+  AWS_DEFAULT_REGION="$AWS_REGION" AWS_PAGER='' \
     command aws sts assume-role --role-arn "$PUBLISHER_ROLE_ARN" \
       --role-session-name "trusted-receipt-${DEPLOYMENT_ID:0:30}" --duration-seconds 900 \
       --no-cli-pager --output json
@@ -55,10 +56,13 @@ publisher_session_token="$(jq -er '.Credentials.SessionToken' <<<"$publisher_ass
 unset publisher_assume_json
 
 publisher_aws() {
-  AWS_ACCESS_KEY_ID="$publisher_access_key" AWS_SECRET_ACCESS_KEY="$publisher_secret_key" \
-  AWS_SESSION_TOKEN="$publisher_session_token" AWS_PROFILE='' AWS_DEFAULT_PROFILE='' \
-  AWS_REGION="$AWS_REGION" AWS_DEFAULT_REGION="$AWS_REGION" AWS_PAGER='' \
-    command aws --region "$AWS_REGION" --no-cli-pager "$@" --output json
+  (
+    unset AWS_PROFILE AWS_DEFAULT_PROFILE
+    AWS_ACCESS_KEY_ID="$publisher_access_key" AWS_SECRET_ACCESS_KEY="$publisher_secret_key" \
+    AWS_SESSION_TOKEN="$publisher_session_token" AWS_REGION="$AWS_REGION" \
+    AWS_DEFAULT_REGION="$AWS_REGION" AWS_PAGER='' \
+      command aws --region "$AWS_REGION" --no-cli-pager "$@" --output json
+  )
 }
 
 publisher_aws sts get-caller-identity >"${AWS_EVIDENCE_DIRECTORY}/publisher-caller.json"
