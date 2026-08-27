@@ -151,6 +151,16 @@ variable "resource_prefix" {
   }
 }
 
+variable "deployer_role_arn" {
+  description = "Accepted persistent least-privilege role assumed for disposable runner operations."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$", var.deployer_role_arn))
+    error_message = "deployer_role_arn must be an IAM role ARN."
+  }
+}
+
 variable "ami_id" {
   description = "Reviewed x86-64 Amazon ECS-optimized Linux AMI with AWS CLI, Docker, SSM Agent and GNU coreutils installed."
   type        = string

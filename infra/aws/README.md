@@ -63,6 +63,8 @@ runner operations. Its trust is limited to reviewed temporary-login principals,
 its state access is limited to the AWS runner prefix, and it may create only
 runner-prefixed IAM roles carrying the accepted runtime or deadline boundary.
 It cannot edit its own role, the persistent boundaries or the receipt publisher.
+The runner provider assumes this exact account- and prefix-bound role; the broad
+setup profile is used only to obtain the temporary source session.
 
 The workload identity may conditionally create only its private local receipt
 handoff below `runs/<deployment>/control-input/`. It cannot write the final

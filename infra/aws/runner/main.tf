@@ -113,6 +113,11 @@ resource "aws_instance" "runner" {
     }
 
     precondition {
+      condition     = var.deployer_role_arn == "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${var.resource_prefix}-tofu-deployer"
+      error_message = "deployer_role_arn must bind the accepted account and resource prefix."
+    }
+
+    precondition {
       condition     = var.runner_request.run_spec_uri == local.expected_run_spec_uri
       error_message = "run_spec_uri must exactly match the accepted results bucket, deployment and checksum."
     }

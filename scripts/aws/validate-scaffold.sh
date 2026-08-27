@@ -42,6 +42,12 @@ for root_name in platform runner; do
     fail "${root_name} backend example must enable native lock files"
 done
 
+rg -F 'role_arn     = var.deployer_role_arn' "${AWS_ROOT}/runner/provider.tf" >/dev/null ||
+  fail 'runner provider does not assume the accepted deployer role'
+rg -F 'var.deployer_role_arn == "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${var.resource_prefix}-tofu-deployer"' \
+  "${AWS_ROOT}/runner/main.tf" >/dev/null ||
+  fail 'runner deployer role is not bound to the reviewed account and resource prefix'
+
 if rg -n '^\s*module\s+"' "$AWS_ROOT" --glob '*.tf' >/dev/null; then
   fail 'AWS roots must remain flat and may not hide resources in modules'
 fi
