@@ -41,11 +41,11 @@ dummy-image-build: dummy-image-check ## Build the pinned linux/amd64 image local
 dummy-image-run-local: dummy-image-check ## Run the bounded image against a local provider-shaped object store.
 	@bash scripts/oci/run-dummy-image-local.sh
 
-dummy-lock-refresh: ## Resolve the linux/amd64 Python 3.12 lock using the reviewed uv command.
+dummy-lock-refresh: ## Resolve the linux/amd64 Python 3.14 lock using the reviewed uv command.
 	@command -v uv >/dev/null 2>&1 || { echo 'ERROR: uv is required.' >&2; exit 2; }
 	@UV_CACHE_DIR="$(CURDIR)/.tools/uv-cache" uv pip compile \
 		shared/conformance/oci-ml-smoke/requirements.in \
-		--python-version 3.12 \
+		--python-version 3.14 \
 		--python-platform x86_64-manylinux_2_28 \
 		--resolution highest \
 		--prerelease if-necessary \

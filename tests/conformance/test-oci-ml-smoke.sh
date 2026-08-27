@@ -61,13 +61,21 @@ jq -e \
   and (.schema | length) == 7
 ' "${FIXTURE_DIRECTORY}/fixture-contract.json" >/dev/null || fail "fixture contract is invalid"
 
-readonly EXPECTED_PYTHON_BASE_IMAGE="python:3.12.12-bookworm@sha256:c0abd0758831ad99b7a29e0c1a875da9c4abb9a2e3f21e2eeb585dbcadfb6cd0"
-grep -Fxq "FROM ${EXPECTED_PYTHON_BASE_IMAGE}" "${FIXTURE_DIRECTORY}/Dockerfile" ||
-  fail "Python base image does not match the reviewed Python 3.12.12 digest"
+readonly EXPECTED_PYTHON_BASE_IMAGE="python:3.14.7-slim-bookworm@sha256:6e9a7d1f48cf0127a5be29b58dba0c7f1b59c118619f011b7a6fca28d00adfd4"
+grep -Fxq "FROM ${EXPECTED_PYTHON_BASE_IMAGE} AS base" "${FIXTURE_DIRECTORY}/Dockerfile" ||
+  fail "base stage does not use the reviewed Python 3.14.7 slim digest"
+grep -Fxq "FROM base AS test" "${FIXTURE_DIRECTORY}/Dockerfile" ||
+  fail "test stage does not inherit the reviewed base"
+grep -Fxq "FROM base AS runtime" "${FIXTURE_DIRECTORY}/Dockerfile" ||
+  fail "runtime stage does not inherit the reviewed base"
+grep -Fq 'apt-get install --yes --no-install-recommends libgomp1' \
+  "${FIXTURE_DIRECTORY}/Dockerfile" || fail "slim image does not install the required OpenMP runtime"
 grep -Eq '^# syntax=docker/dockerfile:1\.7@sha256:[0-9a-f]{64}$' \
   "${FIXTURE_DIRECTORY}/Dockerfile" || fail "Dockerfile frontend is not digest-pinned"
 grep -Fq 'python -m pip install --no-cache-dir --only-binary=:all: --require-hashes' \
   "${FIXTURE_DIRECTORY}/Dockerfile" || fail "image install does not require hashes and wheels"
+grep -Fq 'COPY --from=test /opt/python /opt/python' "${FIXTURE_DIRECTORY}/Dockerfile" ||
+  fail "runtime stage does not copy only the tested Python environment"
 grep -Fq 'python -m pip check' "${FIXTURE_DIRECTORY}/Dockerfile" || fail "image does not run pip check"
 grep -Fq 'conformance.py validate-install' "${FIXTURE_DIRECTORY}/Dockerfile" || fail "image does not validate imports"
 grep -Fq 'python -m pytest' "${FIXTURE_DIRECTORY}/Dockerfile" || fail "image does not run fail-closed tests"
@@ -77,7 +85,7 @@ grep -Fq 'ENTRYPOINT ["python", "/opt/conformance/conformance.py", "run"]' \
 
 jq -e '
   .schema_version == "1.0.0"
-  and .python.version == "3.12.12"
+  and .python.version == "3.14.7"
   and .python.platform == "linux/amd64"
   and (.packages | length) == 23
   and ([.packages[].distribution] | unique | length) == 23
