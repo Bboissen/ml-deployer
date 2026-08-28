@@ -358,13 +358,16 @@ if [[ "$OPERATION" == destroy-plan ]]; then
   ' "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan.json" >/dev/null ||
     aws_dummy_fail 'destroy plan is not limited to the exact runner resource allowlist'
   destroy_sha="$(aws_dummy_file_sha256 "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan")"
+  destroy_delete_count="$(jq '[.resource_changes[] | select(.change.actions == ["delete"])] | length' \
+    "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan.json")"
   jq -cn --arg created_at_utc "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" --arg deployment_id "$DEPLOYMENT_ID" \
-    --arg runner_plan_directory "$AWS_RUNNER_PLAN_DIRECTORY" --arg saved_plan_sha256 "$destroy_sha" '
+    --arg runner_plan_directory "$AWS_RUNNER_PLAN_DIRECTORY" --arg saved_plan_sha256 "$destroy_sha" \
+    --argjson delete_count "$destroy_delete_count" '
     {schema_version:"1.0.0", status:"destroy_plan_ready_for_exact_review", provider:"aws",
       created_at_utc:$created_at_utc, deployment_id:$deployment_id,
       runner_plan_directory:$runner_plan_directory,
       saved_plan:{file:"destroy.tfplan", sha256:$saved_plan_sha256,
-        actions:{create:0, update:0, delete:8, replace:0}},
+        actions:{create:0, update:0, delete:$delete_count, replace:0}},
       next_gate:("DESTROY EXACT ARTIFACT sha256:" + $saved_plan_sha256 + " FOR aws")}
   ' >"${AWS_EVIDENCE_DIRECTORY}/destroy-plan-metadata.json"
   aws_dummy_emit_command_result "${AWS_EVIDENCE_DIRECTORY}/command-result.json" destroy \

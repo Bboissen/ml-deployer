@@ -56,7 +56,7 @@ grep -Fq '/var/log/.ml-runner-bootstrap.tail.$$' \
 for runner_plan_token in \
   'aws_iam_role_policy_attachment.ssm' \
   'actions:{create:8, update:0, delete:0, replace:0}' \
-  'actions:{create:0, update:0, delete:8, replace:0}'; do
+  'actions:{create:0, update:0, delete:$delete_count, replace:0}'; do
   grep -Fq "$runner_plan_token" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
     fail "runner saved-plan closure is missing ${runner_plan_token}"
 done
