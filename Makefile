@@ -4,12 +4,14 @@ TOFU ?= tofu
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check contract-test conformance-test oci-conformance-build scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
+.PHONY: help check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
 
-check: ## Run offline repository checks; never contacts a cloud provider.
+check: repository-check contract-test conformance-test dummy-operator-test scaffold-test fmt-check ## Run every routine offline check; never contacts a cloud provider.
+
+repository-check: ## Check repository structure, documents, JSON and shell syntax.
 	@bash scripts/check-repository.sh
 
 contract-test: ## Run the offline provider-neutral request and guest contract tests.
@@ -24,12 +26,75 @@ conformance-test: ## Validate the OCI ML smoke source and dependency contract wi
 	@bash tests/conformance/test-oci-ml-smoke.sh
 	@bash tests/conformance/test-oci-tools.sh
 
+dummy-operator-test: ## Exercise fail-closed shared operator dispatch without provider adapters.
+	@bash tests/dummy/test-operator-interface.sh
+	@bash tests/dummy/test-cross-cloud-acceptance.sh
+
 oci-conformance-build: conformance-test ## Build/import the linux/amd64 smoke image locally; never pushes or runs it.
 	@bash scripts/oci/build-conformance-image.sh
 
+dummy-image-check: conformance-test dummy-operator-test ## Validate the tool-complete dummy source, lock, fixture, and operator boundary.
+
+dummy-image-build: dummy-image-check ## Build the pinned linux/amd64 image locally; never pushes or runs it.
+	@bash scripts/oci/build-conformance-image.sh
+
+dummy-image-run-local: dummy-image-check ## Run the bounded image against a local provider-shaped object store.
+	@bash scripts/oci/run-dummy-image-local.sh
+
+dummy-lock-refresh: ## Resolve the linux/amd64 Python 3.14 lock using the reviewed uv command.
+	@command -v uv >/dev/null 2>&1 || { echo 'ERROR: uv is required.' >&2; exit 2; }
+	@UV_CACHE_DIR="$(CURDIR)/.tools/uv-cache" uv pip compile \
+		shared/conformance/oci-ml-smoke/requirements.in \
+		--python-version 3.14 \
+		--python-platform x86_64-manylinux_2_28 \
+		--resolution highest \
+		--prerelease if-necessary \
+		--generate-hashes \
+		--only-binary :all: \
+		--exclude-newer 2026-08-28 \
+		--custom-compile-command 'make dummy-lock-refresh' \
+		--output-file shared/conformance/oci-ml-smoke/requirements.lock
+
+dummy-preflight: ## Dispatch one provider's read-only readiness checks; requires CLOUD and immutable hashes.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh preflight
+
+dummy-publication-review: ## Dispatch one provider's immutable publication review; does not publish.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh publication-review
+
+dummy-publish: ## Publish only with one provider adapter and an exact publication authorization artifact.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh publish
+
+dummy-plan: ## Create one provider's runner saved plan; never applies it.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh plan
+
+dummy-apply: ## Apply only SAVED_PLAN with an exact APPLY_AUTHORIZATION; never replans.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh apply
+
+dummy-observe: ## Dispatch bounded observation for one exact DEPLOYMENT_ID.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh observe
+
+dummy-receipt-publish: ## Publish one trusted receipt only from an exact authorized receipt bundle.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh receipt-publish
+
+dummy-receipt-check: ## Verify one provider's exact FINAL_RECEIPT without mutation.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh receipt-check
+
+dummy-destroy-plan: ## Create one provider's saved runner-only destroy plan; never applies it.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh destroy-plan
+
+dummy-destroy: ## Apply only a saved destroy plan with exact DESTROY_AUTHORIZATION; never replans.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh destroy
+
+dummy-post-destroy-check: ## Verify one exact runner is absent and persistent storage remains.
+	@CLOUD="$(CLOUD)" bash scripts/dummy/dispatch.sh post-destroy-check
+
+dummy-cross-cloud-acceptance: ## Validate final AWS/GCP/Azure receipts under EVIDENCE_ROOT; read-only.
+	@test -n "$(EVIDENCE_ROOT)" || { echo 'ERROR: EVIDENCE_ROOT is required.' >&2; exit 2; }
+	@bash scripts/dummy/validate-cross-cloud-acceptance.sh "$(EVIDENCE_ROOT)"
+
 scaffold-test: ## Validate all provider scaffolds without cloud credentials or API calls.
 	@bash tests/aws/test-scaffold.sh
-	@bash infra/gcp/tests/validate-offline.sh
+	@bash tests/gcp/test-scaffold.sh
 	@bash tests/azure/test-scaffold.sh
 
 aws-platform-plan-test: ## Validate a sealed AWS platform plan and its review receipt offline.

@@ -21,8 +21,21 @@ expect_rejected() {
 
 "$validator" "$azure_root"
 
-temporary_directory="$(mktemp -d)"
+test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
+mkdir -p "$test_cache_root"
+chmod 700 "$test_cache_root"
+temporary_directory="$(mktemp -d "${test_cache_root}/azure-scaffold.XXXXXX")"
 trap 'find "$temporary_directory" -depth -delete' EXIT
+
+for root_name in bootstrap platform runner; do
+  terraform_data_directory="${temporary_directory}/terraform-${root_name}"
+  mkdir -p "$terraform_data_directory"
+  TF_DATA_DIR="$terraform_data_directory" tofu \
+    -chdir="${azure_root}/${root_name}" init \
+    -backend=false -input=false -lockfile=readonly -no-color >/dev/null
+  TF_DATA_DIR="$terraform_data_directory" tofu \
+    -chdir="${azure_root}/${root_name}" validate -no-color >/dev/null
+done
 
 mkdir -p "${temporary_directory}/request-hash"
 request_fixture="${repo_root}/shared/contracts/fixtures/valid-azure.json"
@@ -40,9 +53,10 @@ sed -i '0,/shared_access_key_enabled[[:space:]]*= false/s//shared_access_key_ena
   "${temporary_directory}/shared-key/bootstrap/main.tf"
 expect_rejected shared-key "${temporary_directory}/shared-key"
 
-cp -R "$azure_root" "${temporary_directory}/public-runner"
-printf '\nresource "azurerm_public_ip" "unsafe" {}\n' >>"${temporary_directory}/public-runner/runner/main.tf"
-expect_rejected public-runner "${temporary_directory}/public-runner"
+cp -R "$azure_root" "${temporary_directory}/inbound-runner"
+sed -i '0,/access[[:space:]]*= "Deny"/s//access = "Allow"/' \
+  "${temporary_directory}/inbound-runner/platform/network.tf"
+expect_rejected inbound-runner "${temporary_directory}/inbound-runner"
 
 cp -R "$azure_root" "${temporary_directory}/missing-deadline"
 sed -i 's/azurerm_dev_test_global_vm_shutdown_schedule/azurerm_disabled_shutdown_schedule/' \

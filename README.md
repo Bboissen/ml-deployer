@@ -1,63 +1,69 @@
 # Multi-cloud ML infrastructure
 
-This repository provisions disposable, single-node ML runners on AWS, Google Cloud, and Azure with OpenTofu.
+This repository provisions one disposable, single-node ML runner on AWS,
+Google Cloud, or Azure. A run stays on one provider; this is not a cross-cloud
+cluster.
 
-The project is infrastructure-only. Model code, training logic, experiment definitions, feature families, years, ablations, and result analysis belong to the separate ML repository.
+The ML repository supplies a digest-pinned OCI image and an opaque validated
+run specification. This repository owns only cloud infrastructure, native
+identity, storage boundaries, runtime deadlines, and acceptance evidence.
 
-## Status
+## Current status
 
-Goal 02 of the clean-slate pivot is accepted. The legacy Ray, DigitalOcean, and embedded ML implementation has been removed from both the tracked project surface and the local workspace. The bounded historical recovery evidence is archived outside the repository. AWS Tasks A and B are accepted and applied; no AWS runner exists. Google Cloud and Azure have offline scaffolds and read-only readiness evidence but no accepted platform apply. This branch prepares the common conformance artifact and does not authorize or perform any cloud mutation.
+- AWS bootstrap and persistent platform acceptance are recorded; runner and
+  trusted-publisher completion remain open.
+- GCP and Azure have offline-valid bootstrap, platform, and runner roots; their
+  live acceptance tasks remain open.
+- [`goal/README.md`](goal/README.md) is the status index. Code, lock files,
+  external saved-plan evidence, and fresh provider CLI output override prose.
 
-The implementation sequence and acceptance gates are defined in [`goal/README.md`](goal/README.md).
+## Start here
 
-## Contract
+Run the complete offline suite:
 
-The ML repository will provide:
+```bash
+make check
+```
 
-- an OCI image reference pinned by `sha256` digest;
-- an opaque run specification URI;
-- a deployment identifier;
-- a requested resource profile and maximum runtime.
+It checks repository invariants, contracts, OCI source, all nine OpenTofu
+roots, provider policy regressions, and formatting. Backend initialization is
+disabled and no cloud API is called.
 
-This repository will provide:
+For account setup, use the provider guide:
 
-- provider account and quota preflight checks;
-- separate protected state storage;
-- generic empty data and results object storage;
-- a provider-native workload identity;
-- a distinct provider control identity for create-only completion receipts;
-- one or more bounded-lifetime VM runners;
-- equivalent deployment outputs and lifecycle commands on all three clouds.
+- [AWS](docs/account-setup/aws.md)
+- [Google Cloud](docs/account-setup/gcp.md)
+- [Azure](docs/account-setup/azure.md)
 
-See [`docs/contract.md`](docs/contract.md) and [`docs/architecture.md`](docs/architecture.md).
+After authenticating manually, load the ignored `.env` binding into the current
+shell:
 
-The repository also contains one bounded, test-only
-[`OCI ML conformance workload`](shared/conformance/README.md). It exercises the
-accepted runtime and representative scientific Python libraries but is not
-model or training code. Its gated cross-cloud workflow is documented in
-[`docs/operations/oci-conformance.md`](docs/operations/oci-conformance.md).
+```bash
+source scripts/load-cloud-env.sh aws   # or gcp / azure
+```
 
-## Supported platforms
-
-| Platform | Planned compute | Workload identity | Object storage |
-| --- | --- | --- | --- |
-| AWS | EC2 | IAM role and instance profile | S3 |
-| Google Cloud | Compute Engine | User-managed service account | Cloud Storage |
-| Azure | Linux Virtual Machine | Managed identity | Blob Storage |
-
-DigitalOcean is not supported.
+The loader validates names and related fields. It does not log in, enable APIs,
+create identities, plan, or apply.
 
 ## Repository layout
 
 ```text
-docs/       Scope, architecture, contract, setup and operations
-goal/       Gated implementation goals and acceptance evidence
-infra/      Provider-specific OpenTofu roots, added by later goals
-shared/     Provider-neutral contracts and bootstrapping templates
-scripts/    Small validation and lifecycle entrypoints
-tests/      Offline and plan-only infrastructure tests
+infra/<provider>/{bootstrap,platform,runner}  independent OpenTofu state roots
+shared/contracts/                            provider-neutral JSON contracts
+shared/bootstrap/                            portable guest execution core
+shared/conformance/                          bounded OCI infrastructure smoke
+scripts/                                     validators and narrow operations
+tests/                                       offline contract/provider tests
+docs/                                        stable design and operator guides
+goal/                                        current implementation gates
 ```
 
-## Safety
+See [architecture](docs/architecture.md), [contract](docs/contract.md), and
+[lifecycle](docs/operations/lifecycle.md).
 
-OpenTofu implementation and cloud application are separate gates. A passing validation or plan does not authorize an apply. Goal 01B removed the temporary quarantine and preserved only the reviewed historical recovery evidence in a verified archive outside the repository; see [`docs/preservation.md`](docs/preservation.md). Common-contract work now proceeds through Goal 02; provider implementation remains gated on its separate review.
+## Mutation boundary
+
+Validation and planning are not apply authorization. Cloud apply, destroy,
+import, state movement, IAM changes, image publication, and object upload each
+require their own exact reviewed scope. An apply consumes the exact saved plan
+that was authorized; it never silently replans.

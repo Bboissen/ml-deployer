@@ -54,6 +54,7 @@ jq -e --slurpfile receipt "$REVIEW_RECEIPT" '
     "ReadWriteRunnerRemoteStateObjects",
     "RequireAcceptedRunnerBoundaries",
     "TagRunnerAtLaunch",
+    "UseReviewedRunnerLaunchDependencies",
     "UseRunnerRemoteState"
   ] | sort) and
   all(statements("data.aws_iam_policy_document.deployer")[]; .effect.constant_value == "Allow") and
@@ -64,11 +65,15 @@ jq -e --slurpfile receipt "$REVIEW_RECEIPT" '
     "arn:aws:s3:::" + binding.state_bucket + "/aws/" + binding.aws_account_id + "/" + binding.aws_region + "/runner/*"
   ] and
   exact_actions("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner"; ["ec2:RunInstances"]) and
+  planned_statement("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner").resources == [
+    "arn:aws:ec2:" + binding.aws_region + ":" + binding.aws_account_id + ":instance/*"
+  ] and
   planned_statement("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner").condition == [{
     test: "StringEquals",
     values: [binding.project_name],
     variable: "aws:RequestTag/Project"
   }] and
+  exact_actions("data.aws_iam_policy_document.deployer"; "UseReviewedRunnerLaunchDependencies"; ["ec2:RunInstances"]) and
   exact_actions("data.aws_iam_policy_document.deployer"; "ManageTaggedRunnerLifecycle"; [
     "ec2:ModifyInstanceAttribute", "ec2:StartInstances", "ec2:StopInstances", "ec2:TerminateInstances"
   ]) and

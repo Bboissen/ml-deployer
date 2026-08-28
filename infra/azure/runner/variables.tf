@@ -381,7 +381,7 @@ variable "admin_username" {
 }
 
 variable "admin_ssh_public_key" {
-  description = "Public SSH key required by Azure; no public IP or inbound SSH rule is created."
+  description = "Public SSH key required by Azure; the runner has no inbound network rule and is managed through provider-native tooling."
   type        = string
 
   validation {

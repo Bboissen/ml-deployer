@@ -335,13 +335,26 @@ data "aws_iam_policy_document" "deployer" {
     sid       = "LaunchTaggedRunner"
     effect    = "Allow"
     actions   = ["ec2:RunInstances"]
-    resources = ["*"]
+    resources = ["arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:instance/*"]
 
     condition {
       test     = "StringEquals"
       variable = "aws:RequestTag/Project"
       values   = [var.project_name]
     }
+  }
+
+  statement {
+    sid     = "UseReviewedRunnerLaunchDependencies"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}::image/*",
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:network-interface/*",
+      aws_security_group.runner.arn,
+      aws_subnet.runner.arn,
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:volume/*",
+    ]
   }
 
   statement {

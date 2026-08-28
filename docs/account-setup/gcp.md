@@ -1,58 +1,50 @@
 # Google Cloud account setup
 
-This guide covers project and workstation readiness only. It does not authorize creating or changing Google Cloud resources.
+These steps establish project access; they do not authorize resource creation
+or adoption of existing resources.
 
-## Existing-resource warning
+## One-time project basics
 
-The pivot audit found existing buckets and service accounts. Do not create replacements or alter their IAM until the GCP adoption decision is reviewed. See [`../preservation.md`](../preservation.md).
+1. Select the intended project and region.
+2. Confirm billing is enabled and inspect organization policies for allowed
+   regions, external addresses, service accounts, and IAM conditions.
+3. Inventory existing buckets, service accounts, IAM, instances, disks, and
+   addresses before choosing `create` or `adopt_managed`.
+4. Confirm that Compute Engine, Cloud Storage, IAM, Artifact Registry, and
+   Cloud Scheduler services are enabled before their first plan.
 
-## Manual project prerequisites
+## Workstation
 
-1. Select the project and confirm its billing account and remaining credit terms.
-2. Configure a billing budget and notification channel.
-3. Select one initial region based on CPU quota, capacity, Gold data location and credit eligibility.
-4. Review inherited IAM convenience roles before accepting bucket access.
-5. Confirm whether organization policies restrict service-account creation, external IPs or allowed regions.
-
-Ordinary Google Cloud budget alerts do not cap spending.
-
-## Workstation authentication
-
-Application Default Credentials are the supported local path. Prefer service-account impersonation to service-account key files:
+Use Application Default Credentials and keyless service-account impersonation:
 
 ```bash
 gcloud auth login
-gcloud auth application-default login --impersonate-service-account DEPLOYER_SERVICE_ACCOUNT
+gcloud auth application-default login \
+  --impersonate-service-account DEPLOYER_SERVICE_ACCOUNT
 gcloud config get-value project
+gcloud compute regions describe REGION --project PROJECT
+gcloud compute instances list --project PROJECT
+gcloud storage buckets list --project PROJECT
 ```
 
-The accepted local deployer is the keyless `tofu-deployer` service account in
-the selected project. Its exact email remains a canonical ignored `.env` value;
-later tasks must validate that binding rather than guess or create another
-identity.
-
-## Read-only quota checks
-
-Inspect project and regional CPU quota before selecting a machine type:
+Put non-secret identifiers in the ignored `.env`, then:
 
 ```bash
-gcloud compute project-info describe
-gcloud compute regions describe REGION
+source scripts/load-cloud-env.sh gcp
 ```
 
-New projects can also have a global CPU quota. The live project value is authoritative.
+## Project identities
 
-## OpenTofu bootstrap expectations
+- Source operator: authenticated human or workload identity.
+- Deployer: keyless service account impersonated by the source operator.
+- Runtime: deployment-unique service account created in runner state.
+- Publisher: persistent keyless service account; never attach or allow the
+  runtime identity to impersonate it.
+- Deadline: runner-owned service account limited to deleting its exact VM.
 
-The GCP bootstrap goal will adopt or create a dedicated private, versioned Cloud Storage state bucket with locking. The platform goal will adopt or create separate generic data and results buckets with uniform bucket-level access and public access prevention.
+Interactive access stays disabled by default. If required, set the platform's
+IAP flag and exact operator principals; use OS Login through IAP. The runner's
+ephemeral outbound address is not an SSH authorization.
 
-No Gold object will be uploaded during platform setup.
-
-## Official references
-
-- [Authentication for Terraform on Google Cloud](https://docs.cloud.google.com/docs/terraform/authentication)
-- [Compute Engine allocation quotas](https://docs.cloud.google.com/compute/resource-usage)
-- [Uniform bucket-level access](https://docs.cloud.google.com/storage/docs/using-uniform-bucket-level-access)
-- [Cloud Storage IAM](https://docs.cloud.google.com/storage/docs/access-control/using-iam-permissions)
-- [Limit VM runtime](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime)
-- [OpenTofu GCS backend](https://opentofu.org/docs/language/settings/backends/gcs/)
+Use the checked-in examples under `infra/gcp/*`. Existing resources require a
+fresh inventory and state-lineage decision before import or IAM change.

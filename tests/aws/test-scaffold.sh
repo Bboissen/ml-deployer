@@ -6,15 +6,28 @@ readonly VALID_AWS_REQUEST="${REPOSITORY_ROOT}/shared/contracts/fixtures/valid-a
 
 "${REPOSITORY_ROOT}/scripts/aws/validate-scaffold.sh" >/dev/null
 "${REPOSITORY_ROOT}/tests/aws/test-platform-live-validator.sh" >/dev/null
+"${REPOSITORY_ROOT}/tests/aws/test-dummy-adapter.sh" >/dev/null
+
+test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
+mkdir -p "$test_cache_root"
+chmod 700 "$test_cache_root"
+temporary_console_directory="$(mktemp -d "${test_cache_root}/aws-scaffold.XXXXXX")"
+trap 'rm -rf -- "$temporary_console_directory"' EXIT
 
 for root_name in bootstrap platform runner; do
   jq -e --raw-input --slurp 'length > 0' \
     <"${REPOSITORY_ROOT}/infra/aws/${root_name}/.terraform.lock.hcl" >/dev/null
+
+  terraform_data_directory="${temporary_console_directory}/terraform-${root_name}"
+  mkdir -p "$terraform_data_directory"
+  TF_DATA_DIR="$terraform_data_directory" tofu \
+    -chdir="${REPOSITORY_ROOT}/infra/aws/${root_name}" init \
+    -backend=false -input=false -lockfile=readonly -no-color >/dev/null
+  TF_DATA_DIR="$terraform_data_directory" tofu \
+    -chdir="${REPOSITORY_ROOT}/infra/aws/${root_name}" validate -no-color >/dev/null
 done
 
 expected_request_sha256="$("${REPOSITORY_ROOT}/scripts/hash-runner-request.sh" "$VALID_AWS_REQUEST")"
-temporary_console_directory="$(mktemp -d)"
-trap 'rm -rf -- "$temporary_console_directory"' EXIT
 request_path_literal="$(jq -Rn --arg value "$VALID_AWS_REQUEST" '$value')"
 actual_request_sha256="$({
   printf 'sha256(jsonencode(jsondecode(file(%s))))\n' "$request_path_literal"
