@@ -1,81 +1,48 @@
 # Goal 03: AWS
 
-Status: **In progress — account readiness verified; state bootstrap pending**.
+Status: **Tasks A and B accepted; Task C implementation prepared; live
+publisher policy, publication, runner, receipt and destroy acceptance pending**.
 
-## Objective
+The repository records prior acceptance of the state bootstrap and persistent
+platform. External plan/apply evidence and fresh AWS CLI output, not this file,
+must re-establish their current state before the next mutation.
 
-Implement and accept the common platform contract on one standalone AWS account using a CPU-only EC2 runner.
+## Task C1: finalize control identities
 
-## Task A: account and state bootstrap
+- Verify temporary source authentication and assumption of the bounded
+  OpenTofu deployer role.
+- Apply the exact reviewed publisher-policy extension required to read only the
+  canonical `result-manifest.json` in addition to bounded log/handoff inputs.
+- Implement and test the trusted publisher invocation outside the runner.
+- Prove the runner cannot assume the publisher and the publisher cannot read
+  arbitrary result objects.
 
-- Reauthenticate with temporary credentials and record a read-only inventory.
-- Verify region, Standard/Spot vCPU quota, budget notifications and S3 account protections.
-- Confirm the historical claim that no old AWS resources exist.
-- Create and accept the protected, versioned S3 state backend with native lockfile support.
+## Task C2: publish immutable inputs
 
-## Task B: persistent platform
+- Build the reviewed `linux/amd64` conformance image once.
+- Publish it to ECR and record the immutable manifest digest.
+- Upload the exact run-spec bytes to the content-addressed key and record its
+  S3 version and SHA-256.
 
-- Create separate private data and results S3 buckets.
-- Create deployer/runtime IAM boundaries without long-lived access keys.
-- Create a distinct receipt-publisher control identity that the runner cannot assume.
-- Create the minimal network needed by a runner managed through Systems Manager.
-- Prove the runner identity has data read and results write access but no state access or infrastructure permissions.
+Image push and object upload are independent authorized mutations.
 
-## Task C: disposable runner
+## Task C3: disposable runner
 
-- Resolve `smoke`, `balanced` and `highmem` profiles against allowed EC2 types.
-- Require IMDSv2 and encrypted storage.
-- Pull the exact OCI digest and execute one opaque run spec.
-- Enforce scheduled termination plus guest shutdown fallback.
-- Prove runner destroy does not touch persistent storage.
+- Refresh account, region, quota, AMI, instance-type, empty-prefix, and backend
+  evidence with AWS CLI.
+- Prepare one runner saved plan bound to the accepted platform contract,
+  deployer role, exact OCI digest, run-spec version, and absolute deadline.
+- Apply once, observe through AWS Systems Manager/provider APIs, publish and
+  verify the trusted final receipt, then destroy from runner state.
+- Prove EC2, disk, instance role, schedule, and runner state are reconciled
+  while S3, ECR, platform IAM/network, control evidence, and receipts remain.
 
-## Acceptance
+No step authorizes the next one automatically.
 
-- Backend write, recovery version and bounded lock contention are proven.
-- A neutral smoke image produces a conditionally created completion receipt in the reserved control prefix, with publisher metadata independently verified.
-- No inbound SSH rule or static cloud credential exists.
-- Maximum runtime is visible through an independent AWS control.
-- A reviewed destroy removes the runner and leaves state/data/results storage intact.
-
-Every cloud mutation requires its own reviewed saved plan and explicit authorization.
-
-## Account-readiness evidence (2026-08-26)
-
-- AWS CLI temporary `login` credentials bind profile `sposhfi-admin` to account
-  `000000000000` in `us-east-1`; no static access key is configured for this
-  repository.
-- Standard On-Demand and Spot quotas are both 8 vCPUs. The account-level S3
-  Block Public Access controls and default EBS encryption are enabled.
-- A USD 25 monthly budget and a service anomaly monitor are present.
-- The live inventory contains no S3 buckets, EC2 instances, EBS volumes or
-  Elastic IP addresses. Default networking remains visible but is not adopted
-  by this evidence.
-- The broad setup user is authenticated. The historical proposed
-  `spotify-tofu-deployer` role is absent and is not an accepted neutral
-  identity name. Task B still owns the reviewed least-privilege IAM boundary;
-  readiness does not authorize creating it.
-
-## Current offline scaffold evidence
-
-- The bootstrap, platform and runner roots are separate flat state boundaries
-  under `infra/aws/` with root-owned provider configuration.
-- OpenTofu is pinned to `1.12.3`; every root pins `hashicorp/aws` `6.61.0` and
-  owns a dependency lock file.
-- The bootstrap scaffold has local state only. Platform and runner backend
-  examples require the accepted S3 bucket and native `use_lockfile = true`.
-- Offline validation covers protected storage, immutable ECR, no-ingress
-  networking, SSM/runtime boundaries, isolated conditional receipt publication,
-  IMDSv2, encrypted runner storage and an absolute EventBridge Scheduler stop.
-- The platform emits a closed canonical binding for the account, region,
-  storage, network, registry and distinct control identities; the runner binds
-  those exact inputs and derives both request and platform hashes locally.
-- The reviewed start and derived five-minute latest-apply window prevent an
-  early or stale apply from extending the provider deadline beyond the accepted
-  maximum runtime.
-- No backend initialization, cloud plan, apply, import or state command has
-  been run for this scaffold.
-
-The account inventory portion of Task A is current, but no backend resource or
-acceptance mutation exists. Backend write/recovery/locking, live IAM, the
-neutral smoke receipt and reviewed runner destruction remain blocked on
-separate plans and explicit authorization.
+The accepted Goal 06 Tasks A-C base for this AWS implementation is commit
+`a64586739539e797f829aeeb80b2f974823962d8`. The AWS adapter is
+`scripts/dummy/providers/aws.sh`; its read-only readiness collector, immutable
+publication operations, saved-plan lifecycle and trusted receipt publisher are
+separate narrow scripts under `scripts/aws/`. See
+[`docs/operations/aws-dummy-lifecycle.md`](../docs/operations/aws-dummy-lifecycle.md)
+for the exact evidence and authorization sequence.

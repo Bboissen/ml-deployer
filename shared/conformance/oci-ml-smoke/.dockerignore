@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!conformance.py
+!expected-output.json
+!package-matrix.json
+!requirements.lock
+!test_conformance.py

@@ -13,22 +13,23 @@ locals {
   latest_apply_at_utc    = timeadd(var.started_at_utc, "5m")
 
   bound_platform_contract = {
-    schema_version                   = "1.0.0"
-    provider                         = "aws"
-    aws_account_id                   = var.aws_account_id
-    aws_region                       = var.aws_region
-    state_bucket_name                = var.backend_bucket_name
-    state_bucket_arn                 = var.state_bucket_arn
-    data_bucket_name                 = var.data_bucket_name
-    data_bucket_arn                  = var.data_bucket_arn
-    results_bucket_name              = var.results_bucket_name
-    results_bucket_arn               = var.results_bucket_arn
-    runner_subnet_id                 = var.subnet_id
-    runner_security_group_id         = var.security_group_id
-    ecr_repository_url               = var.runner_request.oci_repository
-    ecr_repository_arn               = var.ecr_repository_arn
-    runtime_permissions_boundary_arn = var.runtime_permissions_boundary_arn
-    receipt_publisher_role_arn       = var.receipt_publisher_role_arn
+    schema_version                     = "1.0.0"
+    provider                           = "aws"
+    aws_account_id                     = var.aws_account_id
+    aws_region                         = var.aws_region
+    state_bucket_name                  = var.backend_bucket_name
+    state_bucket_arn                   = var.state_bucket_arn
+    data_bucket_name                   = var.data_bucket_name
+    data_bucket_arn                    = var.data_bucket_arn
+    results_bucket_name                = var.results_bucket_name
+    results_bucket_arn                 = var.results_bucket_arn
+    runner_subnet_id                   = var.subnet_id
+    runner_security_group_id           = var.security_group_id
+    ecr_repository_url                 = var.runner_request.oci_repository
+    ecr_repository_arn                 = var.ecr_repository_arn
+    runtime_permissions_boundary_arn   = var.runtime_permissions_boundary_arn
+    scheduler_permissions_boundary_arn = var.scheduler_permissions_boundary_arn
+    receipt_publisher_role_arn         = var.receipt_publisher_role_arn
   }
 
   platform_contract_sha256 = sha256(jsonencode(var.platform_contract))
@@ -56,7 +57,7 @@ resource "aws_instance" "runner" {
   vpc_security_group_ids               = [var.security_group_id]
   associate_public_ip_address          = var.associate_public_ipv4_address
   iam_instance_profile                 = aws_iam_instance_profile.runtime.name
-  instance_initiated_shutdown_behavior = "stop"
+  instance_initiated_shutdown_behavior = "terminate"
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -112,6 +113,11 @@ resource "aws_instance" "runner" {
     }
 
     precondition {
+      condition     = var.deployer_role_arn == "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${var.resource_prefix}-tofu-deployer"
+      error_message = "deployer_role_arn must bind the accepted account and resource prefix."
+    }
+
+    precondition {
       condition     = var.runner_request.run_spec_uri == local.expected_run_spec_uri
       error_message = "run_spec_uri must exactly match the accepted results bucket, deployment and checksum."
     }
@@ -139,9 +145,10 @@ resource "aws_instance" "runner" {
     precondition {
       condition = (
         startswith(var.runtime_permissions_boundary_arn, "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:policy/") &&
+        startswith(var.scheduler_permissions_boundary_arn, "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:policy/") &&
         startswith(var.receipt_publisher_role_arn, "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/")
       )
-      error_message = "Runtime boundary and receipt publisher must bind the reviewed AWS account."
+      error_message = "Runtime and deadline boundaries and the receipt publisher must bind the reviewed AWS account."
     }
 
     precondition {
@@ -158,7 +165,7 @@ resource "aws_instance" "runner" {
 
 resource "aws_scheduler_schedule" "deadline" {
   name                         = "${local.runner_name}-stop"
-  description                  = "Absolute UTC provider-side stop for ${var.runner_request.deployment_id}"
+  description                  = "Absolute UTC provider-side termination for ${var.runner_request.deployment_id}"
   schedule_expression          = "at(${trimsuffix(var.deadline_utc, "Z")})"
   schedule_expression_timezone = "UTC"
   action_after_completion      = "NONE"
@@ -169,7 +176,7 @@ resource "aws_scheduler_schedule" "deadline" {
   }
 
   target {
-    arn      = "arn:${data.aws_partition.current.partition}:scheduler:::aws-sdk:ec2:stopInstances"
+    arn      = "arn:${data.aws_partition.current.partition}:scheduler:::aws-sdk:ec2:terminateInstances"
     role_arn = aws_iam_role.scheduler.arn
     input    = jsonencode({ InstanceIds = [aws_instance.runner.id] })
 

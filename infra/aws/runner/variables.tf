@@ -76,7 +76,7 @@ variable "platform_contract" {
 
   validation {
     condition = try(
-      length(keys(var.platform_contract)) == 16 &&
+      length(keys(var.platform_contract)) == 17 &&
       length(setsubtract(toset(keys(var.platform_contract)), toset([
         "schema_version",
         "provider",
@@ -93,11 +93,12 @@ variable "platform_contract" {
         "ecr_repository_url",
         "ecr_repository_arn",
         "runtime_permissions_boundary_arn",
+        "scheduler_permissions_boundary_arn",
         "receipt_publisher_role_arn",
       ]))) == 0,
       false,
     )
-    error_message = "platform_contract must contain exactly the 16 documented AWS binding fields."
+    error_message = "platform_contract must contain exactly the 17 documented AWS binding fields."
   }
 
   validation {
@@ -150,8 +151,18 @@ variable "resource_prefix" {
   }
 }
 
+variable "deployer_role_arn" {
+  description = "Accepted persistent least-privilege role assumed for disposable runner operations."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$", var.deployer_role_arn))
+    error_message = "deployer_role_arn must be an IAM role ARN."
+  }
+}
+
 variable "ami_id" {
-  description = "Reviewed CPU-only Linux AMI with AWS CLI, Docker, SSM Agent and GNU coreutils installed."
+  description = "Reviewed x86-64 Amazon ECS-optimized Linux AMI with AWS CLI, Docker, SSM Agent and GNU coreutils installed."
   type        = string
 
   validation {
@@ -275,6 +286,16 @@ variable "runtime_permissions_boundary_arn" {
   }
 }
 
+variable "scheduler_permissions_boundary_arn" {
+  description = "Accepted persistent maximum-permissions boundary for provider-side deadline roles."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:policy/[A-Za-z0-9+=,.@_/-]+$", var.scheduler_permissions_boundary_arn))
+    error_message = "scheduler_permissions_boundary_arn must be an IAM policy ARN."
+  }
+}
+
 variable "receipt_publisher_role_arn" {
   description = "Accepted distinct control-plane publisher role explicitly unavailable to the runner."
   type        = string
@@ -347,7 +368,7 @@ variable "root_volume_size_gib" {
 }
 
 variable "tags" {
-  description = "Additional non-secret ownership and cost-allocation tags."
+  description = "Additional non-secret ownership tags."
   type        = map(string)
   default     = {}
 }

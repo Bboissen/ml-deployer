@@ -1,102 +1,115 @@
 # Architecture
 
-## Design principle
+## System boundary
 
-The three providers implement one behavioral contract, not one shared resource graph. AWS, Google Cloud and Azure have different identity, storage, networking and lifecycle semantics, so each provider keeps independent OpenTofu roots.
+This repository creates equivalent infrastructure behavior on AWS, Google
+Cloud, and Azure. It does not own model code, training parameters, data
+transformation, experiment scheduling, or result analysis.
 
-Common work is limited to:
+| Concern | Infrastructure repository | ML repository |
+| --- | --- | --- |
+| Cloud resources, state, IAM, network, deadline | Owns | Does not modify |
+| OCI image | Verifies digest and runs | Builds and publishes |
+| Run specification | Treats as opaque bytes | Defines and validates |
+| Data/results objects | Owns storage and access policy | Owns content |
+| Trial allocation | Exposes independent runners | Chooses provider and trial |
+| Final receipt | Publishes through trusted control identity | Consumes |
 
-- input and output names;
-- OCI and run-spec validation;
-- resource-profile semantics;
-- cloud-init behavior where it is truly portable;
-- lifecycle commands and acceptance evidence;
-- documentation and offline tests.
+DigitalOcean, Ray clusters, cross-cloud networking, local ML execution, and a
+persistent orchestration service are out of scope.
 
 ## Deployment flow
 
 ```text
 ML repository
-  │
-  ├── OCI image pinned by sha256 digest
-  └── opaque run specification URI
-          │
-          ▼
-provider preflight ──> reviewed OpenTofu plan ──> explicit apply authorization
-          │
-          ▼
-short-lived VM + native identity
-  ├── reads provider-local Gold objects
-  ├── pulls the exact OCI image
-  ├── executes one whole trial at a time
-  ├── writes logs and results only to its isolated workload prefix
-  ├── leaves a private local execution receipt outside the container
-  └── stops or is deleted at the provider-side deadline
-          │
-          ▼
-provider control-plane publisher
-  └── conditionally creates the final receipt in a reserved control prefix
+  ├─ OCI repository + sha256 manifest digest
+  └─ immutable provider-local run-spec object
+                 │
+                 ▼
+reviewed runner request ──> saved plan ──> exact authorization
+                 │
+                 ▼
+disposable runner + deployment identity + outbound-only address
+  ├─ reads generic data and its exact run spec
+  ├─ pulls the exact OCI digest
+  ├─ runs the container once
+  ├─ writes only its result/log prefixes and local receipt handoff
+  └─ terminates at the provider deadline
+                 │
+                 ▼
+trusted publisher, never attached to the runner
+  ├─ reads bounded handoff, log, manifest, and provider lifecycle facts
+  └─ conditionally creates evidence and the final completion receipt
+                 │
+                 ▼
+runner-only destroy; platform storage, registry, and receipts remain
 ```
 
-No trial is distributed across providers. Parallelism comes from deploying independent whole trials to different providers.
+## State ownership
 
-The workload identity cannot create or overwrite final receipts. Each provider must implement a distinct control-plane receipt publisher whose credentials are not exposed to the VM or container. Success evaluation combines the closed receipt payload with provider-authenticated object metadata proving that identity performed a create-only publication.
+Each provider has three flat root modules. Provider configuration exists only
+in roots; there is no shared cloud-resource module.
 
-After the common contract is accepted, AWS, Google Cloud and Azure implementation proceeds as three sibling workstreams. Each starts from the same accepted Goal 02 commit and owns only its provider roots. Cross-cloud acceptance waits for all three; one provider must never block, mutate or share state with another.
+| Root | Ownership | Lifetime |
+| --- | --- | --- |
+| `bootstrap` | Remote-state storage only; bootstrap itself keeps local state | Rarely changed |
+| `platform` | Generic storage, registry, trusted publisher, and provider network boundary | Persistent |
+| `runner` | One VM, disk, runtime identity/grants, outbound address, and deadline resources | Disposable |
 
-## Root layout
-
-Each provider will have:
-
-```text
-infra/<provider>/
-  bootstrap/   # local-state, one-time creation of the remote backend
-  platform/    # generic data/results storage, identity and network foundation
-  runner/      # disposable compute and maximum-runtime controls
-```
-
-The roots are separate state boundaries:
-
-- `bootstrap` is rarely changed and cannot depend on its own remote backend.
-- `platform` owns persistent generic infrastructure.
-- `runner` owns disposable, billable compute.
-
-Persistent roots must refuse accidental destroy through lifecycle controls, policy checks and operational gates. Disposable compute must be destroyable without targeting persistent storage.
+State storage is never workload storage. Runner destruction must not use or
+target bootstrap/platform state.
 
 ## Provider mapping
 
 | Capability | AWS | Google Cloud | Azure |
 | --- | --- | --- | --- |
-| Compute | EC2 | Compute Engine | Linux Virtual Machine |
-| Runtime identity | IAM role / instance profile | User-managed service account | Managed identity |
-| State | Versioned S3 backend with native lockfile | Versioned GCS backend with locking | Versioned Blob backend with native locking |
-| Generic data | Private S3 bucket | Private Cloud Storage bucket | Private Blob container |
-| Generic results | Separate private S3 bucket | Separate private Cloud Storage bucket | Separate private Blob container |
-| Administration | Systems Manager | OS Login and IAP when enabled | Run Command |
-| Runtime bound | Scheduled termination plus guest fallback | `max_run_duration` with delete | Fresh absolute auto-shutdown schedule, guest fallback and explicit OpenTofu destroy |
+| Compute | EC2 | Compute Engine | Linux VM |
+| Runtime identity | IAM role/instance profile | Service account | Managed identity |
+| State backend | S3 native lockfile | GCS locking | AzureRM Blob locking |
+| Workload storage | S3 | Cloud Storage | Blob Storage |
+| Registry | ECR | Artifact Registry | ACR |
+| Operator tool | AWS Systems Manager | OS Login/IAP when enabled | Run Command |
+| Runtime deadline | EventBridge Scheduler + guest shutdown | VM max duration + Scheduler delete | Auto-shutdown + guest shutdown |
 
-## Resource profiles
+AWS Systems Manager (SSM) is AWS's provider-native remote-management service.
+It lets an authorized operator inspect or open a session without exposing SSH
+to the internet. GCP IAP and Azure Run Command serve the same operational role.
 
-Profiles describe capacity, not provider SKU names:
+## Network model
 
-| Profile | Minimum shape | Intended use |
-| --- | --- | --- |
-| `smoke` | 2 vCPU, 8 GiB memory | Runtime and access verification |
-| `balanced` | 4 vCPU, 16 GiB memory | Normal fixed trials |
-| `highmem` | 4 vCPU, 32 GiB memory | Memory-heavy feature matrices |
+There is no Tailscale control plane. It would add agents, secrets, routing, and
+another service without improving the normal one-shot workflow.
 
-Every provider preflight must resolve the requested profile to an available regional SKU and fail closed when quota, capacity or subscription policy does not allow it.
+- No provider creates an inbound internet rule by default.
+- GCP and Azure attach outbound addresses to the disposable runner, so those
+  addresses disappear with runner state; persistent Cloud NAT/NAT Gateway is
+  intentionally absent.
+- AWS currently keeps its accepted VPC/subnet/internet-gateway platform graph
+  and gives the runner a public outbound address with a no-ingress security
+  group. Changing accepted live addresses is a separate migration, not a
+  documentation cleanup.
+- All durable inputs, results, logs, and receipts live in provider object
+  storage. The network is transport, not persistent application state.
 
-## Deliberate non-abstractions
+## Storage and identity
 
-- Provider configuration is never hidden inside a common module.
-- IAM policies are not generated from one cross-cloud policy language.
-- Provider-specific security and lifecycle resources remain visible.
-- The platform does not parse ML run parameters.
-- OpenTofu is infrastructure provisioning, not the experiment scheduler.
+Every provider separates state, generic data, and results/control storage.
+Persistent resources are private, encrypted, recoverable, and protected from
+routine destroy. The Gold dataset remains absent until a later reviewed
+integration.
 
-## Shared implementation boundary
+The deployer manages OpenTofu resources. A deployment-unique runtime identity
+can read data/image/run-spec inputs and write only its own outputs. A distinct
+publisher identity can create trusted control evidence and receipts but is
+never exposed to the VM. Any operator/publisher federation or impersonation
+binding is a provider-specific acceptance task.
 
-The shared layer may contain versioned request and receipt schemas, resource-profile capacity floors, valid and invalid fixtures, portable guest execution behavior, normalized command-result envelopes and lifecycle interface specifications.
+## Capacity and termination
 
-The shared layer does not contain provider configuration, backend configuration, IAM generation, registry authentication, storage resources, network resources, machine-SKU mapping or deadline resources. Those remain visible in each provider root even when their external behavior is equivalent.
+Profiles express workload capacity and map to provider SKUs in each runner
+root. Live CLI quota/capacity checks decide what can launch; documentation does
+not impose a separate concurrency or spending ceiling.
+
+Every runner still has a provider-side maximum-runtime safeguard plus guest
+shutdown. Subscription plans, credits, and quotas do not terminate a hung VM
+at the requested deadline.

@@ -5,8 +5,11 @@ Goal 02 freezes these provider-neutral artifacts:
 - `runner-request.schema.json`: one normalized request for one runner state;
 - `completion-receipt.schema.json`: authoritative atomic cloud completion receipt;
 - `local-execution-receipt.schema.json`: portable guest outcome before provider enrichment/upload;
+- `result-manifest.schema.json`: canonical bounded list of workload result objects and content hashes;
 - `deployment-index.schema.json`: discoverability record for isolated runner states;
-- `command-result.schema.json`: common lifecycle command envelope;
+- `command-result.schema.json`: frozen version-1 envelope for `doctor`, `plan`,
+  `observe`, and `destroy`; newer dummy lifecycle operations use their own exact
+  evidence rather than impersonating a version-1 command;
 - `resource-profiles.json`: provider-neutral capacity floors and runtime bounds;
 - `fixtures/`: equivalent valid AWS/GCP/Azure requests and fail-closed examples;
 - `receipt-fixtures/`: terminal completion-receipt examples;

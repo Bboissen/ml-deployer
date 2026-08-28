@@ -1,56 +1,47 @@
 # AWS account setup
 
-This guide covers account and workstation readiness only. It does not authorize creating AWS resources.
+These steps establish basic access; they do not authorize resource creation.
 
-## Manual account prerequisites
+## One-time account basics
 
-1. Protect the root user and enable MFA.
-2. Use a named administrative identity for setup; do not use root for routine work.
-3. Configure a monthly cost budget and cost-anomaly notification.
-4. Confirm account-level S3 Block Public Access.
-5. Select one initial region based on quota, capacity, Gold data location and credit terms.
+1. Protect the root user with MFA and do not use it for routine work.
+2. Create or select a human/SSO identity that can obtain temporary credentials.
+3. Select the target region and confirm account-level S3 Block Public Access.
+4. Confirm that the identity can later create the state backend and the
+   deployer/publisher roles defined by the OpenTofu roots.
+5. Do not create an IAM access key for this repository.
 
-AWS budget data is delayed, so the eventual runner deadline remains the primary compute-cost safeguard.
+## Workstation
 
-## Workstation authentication
-
-Use temporary credentials. Do not create an IAM access key for this repository.
-
-After authenticating with the supported AWS CLI flow, verify the active identity:
+Install AWS CLI v2, authenticate through the organization's supported
+temporary-login flow, and verify the current scope:
 
 ```bash
 aws sts get-caller-identity
 aws configure get region
+aws service-quotas list-service-quotas --service-code ec2 --region REGION
+aws ec2 describe-instances --region REGION
+aws s3api list-buckets
 ```
 
-The accepted provider implementation will obtain workload credentials through an EC2 instance role and IMDSv2.
-
-## Read-only quota checks
-
-Before selecting an instance type, inspect both On-Demand and Spot quota for the chosen region:
+Put non-secret identifiers in the ignored `.env`, then validate/load them:
 
 ```bash
-aws service-quotas list-service-quotas --service-code ec2
+source scripts/load-cloud-env.sh aws
 ```
 
-AWS documents a default of five vCPUs for the Standard On-Demand group and zero for most accelerator-specific groups, but the live account value is authoritative.
+## Project identities
 
-## OpenTofu bootstrap expectations
+- Source operator: temporary human/CI identity.
+- Deployer: the bounded IAM role emitted by `infra/aws/platform`; the runner
+  provider assumes it.
+- Runtime: deployment-specific instance role created by `infra/aws/runner`.
+- Publisher: distinct platform role; never attach or expose it to the runner.
 
-The AWS bootstrap goal will create a dedicated private S3 state bucket with:
+AWS Systems Manager (SSM) is the native remote-management path. The runner AMI
+must contain the SSM Agent, Docker, AWS CLI, and GNU coreutils. The instance
+role attaches `AmazonSSMManagedInstanceCore`; the security group has no inbound
+rule, so SSH and Tailscale are unnecessary for the normal workflow.
 
-- versioning;
-- encryption;
-- account and bucket Block Public Access;
-- TLS-only access;
-- native OpenTofu S3 lockfile support.
-
-The platform goal will create separate data and results buckets. It will not upload Gold data.
-
-## Official references
-
-- [AWS IAM security best practices](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
-- [AWS EC2 instance quotas](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html)
-- [AWS Systems Manager Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html)
-- [S3 security best practices](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html)
-- [OpenTofu S3 backend](https://opentofu.org/docs/language/settings/backends/s3/)
+Use the checked-in example variables/backends under `infra/aws/*`. Never put
+credentials in them, and never initialize placeholders against a real backend.

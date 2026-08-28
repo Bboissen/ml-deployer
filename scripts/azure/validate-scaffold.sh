@@ -123,7 +123,7 @@ for state_field in state_resource_group_name state_storage_account_name state_co
 done
 
 require_match 'sku[[:space:]]*= "Basic"' "${azure_root}/platform/registry.tf" \
-  'the first ACR scaffold must use the lowest-cost viable Basic SKU'
+  'the initial ACR contract expects the simple Basic feature set'
 require_match 'admin_enabled[[:space:]]*= false' "${azure_root}/platform/registry.tf" \
   'ACR admin credentials must be disabled'
 require_match 'anonymous_pull_enabled[[:space:]]*= false' "${azure_root}/platform/registry.tf" \
@@ -160,10 +160,12 @@ publisher_reader_block="$(sed -n '/resource "azurerm_role_assignment" "publisher
 [[ "$publisher_reader_block" == *"SubOperationMatches{'Blob.List'}"* ]] ||
   fail 'publisher evidence reader must deny Blob listing'
 
-require_match 'resource "azurerm_nat_gateway" "outbound"' "${azure_root}/platform/network.tf" \
-  'runner subnet is missing an explicit outbound NAT path'
+reject_match 'resource "azurerm_nat_gateway"|resource "azurerm_public_ip"' "${azure_root}/platform/network.tf" \
+  'persistent platform networking contains runner-only egress resources'
 require_match 'name[[:space:]]*= "DenyAllInbound"' "${azure_root}/platform/network.tf" \
   'runner subnet lacks an explicit no-ingress rule'
+require_fixed 'access                     = "Deny"' "${azure_root}/platform/network.tf" \
+  'runner subnet inbound rule must deny traffic'
 require_match 'private_dns_zone_id[[:space:]]*= azurerm_private_dns_zone.blob.id' "${azure_root}/platform/network.tf" \
   'runner VNet is not linked to private Blob DNS'
 
@@ -171,8 +173,12 @@ reject_match 'resource "azurerm_(storage|container_registry|virtual_network)' "$
   'runner state contains a persistent platform resource'
 require_match 'resource "azurerm_user_assigned_identity" "runtime"' "${azure_root}/runner/main.tf" \
   'runner state must own one unique per-deployment runtime identity'
-reject_match 'resource "azurerm_public_ip"|public_ip_address_id' "${azure_root}/runner" \
-  'runner state exposes a public IP'
+require_match 'resource "azurerm_public_ip" "runner"' "${azure_root}/runner/main.tf" \
+  'runner state must own its disposable outbound address'
+require_match 'public_ip_address_id[[:space:]]*= azurerm_public_ip.runner.id' "${azure_root}/runner/main.tf" \
+  'runner NIC is not bound to its disposable outbound address'
+require_match 'allocation_method[[:space:]]*= "Static"' "${azure_root}/runner/main.tf" \
+  'Azure Standard runner public IP must use static allocation'
 require_match 'disable_password_authentication[[:space:]]*= true' "${azure_root}/runner/main.tf" \
   'runner VM must disable password authentication'
 require_match 'identity_ids[[:space:]]*= \[azurerm_user_assigned_identity.runtime.id\]' "${azure_root}/runner/main.tf" \

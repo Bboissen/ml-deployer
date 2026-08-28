@@ -4,128 +4,88 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+fail() {
+  printf 'check-repository: FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+for command_name in git jq realpath rg; do
+  command -v "$command_name" >/dev/null 2>&1 ||
+    fail "required command is missing: ${command_name}"
+done
+
 required_files=(
   AGENTS.md
   README.md
+  Makefile
   docs/architecture.md
   docs/contract.md
-  docs/operations/interface.md
-  docs/operations/rights-readiness.md
-  docs/preservation.md
-  docs/scope.md
-  docs/storage.md
+  docs/opentofu-architecture.html
+  docs/operations/lifecycle.md
   goal/README.md
-  goal/00_SCOPE_AND_PRESERVATION.md
-  goal/01_CLEAN_RESET.md
-  goal/01B_LEGACY_DISPOSITION_AND_PURGE.md
-  goal/02_COMMON_CONTRACT_AND_TOOLING.md
-  goal/03_AWS.md
-  goal/04_GCP.md
-  goal/05_AZURE.md
-  goal/06_CROSS_CLOUD_ACCEPTANCE.md
-  shared/bootstrap/README.md
-  shared/bootstrap/deadline-marker.sh
-  shared/bootstrap/guest-runner.sh
-  shared/contracts/command-result.schema.json
-  shared/contracts/completion-receipt.schema.json
-  shared/contracts/deployment-index.schema.json
-  shared/contracts/local-execution-receipt.schema.json
-  shared/contracts/resource-profiles.json
   shared/contracts/runner-request.schema.json
-  shared/contracts/fixtures/valid-aws.json
-  shared/contracts/fixtures/valid-gcp.json
-  shared/contracts/fixtures/valid-azure.json
-  shared/contracts/fixtures/invalid-arbitrary-shell.json
-  shared/contracts/fixtures/invalid-deployment-id.json
-  shared/contracts/fixtures/invalid-fractional-runtime.json
-  shared/contracts/fixtures/invalid-interruptible.json
-  shared/contracts/fixtures/invalid-mutable-tag.json
-  shared/contracts/fixtures/invalid-provider-binding.json
-  shared/contracts/fixtures/invalid-secret-field.json
-  shared/contracts/fixtures/invalid-signed-uri.json
-  shared/contracts/fixtures/invalid-unbounded-runtime.json
-  shared/contracts/receipt-fixtures/valid-aws.json
-  shared/contracts/receipt-fixtures/valid-gcp.json
-  shared/contracts/receipt-fixtures/valid-azure.json
-  shared/contracts/receipt-fixtures/valid-bootstrap-failed-aws.json
-  shared/contracts/receipt-fixtures/invalid-backend-binding.json
-  shared/contracts/receipt-fixtures/invalid-deadline-window.json
-  shared/contracts/receipt-fixtures/invalid-profile-floor.json
-  shared/contracts/receipt-fixtures/invalid-publisher-identity.json
-  shared/contracts/receipt-fixtures/invalid-success-exit.json
-  shared/contracts/receipt-fixtures/invalid-success-after-deadline.json
-  shared/contracts/receipt-fixtures/invalid-terminal.json
-  shared/contracts/index-fixtures/valid-aws.json
-  shared/contracts/index-fixtures/invalid-backend-binding.json
-  shared/contracts/command-fixtures/valid-doctor.json
-  shared/contracts/command-fixtures/invalid-null-destroy.json
-  shared/contracts/command-fixtures/invalid-pass-failed-check.json
-  shared/contracts/command-fixtures/invalid-pass-null-scope.json
-  shared/contracts/command-fixtures/invalid-secret-evidence.json
-  scripts/validate-runner-request.sh
-  scripts/hash-runner-request.sh
-  scripts/validate-completion-receipt.sh
-  scripts/validate-deployment-index.sh
-  scripts/validate-command-result.sh
-  scripts/load-cloud-env.sh
-  tests/bootstrap/test-guest-runner.sh
-  tests/bootstrap/fixtures/docker
-  tests/contracts/test-runner-contract.sh
-  tests/contracts/test-completion-receipt.sh
-  tests/contracts/test-deployment-index.sh
-  tests/contracts/test-command-result.sh
+  shared/contracts/completion-receipt.schema.json
+  shared/contracts/result-manifest.schema.json
+  shared/bootstrap/guest-runner.sh
+  shared/conformance/oci-ml-smoke/Dockerfile
+  tests/aws/test-scaffold.sh
+  tests/gcp/test-scaffold.sh
+  tests/azure/test-scaffold.sh
 )
 
 for required_file in "${required_files[@]}"; do
-  if [[ ! -f "$required_file" ]]; then
-    printf 'ERROR: required file is missing: %s\n' "$required_file" >&2
-    exit 1
-  fi
+  [[ -f "$required_file" ]] || fail "required file is missing: ${required_file}"
+done
+
+for provider_name in aws gcp azure; do
+  [[ -f "infra/${provider_name}/README.md" ]] ||
+    fail "missing provider README: ${provider_name}"
+  for root_name in bootstrap platform runner; do
+    root_path="infra/${provider_name}/${root_name}"
+    [[ -d "$root_path" ]] || fail "missing root: ${root_path}"
+    [[ -f "${root_path}/versions.tf" ]] || fail "missing versions.tf: ${root_path}"
+    [[ -f "${root_path}/provider.tf" ]] || fail "missing provider.tf: ${root_path}"
+    [[ -f "${root_path}/.terraform.lock.hcl" ]] ||
+      fail "missing dependency lock: ${root_path}"
+  done
 done
 
 for forbidden_path in artifacts cloud-init configs prompts src terraform tofu; do
-  if [[ -e "$forbidden_path" || -L "$forbidden_path" ]]; then
-    printf 'ERROR: forbidden legacy workspace path remains: %s\n' "$forbidden_path" >&2
-    exit 1
-  fi
+  [[ ! -e "$forbidden_path" && ! -L "$forbidden_path" ]] ||
+    fail "forbidden legacy workspace path remains: ${forbidden_path}"
 done
 
-if find . -xdev -mindepth 1 \
-  -not -path './.git' -not -path './.git/*' \
-  \( -name '*.py' -o -name 'requirements*.txt' -o -name 'pyproject.toml' \) \
-  -print -quit | grep -q .; then
-  printf 'ERROR: Python/ML project files remain in the infrastructure repository.\n' >&2
-  exit 1
+if git ls-files 'docs/ml-project/**' | grep -q .; then
+  fail 'tracked ML-project material is outside this infrastructure repository boundary'
 fi
 
 if find . -xdev -mindepth 1 \
   -not -path './.git' -not -path './.git/*' \
+  -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
+  -not -path './shared/conformance/oci-ml-smoke/conformance.py' \
+  -not -path './shared/conformance/oci-ml-smoke/generate-fixture.py' \
+  -not -path './shared/conformance/oci-ml-smoke/test_conformance.py' \
+  \( -name '*.py' -o -name 'requirements*.txt' -o -name 'pyproject.toml' \) \
+  -print -quit | grep -q .; then
+  fail 'Python or ML project files remain outside the bounded conformance fixture'
+fi
+
+if find . -xdev -mindepth 1 \
+  -not -path './.git' -not -path './.git/*' \
+  -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
   \( -name '.terraform' -o -name '.venv' -o -name '__pycache__' \
      -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '*.tfstate' \
      -o -name '*.tfstate.backup' -o -name '*.tfplan' -o -name '*.pyc' \) \
   -print -quit | grep -q .; then
-  printf 'ERROR: generated provider, Python or runtime material remains in the workspace.\n' >&2
-  exit 1
+  fail 'generated provider, Python, plan, state, or runtime material remains'
 fi
 
 oci_repository="$(sed -n 's/^OCI_REPOSITORY=//p' .env.example)"
 oci_digest="$(sed -n 's/^OCI_DIGEST=//p' .env.example)"
 if [[ ! "$oci_repository" =~ ^[a-z0-9.-]+/[a-z0-9._/-]+$ ]] \
   || [[ "$oci_repository" == *'@'* ]] \
-  || [[ "$oci_digest" != sha256:* ]] \
   || [[ ! "$oci_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  printf 'ERROR: .env.example must separate a tagless OCI repository from a sha256 digest.\n' >&2
-  exit 1
-fi
-
-if ! command -v rg >/dev/null 2>&1; then
-  printf 'ERROR: repository checks require ripgrep (rg).\n' >&2
-  exit 1
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-  printf 'ERROR: repository checks require jq.\n' >&2
-  exit 1
+  fail '.env.example must separate a tagless OCI repository and sha256 digest'
 fi
 
 while IFS= read -r json_file; do
@@ -145,28 +105,20 @@ done < <(
   rg --no-heading --line-number -o \
     '\]\(([^)#]+\.md)(?:#[^)]+)?\)' \
     --replace '$1' \
+    --glob '!docs/ml-project/**' \
     README.md AGENTS.md docs goal infra shared scripts tests
 )
-
-if ((link_failure != 0)); then
-  exit 1
-fi
+((link_failure == 0)) || exit 1
 
 while IFS= read -r shell_file; do
   bash -n "$shell_file"
 done < <(find scripts shared tests -type f -name '*.sh' -print | LC_ALL=C sort)
 
-bash scripts/load-cloud-env.sh invalid >/dev/null 2>&1 && {
-  printf 'ERROR: cloud environment loader accepted an unknown provider.\n' >&2
-  exit 1
-}
+if bash scripts/load-cloud-env.sh invalid >/dev/null 2>&1; then
+  fail 'cloud environment loader accepted an unknown provider'
+fi
 
-bash tests/contracts/test-runner-contract.sh
-bash tests/contracts/test-completion-receipt.sh
-bash tests/contracts/test-deployment-index.sh
-bash tests/contracts/test-command-result.sh
-bash tests/bootstrap/test-guest-runner.sh
 git diff --check
 git diff --cached --check
 
-printf 'Repository and contract checks passed. No cloud command was executed.\n'
+printf 'check-repository: PASS (structure only; no cloud command executed)\n'

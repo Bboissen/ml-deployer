@@ -127,41 +127,6 @@ resource "google_compute_subnetwork" "runner" {
   }
 }
 
-resource "google_compute_router" "runner" {
-  project = var.project_id
-  name    = "${var.name_prefix}-runner-${var.region}"
-  region  = var.region
-  network = google_compute_network.runner.id
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "google_compute_router_nat" "runner" {
-  project                             = var.project_id
-  name                                = "${var.name_prefix}-runner-${var.region}"
-  region                              = var.region
-  router                              = google_compute_router.runner.name
-  nat_ip_allocate_option              = "AUTO_ONLY"
-  source_subnetwork_ip_ranges_to_nat  = "LIST_OF_SUBNETWORKS"
-  enable_endpoint_independent_mapping = true
-
-  subnetwork {
-    name                    = google_compute_subnetwork.runner.id
-    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
-  }
-
-  log_config {
-    enable = true
-    filter = "ERRORS_ONLY"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
 resource "google_service_account" "receipt_publisher" {
   project      = var.project_id
   account_id   = "${var.name_prefix}-receipt-pub"

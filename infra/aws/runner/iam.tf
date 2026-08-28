@@ -1,7 +1,7 @@
 data "aws_partition" "current" {}
 
 locals {
-  runner_name = "${substr(var.resource_prefix, 0, 16)}-${substr(var.runner_request.deployment_id, 0, 24)}-${substr(local.request_sha256, 0, 8)}"
+  runner_name = "${substr(var.resource_prefix, 0, 12)}-run-${substr(var.runner_request.deployment_id, 0, 24)}-${substr(local.request_sha256, 0, 8)}"
 }
 
 data "aws_iam_policy_document" "runtime_assume" {
@@ -149,16 +149,17 @@ data "aws_iam_policy_document" "scheduler_assume" {
 }
 
 resource "aws_iam_role" "scheduler" {
-  name               = "${local.runner_name}-stop"
-  description        = "Independent provider-side absolute deadline for one EC2 runner"
-  assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
+  name                 = "${local.runner_name}-stop"
+  description          = "Independent provider-side absolute deadline for one EC2 runner"
+  assume_role_policy   = data.aws_iam_policy_document.scheduler_assume.json
+  permissions_boundary = var.scheduler_permissions_boundary_arn
 }
 
 data "aws_iam_policy_document" "scheduler" {
   statement {
-    sid       = "StopOnlyThisRunner"
+    sid       = "TerminateOnlyThisRunner"
     effect    = "Allow"
-    actions   = ["ec2:StopInstances"]
+    actions   = ["ec2:TerminateInstances"]
     resources = ["arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:instance/${aws_instance.runner.id}"]
   }
 }

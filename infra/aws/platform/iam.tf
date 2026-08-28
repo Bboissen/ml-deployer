@@ -1,5 +1,37 @@
 data "aws_partition" "current" {}
 
+data "aws_iam_policy_document" "deployer_assume" {
+  statement {
+    sid     = "ReviewedTemporaryPrincipalsOnly"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "AWS"
+      identifiers = var.deployer_principal_arns
+    }
+  }
+}
+
+resource "aws_iam_role" "deployer" {
+  name                 = "${var.resource_prefix}-tofu-deployer"
+  description          = "Least-privilege OpenTofu deployer for disposable Demo AWS runners"
+  assume_role_policy   = data.aws_iam_policy_document.deployer_assume.json
+  max_session_duration = 43200
+
+  lifecycle {
+    prevent_destroy = true
+
+    precondition {
+      condition = alltrue([
+        for arn in var.deployer_principal_arns :
+        strcontains(arn, ":iam::${var.aws_account_id}:")
+      ])
+      error_message = "Deployer trust principals must belong to the reviewed AWS account."
+    }
+  }
+}
+
 data "aws_iam_policy_document" "receipt_publisher_assume" {
   statement {
     sid     = "ReviewedControlPrincipalsOnly"
@@ -8,7 +40,7 @@ data "aws_iam_policy_document" "receipt_publisher_assume" {
 
     principals {
       type        = "AWS"
-      identifiers = var.receipt_publisher_principal_arns
+      identifiers = [aws_iam_role.deployer.arn]
     }
   }
 }
@@ -20,14 +52,6 @@ resource "aws_iam_role" "receipt_publisher" {
 
   lifecycle {
     prevent_destroy = true
-
-    precondition {
-      condition = alltrue([
-        for arn in var.receipt_publisher_principal_arns :
-        strcontains(arn, ":iam::${var.aws_account_id}:")
-      ])
-      error_message = "Receipt publisher trust principals must belong to the reviewed AWS account."
-    }
   }
 }
 
@@ -43,7 +67,7 @@ data "aws_iam_policy_document" "receipt_publisher" {
     sid       = "ReadRunnerDeadlineSchedule"
     effect    = "Allow"
     actions   = ["scheduler:GetSchedule"]
-    resources = ["arn:${data.aws_partition.current.partition}:scheduler:${var.aws_region}:${var.aws_account_id}:schedule/default/${substr(var.resource_prefix, 0, 16)}-*-stop"]
+    resources = ["arn:${data.aws_partition.current.partition}:scheduler:${var.aws_region}:${var.aws_account_id}:schedule/default/${substr(var.resource_prefix, 0, 12)}-run-*-stop"]
   }
 
   statement {
@@ -65,6 +89,7 @@ data "aws_iam_policy_document" "receipt_publisher" {
     resources = [
       "${aws_s3_bucket.workload["results"].arn}/runs/*/control-input/execution-receipt.local.json",
       "${aws_s3_bucket.workload["results"].arn}/runs/*/logs/bootstrap.log",
+      "${aws_s3_bucket.workload["results"].arn}/runs/*/results/result-manifest.json",
     ]
   }
 
@@ -235,4 +260,229 @@ resource "aws_iam_policy" "runtime_boundary" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+data "aws_iam_policy_document" "scheduler_boundary" {
+  statement {
+    sid       = "TerminateTaggedDemoRunner"
+    effect    = "Allow"
+    actions   = ["ec2:TerminateInstances"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Project"
+      values   = [var.project_name]
+    }
+  }
+}
+
+resource "aws_iam_policy" "scheduler_boundary" {
+  name        = "${var.resource_prefix}-scheduler-boundary"
+  description = "Maximum permissions for one provider-side runner termination role"
+  policy      = data.aws_iam_policy_document.scheduler_boundary.json
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+data "aws_iam_policy_document" "deployer" {
+  statement {
+    sid    = "ReadRunnerInfrastructure"
+    effect = "Allow"
+    actions = [
+      "ec2:Describe*",
+      "iam:GetInstanceProfile",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:GetRole",
+      "iam:GetRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole",
+      "iam:ListRolePolicies",
+      "scheduler:GetSchedule",
+      "scheduler:ListSchedules",
+      "sts:GetCallerIdentity",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "UseRunnerRemoteState"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket",
+    ]
+    resources = [var.state_bucket_arn]
+  }
+
+  statement {
+    sid    = "ReadWriteRunnerRemoteStateObjects"
+    effect = "Allow"
+    actions = [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:PutObject",
+    ]
+    resources = [
+      "${var.state_bucket_arn}/aws/${var.aws_account_id}/${var.aws_region}/runner/*",
+    ]
+  }
+
+  statement {
+    sid       = "LaunchTaggedRunner"
+    effect    = "Allow"
+    actions   = ["ec2:RunInstances"]
+    resources = ["arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = [var.project_name]
+    }
+  }
+
+  statement {
+    sid     = "UseReviewedRunnerLaunchDependencies"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}::image/*",
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:network-interface/*",
+      aws_security_group.runner.arn,
+      aws_subnet.runner.arn,
+      "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:volume/*",
+    ]
+  }
+
+  statement {
+    sid    = "ManageTaggedRunnerLifecycle"
+    effect = "Allow"
+    actions = [
+      "ec2:ModifyInstanceAttribute",
+      "ec2:StartInstances",
+      "ec2:StopInstances",
+      "ec2:TerminateInstances",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Project"
+      values   = [var.project_name]
+    }
+  }
+
+  statement {
+    sid       = "TagRunnerAtLaunch"
+    effect    = "Allow"
+    actions   = ["ec2:CreateTags"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values   = ["RunInstances"]
+    }
+  }
+
+  statement {
+    sid    = "ManageOnlyBoundedRunnerRoles"
+    effect = "Allow"
+    actions = [
+      "iam:AttachRolePolicy",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:UpdateAssumeRolePolicy",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${substr(var.resource_prefix, 0, 12)}-run-*",
+    ]
+  }
+
+  statement {
+    sid     = "RequireAcceptedRunnerBoundaries"
+    effect  = "Allow"
+    actions = ["iam:CreateRole"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${substr(var.resource_prefix, 0, 12)}-run-*",
+    ]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "iam:PermissionsBoundary"
+      values = [
+        aws_iam_policy.runtime_boundary.arn,
+        aws_iam_policy.scheduler_boundary.arn,
+      ]
+    }
+  }
+
+  statement {
+    sid    = "ManageOnlyRunnerInstanceProfiles"
+    effect = "Allow"
+    actions = [
+      "iam:AddRoleToInstanceProfile",
+      "iam:CreateInstanceProfile",
+      "iam:DeleteInstanceProfile",
+      "iam:RemoveRoleFromInstanceProfile",
+      "iam:TagInstanceProfile",
+      "iam:UntagInstanceProfile",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:instance-profile/${substr(var.resource_prefix, 0, 12)}-run-*",
+    ]
+  }
+
+  statement {
+    sid     = "PassOnlyRunnerRolesToNativeServices"
+    effect  = "Allow"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:role/${substr(var.resource_prefix, 0, 12)}-run-*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values = [
+        "ec2.amazonaws.com",
+        "scheduler.amazonaws.com",
+      ]
+    }
+  }
+
+  statement {
+    sid    = "ManageOnlyRunnerDeadlineSchedules"
+    effect = "Allow"
+    actions = [
+      "scheduler:CreateSchedule",
+      "scheduler:DeleteSchedule",
+      "scheduler:TagResource",
+      "scheduler:UntagResource",
+      "scheduler:UpdateSchedule",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:scheduler:${var.aws_region}:${var.aws_account_id}:schedule/default/${substr(var.resource_prefix, 0, 12)}-run-*",
+    ]
+  }
+
+  statement {
+    sid       = "AssumeReceiptPublisherForControlPublication"
+    effect    = "Allow"
+    actions   = ["sts:AssumeRole"]
+    resources = [aws_iam_role.receipt_publisher.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "deployer" {
+  name   = "${var.resource_prefix}-disposable-runner-deployer"
+  role   = aws_iam_role.deployer.id
+  policy = data.aws_iam_policy_document.deployer.json
 }

@@ -31,6 +31,7 @@ platform_contract = {
   ecr_repository_url               = "000000000000.dkr.ecr.us-east-1.amazonaws.com/ml-infra/runner"
   ecr_repository_arn               = "arn:aws:ecr:us-east-1:000000000000:repository/ml-infra/runner"
   runtime_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-runtime-boundary"
+  scheduler_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-scheduler-boundary"
   receipt_publisher_role_arn       = "arn:aws:iam::000000000000:role/ml-infra-receipt-publisher"
 }
 
@@ -39,6 +40,7 @@ aws_region     = "us-east-1"
 account_scope  = "000000000000"
 project_name   = "ml-infra"
 resource_prefix = "ml-infra"
+deployer_role_arn = "arn:aws:iam::000000000000:role/ml-infra-tofu-deployer"
 
 ami_id            = "ami-00000000000000000"
 subnet_id         = "subnet-00000000000000000"
@@ -51,6 +53,7 @@ results_bucket_name            = "replace-ml-infra-aws-results-unique"
 results_bucket_arn             = "arn:aws:s3:::replace-ml-infra-aws-results-unique"
 ecr_repository_arn             = "arn:aws:ecr:us-east-1:000000000000:repository/ml-infra/runner"
 runtime_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-runtime-boundary"
+scheduler_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/ml-infra-scheduler-boundary"
 receipt_publisher_role_arn       = "arn:aws:iam::000000000000:role/ml-infra-receipt-publisher"
 
 backend_bucket_name = "replace-ml-infra-aws-state-unique"

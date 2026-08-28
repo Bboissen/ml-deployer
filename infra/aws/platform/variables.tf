@@ -110,19 +110,19 @@ variable "runner_subnet_cidr" {
   }
 }
 
-variable "receipt_publisher_principal_arns" {
-  description = "Reviewed temporary IAM principals allowed to assume the distinct control-plane receipt publisher."
+variable "deployer_principal_arns" {
+  description = "Reviewed temporary IAM principals allowed to assume the least-privilege OpenTofu deployer role."
   type        = list(string)
 
   validation {
     condition = (
-      length(var.receipt_publisher_principal_arns) > 0 &&
+      length(var.deployer_principal_arns) > 0 &&
       alltrue([
-        for arn in var.receipt_publisher_principal_arns :
+        for arn in var.deployer_principal_arns :
         can(regex("^arn:(aws|aws-us-gov):iam::[0-9]{12}:(?:role|user)/[A-Za-z0-9+=,.@_/-]+$", arn))
       ])
     )
-    error_message = "receipt_publisher_principal_arns must contain reviewed IAM role or user ARNs."
+    error_message = "deployer_principal_arns must contain reviewed IAM role or user ARNs."
   }
 }
 

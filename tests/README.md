@@ -1,5 +1,23 @@
 # Tests
 
-Goal 02 contains dependency-free tests for the runner request, completion receipt, deployment index, lifecycle command envelope and portable guest. Provider goals add their own validation, plan-policy, trusted receipt-publication and mocked-provider tests.
+`make check` is the single routine offline entry point. It runs:
 
-Routine tests must use OpenTofu validation, plan mode, mocked providers, or dependency-free policy checks. They must never apply real infrastructure by default.
+1. repository layout, Markdown links, JSON parsing, shell syntax, and diff
+   whitespace checks;
+2. semantic request, receipt, index, command, result-manifest, and guest tests;
+3. static OCI source, dependency, fixture, and registry-tool conformance tests;
+4. fail-closed dummy operator dispatch tests for unsupported providers, missing
+   hashes/adapters/plans, incorrect authorization artifacts, fabricated
+   cross-cloud summaries, and tampered result evidence;
+5. AWS, GCP, and Azure scaffold tests, including locked
+   `tofu init -backend=false` and `tofu validate` for all nine roots;
+6. recursive OpenTofu formatting checks.
+
+Provider scaffold tests also use focused fail-closed mutations for identity,
+backend, digest, result-prefix, receipt-authority, deadline, inbound-network,
+and runner-only ownership invariants.
+
+The default suite never applies infrastructure or contacts cloud APIs.
+Provider downloads may use the OpenTofu registry when the locked package is not
+cached. Evidence-bound AWS plan/live checks and local OCI image import are
+explicit non-default Make targets.
