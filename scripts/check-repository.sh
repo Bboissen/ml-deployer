@@ -63,6 +63,8 @@ if find . -xdev -mindepth 1 \
   -not -path './.git' -not -path './.git/*' \
   -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
   -not -path './shared/conformance/oci-ml-smoke/conformance.py' \
+  -not -path './shared/conformance/oci-ml-smoke/generate-fixture.py' \
+  -not -path './shared/conformance/oci-ml-smoke/test_conformance.py' \
   \( -name '*.py' -o -name 'requirements*.txt' -o -name 'pyproject.toml' \) \
   -print -quit | grep -q .; then
   fail 'Python or ML project files remain outside the bounded conformance fixture'

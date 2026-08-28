@@ -5,10 +5,13 @@
 1. repository layout, Markdown links, JSON parsing, shell syntax, and diff
    whitespace checks;
 2. semantic request, receipt, index, command, result-manifest, and guest tests;
-3. static OCI source and registry-tool conformance tests;
-4. AWS, GCP, and Azure scaffold tests, including locked
+3. static OCI source, dependency, fixture, and registry-tool conformance tests;
+4. fail-closed dummy operator dispatch tests for unsupported providers, missing
+   hashes/adapters/plans, incorrect authorization artifacts, fabricated
+   cross-cloud summaries, and tampered result evidence;
+5. AWS, GCP, and Azure scaffold tests, including locked
    `tofu init -backend=false` and `tofu validate` for all nine roots;
-5. recursive OpenTofu formatting checks.
+6. recursive OpenTofu formatting checks.
 
 Provider scaffold tests also use focused fail-closed mutations for identity,
 backend, digest, result-prefix, receipt-authority, deadline, inbound-network,
