@@ -320,7 +320,9 @@ if [[ "$OPERATION" == destroy-plan ]]; then
   source_root="${AWS_RUNNER_PLAN_DIRECTORY}/source/infra/aws/runner"
   tf_data="${AWS_RUNNER_PLAN_DIRECTORY}/tofu-data"
   TF_DATA_DIR="$tf_data" tofu -chdir="$source_root" state list >"${AWS_EVIDENCE_DIRECTORY}/state-list-before.txt"
-  [[ "$(wc -l <"${AWS_EVIDENCE_DIRECTORY}/state-list-before.txt")" -eq 8 ]] ||
+  sed '/^data\./d' "${AWS_EVIDENCE_DIRECTORY}/state-list-before.txt" \
+    >"${AWS_EVIDENCE_DIRECTORY}/managed-state-list-before.txt"
+  [[ "$(wc -l <"${AWS_EVIDENCE_DIRECTORY}/managed-state-list-before.txt")" -eq 8 ]] ||
     aws_dummy_fail 'runner state does not contain the exact eight-resource lifecycle'
   set +e
   TF_DATA_DIR="$tf_data" tofu -chdir="$source_root" plan -destroy -input=false -lock-timeout=60s -no-color \

@@ -63,6 +63,8 @@ done
 if grep -Fq 'readonly TF_DATA_DIR=' "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh"; then
   fail 'runner plan shadows the OpenTofu TF_DATA_DIR environment variable as readonly'
 fi
+grep -Fq "sed '/^data\\./d'" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
+  fail 'runner destroy preflight counts data sources as disposable resources'
 for absence_code in InvalidInstanceID.NotFound NoSuchEntity ResourceNotFoundException; do
   grep -Fq "$absence_code" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
     fail "post-destroy check lacks exact absence classification for ${absence_code}"
