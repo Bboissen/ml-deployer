@@ -116,6 +116,12 @@ jq -en '{Prefix:"absent/"}
 grep -Fq '([.Contents[]?] | length) == 0' \
   "${REPOSITORY_ROOT}/scripts/aws/dummy-publication.sh" ||
   fail 'publication review does not normalize an empty S3 response without KeyCount'
+grep -Fq 'publication_targets_ready=true' \
+  "${REPOSITORY_ROOT}/scripts/aws/collect-dummy-readiness.sh" ||
+  fail 'readiness cannot distinguish exact published inputs from empty pre-publication targets'
+grep -Fq -- '--checksum-mode ENABLED' \
+  "${REPOSITORY_ROOT}/scripts/aws/collect-dummy-readiness.sh" ||
+  fail 'post-publication readiness does not verify provider checksums'
 if jq -en '{Contents:[{Key:"present"}]}
     | ([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' >/dev/null; then
   fail 'non-empty S3 prefix response was accepted as empty'

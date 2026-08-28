@@ -19,7 +19,7 @@ readonly PLATFORM_OUTPUTS="$4"
 readonly DEPLOYMENT_ID="$5"
 readonly REPOSITORY_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 
-for command_name in aws jq sha256sum; do
+for command_name in aws base64 jq sha256sum xxd; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command is missing: ${command_name}"
 done
 
@@ -121,10 +121,12 @@ readonly INPUT_SHA256="${INPUT_SHA256:-}"
 readonly RUN_SPEC_SHA256="${RUN_SPEC_SHA256:-}"
 [[ "$INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'INPUT_SHA256 is required and invalid'
 [[ "$RUN_SPEC_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'RUN_SPEC_SHA256 is required and invalid'
+readonly INPUT_KEY="fixtures/tool-complete-dummy/${INPUT_SHA256}.parquet"
+readonly RUN_SPEC_KEY="run-specs/${DEPLOYMENT_ID}/${RUN_SPEC_SHA256}.json"
 capture input-prefix s3api list-objects-v2 --bucket "$DATA_BUCKET" \
-  --prefix "fixtures/tool-complete-dummy/${INPUT_SHA256}.parquet"
+  --prefix "$INPUT_KEY"
 capture run-spec-prefix s3api list-objects-v2 --bucket "$RESULTS_BUCKET" \
-  --prefix "run-specs/${DEPLOYMENT_ID}/${RUN_SPEC_SHA256}.json"
+  --prefix "$RUN_SPEC_KEY"
 capture deployment-prefix s3api list-objects-v2 --bucket "$RESULTS_BUCKET" \
   --prefix "runs/${DEPLOYMENT_ID}/"
 capture receipt-prefix s3api list-objects-v2 --bucket "$RESULTS_BUCKET" \
@@ -211,6 +213,30 @@ jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' 
     "${EVIDENCE_DIRECTORY}/deployment-prefix.json" >/dev/null &&
   jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
     "${EVIDENCE_DIRECTORY}/receipt-prefix.json" >/dev/null && target_prefixes_empty=true
+publication_targets_ready=false
+if jq -e --arg key "$INPUT_KEY" '
+    [.Contents[]? | select(.Key == $key)] | length == 1
+  ' "${EVIDENCE_DIRECTORY}/input-prefix.json" >/dev/null &&
+  jq -e --arg key "$RUN_SPEC_KEY" '
+    [.Contents[]? | select(.Key == $key)] | length == 1
+  ' "${EVIDENCE_DIRECTORY}/run-spec-prefix.json" >/dev/null &&
+  jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+    "${EVIDENCE_DIRECTORY}/deployment-prefix.json" >/dev/null &&
+  jq -e '([.Contents[]?] | length) == 0 and ([.CommonPrefixes[]?] | length) == 0' \
+    "${EVIDENCE_DIRECTORY}/receipt-prefix.json" >/dev/null; then
+  capture input-object s3api head-object --bucket "$DATA_BUCKET" --key "$INPUT_KEY" --checksum-mode ENABLED
+  capture run-spec-object s3api head-object --bucket "$RESULTS_BUCKET" --key "$RUN_SPEC_KEY" --checksum-mode ENABLED
+  expected_input_checksum="$(printf '%s' "$INPUT_SHA256" | xxd -r -p | base64 -w0)"
+  expected_run_spec_checksum="$(printf '%s' "$RUN_SPEC_SHA256" | xxd -r -p | base64 -w0)"
+  if jq -e --arg checksum "$expected_input_checksum" '.ChecksumSHA256 == $checksum' \
+      "${EVIDENCE_DIRECTORY}/input-object.json" >/dev/null &&
+    jq -e --arg checksum "$expected_run_spec_checksum" '.ChecksumSHA256 == $checksum' \
+      "${EVIDENCE_DIRECTORY}/run-spec-object.json" >/dev/null; then
+    publication_targets_ready=true
+  fi
+fi
+publication_state_ok=false
+[[ "$target_prefixes_empty" == true || "$publication_targets_ready" == true ]] && publication_state_ok=true
 publisher_trust_ok=false
 jq -e --arg deployer "$DEPLOYER_ROLE_ARN" '
   .Role.AssumeRolePolicyDocument.Statement == [{
@@ -248,7 +274,7 @@ status=pass
 for required_check in \
   "$source_identity_ok" "$deployer_trust_ok" "$deployer_assumption_ok" "$quota_ok" \
   "$ami_ok" "$offering_ok" "$state_lineage_ok" "$platform_resources_ok" \
-  "$runner_absent" "$schedules_absent" "$target_prefixes_empty" "$publisher_trust_ok" \
+  "$runner_absent" "$schedules_absent" "$publication_state_ok" "$publisher_trust_ok" \
   "$publisher_manifest_read" "$publisher_policy_closed" "$results_bucket_policy_no_allow"; do
   [[ "$required_check" == true ]] || status=blocked
 done
@@ -281,6 +307,7 @@ jq -cn \
   --argjson runner_absent "$runner_absent" \
   --argjson schedules_absent "$schedules_absent" \
   --argjson target_prefixes_empty "$target_prefixes_empty" \
+  --argjson publication_targets_ready "$publication_targets_ready" \
   --argjson publisher_trust "$publisher_trust_ok" \
   --argjson publisher_manifest_read "$publisher_manifest_read" \
   --argjson publisher_policy_closed "$publisher_policy_closed" \
@@ -319,6 +346,7 @@ jq -cn \
       runner_absent: $runner_absent,
       schedules_absent: $schedules_absent,
       target_prefixes_empty: $target_prefixes_empty,
+      publication_targets_ready: $publication_targets_ready,
       publisher_trust: $publisher_trust,
       publisher_manifest_read: $publisher_manifest_read,
       publisher_policy_closed: $publisher_policy_closed,
