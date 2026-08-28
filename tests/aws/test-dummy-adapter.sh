@@ -68,6 +68,8 @@ grep -Fq "jq -j '.images[0].imageManifest'" "${REPOSITORY_ROOT}/scripts/aws/dumm
   fail 'ECR manifest retrieval does not preserve exact bytes'
 grep -Fq "'.images[0].imageId.imageDigest'" "${REPOSITORY_ROOT}/scripts/aws/dummy-publication.sh" ||
   fail 'ECR publication does not verify the returned digest'
+grep -Fq -- '--checksum-mode ENABLED' "${REPOSITORY_ROOT}/scripts/aws/dummy-publication.sh" ||
+  fail 'S3 publication verification does not request provider checksum fields'
 
 for exact_key in \
   'control-input/execution-receipt.local.json' \

@@ -259,6 +259,7 @@ case "$AWS_PUBLICATION_KIND" in
       >"${AWS_EVIDENCE_DIRECTORY}/put-object.json"
     aws_dummy_aws s3api head-object --bucket "$bucket" --key "$key" \
       --version-id "$(jq -er '.VersionId' "${AWS_EVIDENCE_DIRECTORY}/put-object.json")" \
+      --checksum-mode ENABLED \
       >"${AWS_EVIDENCE_DIRECTORY}/published-object.json"
     [[ "$(jq -er '.ChecksumSHA256' "${AWS_EVIDENCE_DIRECTORY}/published-object.json")" == "$checksum_base64" ]] ||
       aws_dummy_fail 'published S3 checksum differs from the reviewed source bytes'
