@@ -60,6 +60,9 @@ for runner_plan_token in \
   grep -Fq "$runner_plan_token" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
     fail "runner saved-plan closure is missing ${runner_plan_token}"
 done
+if grep -Fq 'readonly TF_DATA_DIR=' "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh"; then
+  fail 'runner plan shadows the OpenTofu TF_DATA_DIR environment variable as readonly'
+fi
 for absence_code in InvalidInstanceID.NotFound NoSuchEntity ResourceNotFoundException; do
   grep -Fq "$absence_code" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
     fail "post-destroy check lacks exact absence classification for ${absence_code}"

@@ -116,8 +116,8 @@ if [[ "$OPERATION" == plan ]]; then
 
   readonly SEALED_ROOT="${AWS_EVIDENCE_DIRECTORY}/source"
   readonly SEALED_RUNNER_ROOT="${SEALED_ROOT}/infra/aws/runner"
-  readonly TF_DATA_DIR="${AWS_EVIDENCE_DIRECTORY}/tofu-data"
-  mkdir -p -- "${SEALED_RUNNER_ROOT}/templates" "${SEALED_ROOT}/shared/bootstrap" "$TF_DATA_DIR"
+  readonly TOFU_DATA_DIRECTORY="${AWS_EVIDENCE_DIRECTORY}/tofu-data"
+  mkdir -p -- "${SEALED_RUNNER_ROOT}/templates" "${SEALED_ROOT}/shared/bootstrap" "$TOFU_DATA_DIRECTORY"
   cp -- "${AWS_DUMMY_REPOSITORY_ROOT}/infra/aws/runner/"*.tf "${SEALED_RUNNER_ROOT}/"
   cp -- "${AWS_DUMMY_REPOSITORY_ROOT}/infra/aws/runner/.terraform.lock.hcl" "${SEALED_RUNNER_ROOT}/"
   cp -- "${AWS_DUMMY_REPOSITORY_ROOT}/infra/aws/runner/templates/user-data.sh.tftpl" "${SEALED_RUNNER_ROOT}/templates/"
@@ -181,13 +181,13 @@ if [[ "$OPERATION" == plan ]]; then
   export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-/home/user/.cache/opentofu/plugin-cache}"
   [[ -d "$TF_PLUGIN_CACHE_DIR" && "$TF_PLUGIN_CACHE_DIR" != /tmp/* ]] ||
     aws_dummy_fail 'TF_PLUGIN_CACHE_DIR must be an existing durable provider cache outside /tmp'
-  TF_DATA_DIR="$TF_DATA_DIR" tofu -chdir="$SEALED_RUNNER_ROOT" init \
+  TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" init \
     -backend-config="${AWS_EVIDENCE_DIRECTORY}/backend.hcl" -input=false -lockfile=readonly -no-color \
     >"${AWS_EVIDENCE_DIRECTORY}/init.txt"
-  TF_DATA_DIR="$TF_DATA_DIR" tofu -chdir="$SEALED_RUNNER_ROOT" validate -no-color \
+  TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" validate -no-color \
     >"${AWS_EVIDENCE_DIRECTORY}/validate.txt"
   set +e
-  TF_DATA_DIR="$TF_DATA_DIR" tofu -chdir="$SEALED_RUNNER_ROOT" plan \
+  TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" plan \
     -input=false -lock-timeout=60s -no-color \
     -var-file="${AWS_EVIDENCE_DIRECTORY}/runner.auto.tfvars.json" \
     -out="${AWS_EVIDENCE_DIRECTORY}/runner.tfplan" \
@@ -195,9 +195,9 @@ if [[ "$OPERATION" == plan ]]; then
   plan_exit=$?
   set -e
   [[ "$plan_exit" -eq 2 ]] || aws_dummy_fail "runner plan did not produce the exact create delta; exit=${plan_exit}"
-  TF_DATA_DIR="$TF_DATA_DIR" tofu -chdir="$SEALED_RUNNER_ROOT" show -json \
+  TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" show -json \
     "${AWS_EVIDENCE_DIRECTORY}/runner.tfplan" >"${AWS_EVIDENCE_DIRECTORY}/runner.tfplan.json"
-  TF_DATA_DIR="$TF_DATA_DIR" tofu -chdir="$SEALED_RUNNER_ROOT" show -no-color \
+  TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" show -no-color \
     "${AWS_EVIDENCE_DIRECTORY}/runner.tfplan" >"${AWS_EVIDENCE_DIRECTORY}/runner.tfplan.txt"
   jq -e '
     [.resource_changes[] | select(.change.actions != ["no-op"] and .change.actions != ["read"])
