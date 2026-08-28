@@ -324,6 +324,15 @@ if [[ "$OPERATION" == destroy-plan ]]; then
     >"${AWS_EVIDENCE_DIRECTORY}/managed-state-list-before.txt"
   [[ "$(wc -l <"${AWS_EVIDENCE_DIRECTORY}/managed-state-list-before.txt")" -eq 8 ]] ||
     aws_dummy_fail 'runner state does not contain the exact eight-resource lifecycle'
+  grep -Fxq 'aws_instance.runner' "${AWS_EVIDENCE_DIRECTORY}/managed-state-list-before.txt" ||
+    aws_dummy_fail 'runner state does not contain the sealed EC2 instance'
+  runner_id="$(jq -er '.runner_id.value' "$AWS_RUNNER_OUTPUTS")"
+  aws_dummy_aws ec2 describe-instances --instance-ids "$runner_id" \
+    >"${AWS_EVIDENCE_DIRECTORY}/destroy-instance-before.json"
+  instance_already_terminated=false
+  [[ "$(jq -er '.Reservations[0].Instances[0].State.Name' \
+    "${AWS_EVIDENCE_DIRECTORY}/destroy-instance-before.json")" == terminated ]] &&
+    instance_already_terminated=true
   set +e
   TF_DATA_DIR="$tf_data" tofu -chdir="$source_root" plan -destroy -input=false -lock-timeout=60s -no-color \
     -var-file="${AWS_RUNNER_PLAN_DIRECTORY}/runner.auto.tfvars.json" \
@@ -334,16 +343,18 @@ if [[ "$OPERATION" == destroy-plan ]]; then
   [[ "$destroy_plan_exit" -eq 2 ]] || aws_dummy_fail 'destroy plan did not produce the exact runner-only delete delta'
   TF_DATA_DIR="$tf_data" tofu -chdir="$source_root" show -json "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan" \
     >"${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan.json"
-  jq -e '
+  jq -e --argjson instance_already_terminated "$instance_already_terminated" '
     [.resource_changes[] | select(.change.actions != ["no-op"] and .change.actions != ["read"])
       | {address, actions:.change.actions}] as $changes
-    | ($changes | length) == 8 and all($changes[]; .actions == ["delete"])
-    and ([$changes[].address] | sort) == ([
+    | ([
       "aws_iam_instance_profile.runtime", "aws_iam_role.runtime", "aws_iam_role.scheduler",
       "aws_iam_role_policy.runtime", "aws_iam_role_policy.scheduler",
       "aws_iam_role_policy_attachment.ssm",
       "aws_instance.runner", "aws_scheduler_schedule.deadline"
-    ] | sort)
+    ] | if $instance_already_terminated then . - ["aws_instance.runner"] else . end) as $allowlist
+    | ($changes | length) == ($allowlist | length)
+    and all($changes[]; .actions == ["delete"])
+    and ([$changes[].address] | sort) == ($allowlist | sort)
   ' "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan.json" >/dev/null ||
     aws_dummy_fail 'destroy plan is not limited to the exact runner resource allowlist'
   destroy_sha="$(aws_dummy_file_sha256 "${AWS_EVIDENCE_DIRECTORY}/destroy.tfplan")"

@@ -65,6 +65,8 @@ if grep -Fq 'readonly TF_DATA_DIR=' "${REPOSITORY_ROOT}/scripts/aws/dummy-runner
 fi
 grep -Fq "sed '/^data\\./d'" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
   fail 'runner destroy preflight counts data sources as disposable resources'
+grep -Fq 'instance_already_terminated' "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
+  fail 'runner destroy does not distinguish provider-confirmed self-termination'
 for absence_code in InvalidInstanceID.NotFound NoSuchEntity ResourceNotFoundException; do
   grep -Fq "$absence_code" "${REPOSITORY_ROOT}/scripts/aws/dummy-runner.sh" ||
     fail "post-destroy check lacks exact absence classification for ${absence_code}"
