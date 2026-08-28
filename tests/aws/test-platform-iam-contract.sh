@@ -54,6 +54,7 @@ jq -e --slurpfile receipt "$REVIEW_RECEIPT" '
     "ReadWriteRunnerRemoteStateObjects",
     "RequireAcceptedRunnerBoundaries",
     "TagRunnerAtLaunch",
+    "UseReviewedRunnerLaunchDependencies",
     "UseRunnerRemoteState"
   ] | sort) and
   all(statements("data.aws_iam_policy_document.deployer")[]; .effect.constant_value == "Allow") and
@@ -64,11 +65,15 @@ jq -e --slurpfile receipt "$REVIEW_RECEIPT" '
     "arn:aws:s3:::" + binding.state_bucket + "/aws/" + binding.aws_account_id + "/" + binding.aws_region + "/runner/*"
   ] and
   exact_actions("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner"; ["ec2:RunInstances"]) and
+  planned_statement("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner").resources == [
+    "arn:aws:ec2:" + binding.aws_region + ":" + binding.aws_account_id + ":instance/*"
+  ] and
   planned_statement("data.aws_iam_policy_document.deployer"; "LaunchTaggedRunner").condition == [{
     test: "StringEquals",
     values: [binding.project_name],
     variable: "aws:RequestTag/Project"
   }] and
+  exact_actions("data.aws_iam_policy_document.deployer"; "UseReviewedRunnerLaunchDependencies"; ["ec2:RunInstances"]) and
   exact_actions("data.aws_iam_policy_document.deployer"; "ManageTaggedRunnerLifecycle"; [
     "ec2:ModifyInstanceAttribute", "ec2:StartInstances", "ec2:StopInstances", "ec2:TerminateInstances"
   ]) and
@@ -141,7 +146,11 @@ jq -e --slurpfile receipt "$REVIEW_RECEIPT" '
     "arn:aws:scheduler:" + binding.aws_region + ":" + binding.aws_account_id + ":schedule/default/" + binding.resource_prefix + "-run-*-stop"
   ] and
   exact_condition("data.aws_iam_policy_document.receipt_publisher"; "ConditionallyCreateControlEvidenceAndReceipts"; "StringEquals"; "s3:if-none-match"; ["*"]) and
-  (statement("data.aws_iam_policy_document.receipt_publisher"; "ReadBoundedRunnerEvidence").resources.references | tostring | contains("/runs/*/results/") | not) and
+  planned_statement("data.aws_iam_policy_document.receipt_publisher"; "ReadBoundedRunnerEvidence").resources == [
+    "arn:aws:s3:::" + binding.results_bucket + "/runs/*/control-input/execution-receipt.local.json",
+    "arn:aws:s3:::" + binding.results_bucket + "/runs/*/logs/bootstrap.log",
+    "arn:aws:s3:::" + binding.results_bucket + "/runs/*/results/result-manifest.json"
+  ] and
 
   sids("data.aws_iam_policy_document.results_bucket") == ([
     "DenyControlDeletion",
@@ -196,7 +205,7 @@ if [[ "${AWS_PLATFORM_IAM_VALIDATION_ONLY:-0}" != "1" ]]; then
   verify_rejected_mutation weaken-control-delete \
     '(.configuration.root_module.resources[] | select(.address == "data.aws_iam_policy_document.results_bucket") | .expressions.statement[] | select(.sid.constant_value == "DenyControlDeletion") | .effect.constant_value) = "Allow"'
   verify_rejected_mutation broaden-publisher-read \
-    '(.configuration.root_module.resources[] | select(.address == "data.aws_iam_policy_document.receipt_publisher") | .expressions.statement[] | select(.sid.constant_value == "ReadBoundedRunnerEvidence") | .resources.references) += ["/runs/*/results/"]'
+    '(.configuration.root_module.resources[] | select(.address == "data.aws_iam_policy_document.receipt_publisher") | .expressions.statement[] | select(.sid.constant_value == "ReadBoundedRunnerEvidence") | .resources.references) += ["/runs/*/results/*"]'
 fi
 
 printf 'test-aws-platform-iam-contract: PASS\n'

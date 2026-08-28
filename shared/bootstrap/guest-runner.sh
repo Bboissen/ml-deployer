@@ -124,18 +124,25 @@ has_control_character "$ML_RUN_SPEC_OBJECT_VERSION" &&
 
 case "$ML_CLOUD_PROVIDER" in
   aws)
+    [[ ! -v ML_WORKLOAD_IDENTITY_CLIENT_ID ]] ||
+      fail "ML_WORKLOAD_IDENTITY_CLIENT_ID is accepted only for Azure"
     [[ "$ML_OCI_REPOSITORY" =~ ^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/ ]] ||
       fail "AWS runners require a provider-local ECR repository"
     [[ "$ML_RUN_SPEC_URI" == s3://* && "$ML_DATA_URI" == s3://* && "$ML_RESULTS_URI" == s3://* ]] ||
       fail "AWS runners require provider-local s3 URIs"
     ;;
   gcp)
+    [[ ! -v ML_WORKLOAD_IDENTITY_CLIENT_ID ]] ||
+      fail "ML_WORKLOAD_IDENTITY_CLIENT_ID is accepted only for Azure"
     [[ "$ML_OCI_REPOSITORY" =~ ^[a-z0-9-]+-docker\.pkg\.dev/ ]] ||
       fail "GCP runners require a provider-local Artifact Registry repository"
     [[ "$ML_RUN_SPEC_URI" == gs://* && "$ML_DATA_URI" == gs://* && "$ML_RESULTS_URI" == gs://* ]] ||
       fail "GCP runners require provider-local gs URIs"
     ;;
   azure)
+    require_environment ML_WORKLOAD_IDENTITY_CLIENT_ID
+    [[ "$ML_WORKLOAD_IDENTITY_CLIENT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] ||
+      fail "ML_WORKLOAD_IDENTITY_CLIENT_ID must be an Azure managed-identity client UUID"
     [[ "$ML_OCI_REPOSITORY" =~ ^[a-z0-9]{5,50}\.azurecr\.io/ ]] ||
       fail "Azure runners require a provider-local ACR repository"
     [[ "$ML_RUN_SPEC_URI" =~ ^https://[a-z0-9]{3,24}\.blob\.core\.windows\.net/ ]] ||
@@ -216,6 +223,22 @@ readonly OCI_IMAGE="${ML_OCI_REPOSITORY}@${ML_OCI_DIGEST}"
 readonly CONTAINER_NAME="ml-${ML_DEPLOYMENT_ID}"
 readonly TIMEOUT_SECONDS="$((10#$ML_MAX_RUNTIME_MINUTES * 60))s"
 
+container_environment=(
+  --env "ML_DEPLOYMENT_ID=${ML_DEPLOYMENT_ID}"
+  --env "ML_RUN_SPEC_URI=${ML_RUN_SPEC_URI}"
+  --env "ML_RUN_SPEC_SHA256=${ML_RUN_SPEC_SHA256}"
+  --env "ML_RUN_SPEC_OBJECT_VERSION=${ML_RUN_SPEC_OBJECT_VERSION}"
+  --env "ML_DATA_URI=${ML_DATA_URI}"
+  --env "ML_RESULTS_URI=${ML_RESULTS_URI}"
+  --env "ML_CLOUD_PROVIDER=${ML_CLOUD_PROVIDER}"
+  --env "ML_MAX_RUNTIME_MINUTES=${ML_MAX_RUNTIME_MINUTES}"
+  --env "ML_OCI_DIGEST=${ML_OCI_DIGEST}"
+)
+if [[ "$ML_CLOUD_PROVIDER" == "azure" ]]; then
+  container_environment+=(--env "ML_WORKLOAD_IDENTITY_CLIENT_ID=${ML_WORKLOAD_IDENTITY_CLIENT_ID}")
+fi
+readonly -a container_environment
+
 set +e
 "$TIMEOUT_PATH" \
   --signal=TERM \
@@ -228,15 +251,7 @@ set +e
   --rm \
   --pull=always \
   --name "$CONTAINER_NAME" \
-  --env "ML_DEPLOYMENT_ID=${ML_DEPLOYMENT_ID}" \
-  --env "ML_RUN_SPEC_URI=${ML_RUN_SPEC_URI}" \
-  --env "ML_RUN_SPEC_SHA256=${ML_RUN_SPEC_SHA256}" \
-  --env "ML_RUN_SPEC_OBJECT_VERSION=${ML_RUN_SPEC_OBJECT_VERSION}" \
-  --env "ML_DATA_URI=${ML_DATA_URI}" \
-  --env "ML_RESULTS_URI=${ML_RESULTS_URI}" \
-  --env "ML_CLOUD_PROVIDER=${ML_CLOUD_PROVIDER}" \
-  --env "ML_MAX_RUNTIME_MINUTES=${ML_MAX_RUNTIME_MINUTES}" \
-  --env "ML_OCI_DIGEST=${ML_OCI_DIGEST}" \
+  "${container_environment[@]}" \
   "$OCI_IMAGE"
 runtime_exit_code=$?
 set -e

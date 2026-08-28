@@ -27,7 +27,7 @@ readonly MAXIMUM_BOOTSTRAP_LOG_BYTES=1048576
 
 finalize() {
   local exit_code=$?
-  local bounded_log_path="/tmp/ml-runner-bootstrap.tail.$$"
+  local bounded_log_path="/var/log/.ml-runner-bootstrap.tail.$$"
 
   mark_evidence_failure() {
     if [[ "$exit_code" -eq 0 ]]; then
@@ -84,7 +84,11 @@ finalize() {
 
 trap finalize EXIT
 
-for executable in /usr/bin/aws /usr/bin/base64 /usr/bin/docker /usr/bin/sha256sum /usr/bin/tail; do
+for service_name in amazon-ssm-agent docker; do
+  /usr/bin/systemctl enable --now "$service_name"
+done
+
+for executable in /usr/bin/aws /usr/bin/base64 /usr/bin/docker /usr/bin/sha256sum /usr/bin/systemctl /usr/bin/tail; do
   [[ -x "$executable" ]] || {
     printf 'aws-runner: required executable is missing: %s\n' "$executable" >&2
     exit 69
