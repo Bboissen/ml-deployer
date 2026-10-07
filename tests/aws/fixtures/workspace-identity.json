@@ -1,0 +1,23 @@
+{
+  "ml_project_name": "fraud-detection",
+  "bucket_name": "offline-project-example",
+  "permissions_boundary_arn": "arn:aws:iam::000000000000:policy/ml-infra-ws-fraud-detection-boundary",
+  "session_policy_arn": "arn:aws:iam::000000000000:policy/ml-infra-session-manager-minimal",
+  "request": {
+    "schema_version": "2.0.0",
+    "kind": "request",
+    "provider": "aws",
+    "account_scope": "000000000000",
+    "region": "us-east-1",
+    "workspace_id": "fraud-detection-dev-01",
+    "toolbox_profile": "cpu-python-v1",
+    "resources": {"cpus": 2, "memory_mb": 4096, "disk_gb": 20},
+    "operators": ["offline@example.com"],
+    "maximum_runtime_minutes": 60,
+    "storage": {
+      "data_uri": "s3://offline-project-example/projects/fraud-detection/data/",
+      "output_uri": "s3://offline-project-example/projects/fraud-detection/workspaces/fraud-detection-dev-01/output/",
+      "state_uri": "s3://replace-ml-infra-aws-state-unique/aws/000000000000/us-east-1/runner/fraud-detection-dev-01.tfstate"
+    }
+  }
+}

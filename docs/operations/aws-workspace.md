@@ -1,10 +1,14 @@
-# AWS workspace milestone A
+# AWS workspace milestones A and B
 
 This milestone provides named account targets, bounded read-only preflight and
 resource disposition. It consumes [workspace interface 2.0.0](../workspace.md)
 from merged PR20 and PR21 (`982a236b37906518d47892ba9141338368c5336a`).
 The corrected cleanup lineage is present. Historical provider roots and their
-state addresses remain intact. Stop at the milestone-A review gate below.
+state addresses remain intact. PR22's CLI abbreviation fix was independently
+verified and merged at `fee07909e6b2686c4ecd9abb0fdb05f75e0e5c7a` before B.
+B adds offline project storage selection and scoped identity source. Deployment
+and native access acceptance remain closed. Review B before C/D; GCP/Azure goals
+are aligned but their implementation is outside this task.
 
 ## Account-switching quickstart
 
@@ -66,6 +70,228 @@ native option abbreviations and applicable separated or `=` value forms.
 Code must use the inherited profile/region and must not install its own credentials
 or override a boto3 Session. `exec` grants no mutation authorization; milestone-A
 invocations remain read-only. OpenTofu execution through it is closed.
+
+## Project storage selection (milestone B)
+
+Supply the external ML project's canonical name and an explicit workspace suffix.
+Project names are 3–32 lowercase letters/digits/internal hyphens; the derived
+workspace ID is at most 48 characters. Spelling is not normalized silently.
+`ml_project_name` is separate from AWS account, infrastructure `project_name` and
+`resource_prefix`; historical ownership names stay intact. This invented example
+derives `fraud-detection-dev-01`:
+
+```bash
+bash scripts/aws/workspace-storage.sh prepare aws-personal \
+  --ml-project-name fraud-detection --workspace-name dev-01 --storage-mode auto
+```
+
+`prepare` validates the local named target without credentials or account APIs.
+It writes a new immutable directory below
+`evidence/aws/TARGET/storage/PROJECT/TIMESTAMP-PID/`, containing
+`storage-preparation.json`, `platform-project-entry.json` and `request-storage.json`.
+The record describes intended creation/reference and sets observation, compute
+and deployment authorization false. It never fabricates machine handoff/readiness.
+It records Git revision and AWS source/lock/common-validator hashes, which are
+metadata rather than native backend/plan authorization. The preparation helper
+currently supports the commercial AWS partition.
+
+The persistent platform input is a **complete retained project map**:
+
+```hcl
+ml_projects = {
+  fraud-detection = {
+    ml_project_name = "fraud-detection"
+    storage_mode    = "auto"
+  }
+}
+```
+
+Merge the prepared entry into the existing `ml_projects` map. It is deliberately
+not a replacement tfvars file: OpenTofu replaces maps across var files, so supplying
+only a new project would remove old entries. Retain assignments until a reviewed
+migration. The map defaults to empty; historical platform inputs are still required.
+
+| Mode | Assignment | Later authorized platform deployment |
+| --- | --- | --- |
+| `auto` | None | Plan one new empty project bucket; subsequent deployments keep its name/address in the same state. |
+| `auto` / `existing` | Exact inspected assignment | Reuse that bucket under its declared owner/address. `existing` fails when unassigned. |
+| `create` | None or the same project-managed address | Initially create, then retain the same bucket; external/historical adoption fails. |
+
+Names are `ml-<project>-<first 16 hex characters of SHA256(account/region/project)>`.
+A global-name collision fails deployment; it never triggers alternate naming or
+adoption. Each project uses one workload bucket with data prefix
+`projects/PROJECT/data/` and output prefix
+`projects/PROJECT/workspaces/WORKSPACE_ID/output/`. State uses the dedicated bucket
+and exact reviewed runner key. Resolve these URIs before interface 2.0.0 validation
+and hashing; no shared fields were added.
+
+New storage is private, BucketOwnerEnforced, versioned, AES256 encrypted and TLS-only,
+with `force_destroy=false` and `prevent_destroy`. Lifecycle only aborts incomplete
+multipart uploads after seven days; it expires no objects/versions. Gold remains
+absent and no object uploads or ML execution accompany bucket creation.
+
+For assigned storage, review a local JSON description containing exactly
+`bucket_name`, `ownership`, `resource_address`, `state_key`. External references use
+`ownership: "external"` and empty address/key. Platform assignments use
+`ownership: "platform-managed"`, the existing platform key and an exact address:
+`aws_s3_bucket.project["PROJECT"]`, `aws_s3_bucket.workload["data"]` or
+`aws_s3_bucket.workload["results"]`. Retained addresses must match their configured
+bucket. Historical contents/addresses are preserved and never described as new
+empty storage. Cross-account/region reuse and ambiguous shared project buckets fail.
+
+Include the exact reviewed bucket in the target inventory, then inspect that scope:
+
+```bash
+timeout 240s bash scripts/aws/workspace-storage.sh inspect aws-personal \
+  --ml-project-name fraud-detection --assignment evidence/aws/assigned-project.json
+```
+
+Inspection performs five bounded metadata reads with expected bucket owner through
+the corrected target launcher and its operator STS checks. It requires matching
+region, enabled versioning, all four public-access blocks, BucketOwnerEnforced and
+AES256 encryption. KMS-encrypted assignments require a separate scoped key design
+and are rejected. Permission errors, missing storage, unsupported protection and
+timeouts fail; none triggers creation. No existing policies/contents are changed.
+Review existing lifecycle/retention and resource policies before native deployment.
+
+The returned `assignment-inspection.json` binds target configuration, ML project,
+account/region, metadata, observation time and hash. Reuse it in preparation:
+
+```bash
+bash scripts/aws/workspace-storage.sh prepare aws-personal \
+  --ml-project-name fraud-detection --workspace-name dev-01 --storage-mode existing \
+  --assignment evidence/aws/TARGET/storage/PROJECT/INSPECTION/assignment-inspection.json
+```
+
+Preparation checks hash, target binding and a 24-hour freshness window. The entry
+carries protection facts and inspection hash. The pinned provider lacks native
+versioning/public-access-block data sources; OpenTofu checks those reviewed facts
+locally. An assigned-bucket data read also checks current existence/region during
+a later accepted native plan; missing/denied storage fails rather than being
+recreated from an old receipt. This receipt is point-in-time metadata, not a signature, deployment
+authorization or proof of effective workload access. Refresh/read back protections
+during later plan/apply review and bind the original receipt, source/target hashes
+and exact platform lineage/version. External buckets are referenced without import,
+state transfer or policy replacement. Removing/renaming managed assignments or
+switching them to external references fails ordinary plans through `prevent_destroy`.
+Never remove protected resource blocks to bypass that guard.
+
+Copy the resolved storage into a complete workspace 2.0.0 request, then prepare
+identity inputs using the locked foundation Python environment:
+
+```bash
+WORKSPACE_PYTHON=.tools/workspace-venv/bin/python \
+  bash scripts/aws/workspace-storage.sh prepare aws-personal \
+  --ml-project-name fraud-detection --workspace-name dev-01 \
+  --request evidence/aws/fraud-detection-dev-01/request.json
+# Include the same --assignment receipt when reusing assigned storage.
+```
+
+The unchanged common validator rejects unknown fields, overlap, state reuse and
+mismatched scopes. Preparation writes the canonical request hash and
+`workspace-identity-inputs.json`. It installs no ML dependencies. Use
+`make workspace-test-setup` only if the locked validator environment is absent.
+
+## Workspace identity and ordering (milestone B)
+
+Platform owns a project boundary and minimal Session Manager managed policy. Runner
+source optionally prepares a workspace role, storage policy, management attachment
+and instance profile at additive `workspace` addresses. Only EC2 may assume the
+workload role; its future profile supplies temporary credentials. Stable names
+include the infrastructure prefix, workspace component and a scope hash. Operator
+and deployer remain separate; B assumes no roles and changes no live IAM.
+
+The workload envelope permits:
+
+- Reading current/exact-version dataset objects under its project data prefix.
+- Reading/writing current own-output objects and retrieving exact versions.
+- Listing objects/versions only with a permitted data/own-output prefix.
+- Scoped multipart `PutObject`, `AbortMultipartUpload`, `ListMultipartUploadParts`
+  and workload bucket location reads.
+
+It denies insecure S3 transport, object/version deletion, bucket-wide multipart listing, tagging/ACL
+mutation, state/unrelated resources, IAM/guard/EC2 administration, role assumption
+and arbitrary SSM/Parameter Store access. Effective policy uses the exact output
+prefix; the project boundary uses the immutable role's `workspace_id` principal tag.
+The workload cannot change IAM tags. Explicit denials also constrain hypothetical
+additional policies/direct session resource grants. Offline tests are not proof
+of live access, which also depends on resource policies, SCPs and endpoints.
+See [AWS boundary evaluation](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html).
+
+Prepared workspace and retained batch roles replace `AmazonSSMManagedInstanceCore`
+with a custom policy allowing only `ssm:UpdateInstanceInformation` and four
+`ssmmessages` create/open channel actions on `*`, plus explicit Parameter Store
+read denial. The historical runtime boundary is narrowed at its original address.
+This follows [AWS's minimal Session Manager agent policy](https://docs.aws.amazon.com/systems-manager/latest/userguide/getting-started-create-iam-instance-profile.html).
+Operator StartSession, logging, session KMS, patching and document execution are
+separate scopes. C must pin/test a supported agent, connectivity and preferences;
+see [AWS message APIs](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-setting-up-messageAPIs.html).
+
+Both profiles explicitly depend on the required inline policy and management
+attachment. Existing compute consumes its original profile. Future workspace
+compute must consume the prepared profile; B does not connect it to the old dummy
+instance. Runner still contains unaccepted batch compute and historical required
+inputs: it is not an IAM-only deployment command. C/D own reviewed composition.
+
+Dependencies do not prove propagation. Future launch must read back role, boundary,
+attachments and profile, then use bounded IAM visibility retries within the launch
+lease (proposed ceiling 90 seconds/six attempts). Identity/permission failures stop;
+only transient visibility errors may retry. Stop on expiry and preserve evidence.
+Never widen permissions or extend the armed lease. Exact timing/native readiness
+still requires C/D review.
+
+## Native S3 guidance for later authorized acceptance
+
+Inside an accepted workspace, AWS CLI/boto3 use the native instance role and reviewed
+region. The external ML repository owns boto3/dependencies. Read an exact reviewed
+version using `aws s3api get-object --bucket BUCKET --key projects/PROJECT/data/OBJECT
+--version-id EXACT_VERSION --expected-bucket-owner ACCOUNT LOCAL_FILE`. Use
+`list-objects-v2` / `list-object-versions` with an allowed prefix. Current and
+exact-version output retrieval uses the same native APIs.
+
+After separate upload authorization, `put-object` or boto3 `put_object` may write
+only the own-output prefix. Preserve returned `VersionId`, bucket/key, account/region,
+local byte size and SHA-256 in ignored evidence. Later retrieval specifies that
+version, then verifies downloaded bytes/native metadata. Reject absent/`null` version
+IDs for acceptance. ETag is not generally the local SHA-256.
+
+```python
+import boto3
+client = boto3.client("s3", region_name="REVIEWED_REGION")
+response = client.get_object(
+    Bucket="REVIEWED_BUCKET", Key="REVIEWED_PROJECT_OR_OWN_OUTPUT_KEY",
+    VersionId="REVIEWED_EXACT_VERSION", ExpectedBucketOwner="REVIEWED_ACCOUNT",
+)
+# The ML repository owns Body streaming and data processing.
+```
+
+These examples explain future use; they authorize no transfers. No native
+version/negative-access acceptance is claimed. See [S3 policy action mapping](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html).
+
+## Offline B verification and review boundary
+
+```bash
+timeout 420s bash tests/aws/test-workspace-storage.sh
+make check
+```
+
+Set `WORKSPACE_PYTHON` to the existing locked environment. The AWS scaffold includes
+preparation tests, mocked native plans, rendered policy fixtures and dependency
+checks. Initialization uses `-backend=false -lockfile=readonly`; AWS resources/data
+sources are mocked. Logs/results stay under `evidence/aws/tests/storage/`. The outer
+timeout is the bounded monitoring command; no continuous polling is used. Test
+plans cannot authorize deployment.
+
+B retains historical addresses, lineages, state versions, objects and evidence.
+Frozen historical Task B validators cannot approve this workspace configuration.
+Shared schema and GCP/Azure implementations remain unchanged. Source rollback before
+deployment is a Git revert; after an authorized apply, keep new protected blocks/
+assignments and review an exact migration plan rather than drop ownership.
+
+Stop for B review. Native OpenTofu execution through A contexts, deployment-role
+assumption, transfers and live permissions remain unaccepted/unverified. Future
+compute requires accepted toolbox/access **and** the pre-compute lifetime guard.
+The EC2-before-Scheduler gap remains; B makes no safe-launch claim.
 
 ## Native login and OpenTofu context
 
@@ -195,8 +421,9 @@ request/template; PR19 made that twelve-field request fail closed before object
 conversion could discard unknown fields. Preserve both branches and their evidence.
 Next AWS implementation should use closed workspace 2.0.0 inputs and retain the
 useful rejection behavior, without silently relabeling immutable batch artifacts.
-The old wildcard SSM parameter access and EC2-before-Scheduler dependency remain
-unaccepted risks; this milestone changes no IAM/resource blocks or state addresses.
+Milestone A's live wildcard SSM permissions and EC2-before-Scheduler dependency
+were unaccepted risks. B narrows SSM source without applying it; the lifetime gap
+remains. No state addresses or live IAM policies changed.
 
 ## Proposed next-milestone design and review gate
 
@@ -251,8 +478,9 @@ observed termination delay, lease window and failure policy; AWS outages cannot
 be presented as a guaranteed zero-overshoot financial cap. An untested watchdog
 or operator cleanup procedure does not satisfy the hard-deadline readiness check.
 
-Remaining decisions: exact adoption versus new empty workload buckets/prefixes,
-named session operators, allowed instance SKU/disk/capacity, subnet egress, immutable
+Remaining deployment decisions: real ML project/workspace names and any exact
+storage assignment, named session operators, allowed instance SKU/disk/capacity,
+subnet egress, immutable
 AMI ID/architecture, toolbox bootstrap hash, CLI/SDK/SSM/tool versions, and guard
 margin/retry/notification settings. Foundation's CPU profile requests Python 3.13,
 Git, uv, compiler and make; image/tool pins must be reviewed together. Do not use
@@ -276,6 +504,6 @@ changes. No shared interface/ownership files or other providers change here.
    locked NumPy/pandas acceptance example. Verify isolation and deadline; perform
    authorized teardown preserving storage. Any follow-up launch needs its own scope.
 
-Review milestone A before proceeding. Design review authorizes no deployment.
+Review milestone B before proceeding to C/D. Source review authorizes no deployment.
 No apply/destroy/import/state move, IAM/billing change, upload or image publication
 is included. Saved-plan application always needs authorization for that exact plan.

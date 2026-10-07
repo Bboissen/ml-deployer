@@ -1,5 +1,11 @@
 # AWS roots
 
+For the independent workspace migration, use the
+[AWS workspace quickstart](../../docs/operations/aws-workspace.md). Milestone B
+prepares optional project storage and scoped workspace identity offline. Historical
+compute remains closed until toolbox/access and the pre-compute guard are accepted.
+The batch descriptions below are retained historical interfaces.
+
 - `bootstrap`: protected S3 remote-state bucket; local bootstrap state.
 - `platform`: persistent S3 data/results, ECR, IAM boundaries, VPC/subnet,
   internet gateway, and no-ingress security group.

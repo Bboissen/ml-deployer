@@ -127,12 +127,16 @@ resource "aws_iam_role_policy" "runtime" {
 
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.runtime.name
-  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:policy/${var.resource_prefix}-session-manager-minimal"
 }
 
 resource "aws_iam_instance_profile" "runtime" {
   name = "${local.runner_name}-run"
   role = aws_iam_role.runtime.name
+  depends_on = [
+    aws_iam_role_policy.runtime,
+    aws_iam_role_policy_attachment.ssm,
+  ]
 }
 
 data "aws_iam_policy_document" "scheduler_assume" {

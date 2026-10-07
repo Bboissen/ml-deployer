@@ -33,7 +33,7 @@ output "platform_contract_sha256" {
 }
 
 output "data_bucket_name" {
-  description = "Generic initially empty data bucket."
+  description = "Retained generic data bucket; existing contents may be present."
   value       = aws_s3_bucket.workload["data"].id
 }
 
