@@ -60,8 +60,9 @@ its contents are never logged. Trusted existing `credential_process` profiles
 are supported. Native web-identity/metadata credential sources are deliberately
 closed in this interactive operator implementation.
 
-The child command is trusted operator code, not a sandbox. Explicit AWS profile,
-region and endpoint argument overrides are rejected for direct AWS CLI commands.
+The child command is trusted operator code, not a sandbox. Direct AWS CLI commands
+reject profile, region, endpoint, signing and JSON/YAML input overrides, including
+native option abbreviations and applicable separated or `=` value forms.
 Code must use the inherited profile/region and must not install its own credentials
 or override a boto3 Session. `exec` grants no mutation authorization; milestone-A
 invocations remain read-only. OpenTofu execution through it is closed.

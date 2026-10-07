@@ -373,7 +373,9 @@ def main():
             require(Path(cmd[0]).name not in {"tofu", "terraform"}, "OpenTofu execution closed at milestone A; use context for reviewed metadata")
             if Path(cmd[0]).name == "aws":
                 forbidden = ("--profile", "--region", "--endpoint-url", "--no-sign-request", "--cli-input-json", "--cli-input-yaml")
-                require(not any(a.split("=", 1)[0] in forbidden for a in cmd[1:]), "command overrides selected AWS target")
+                # AWS CLI accepts long-option prefixes, with separate or = values.
+                options = (a.split("=", 1)[0] for a in cmd[1:] if a.startswith("--"))
+                require(not any(flag.startswith(option) for option in options for flag in forbidden), "command overrides selected AWS target")
             result = {"status": "authenticated_command_context", "identity": ident, "deployment_rights": "unverified"}
             write(run / "result.json", result)
             os.dup2(3, 0)

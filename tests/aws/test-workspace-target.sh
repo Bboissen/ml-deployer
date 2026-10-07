@@ -36,8 +36,9 @@ class Targets(unittest.TestCase):
         fake = self.bin / "aws"
         fake.write_text('''#!/usr/bin/env python3
 import json,os,sys
-args=sys.argv[1:]; profile=args[args.index('--profile')+1]
+args=sys.argv[1:]
 with open(os.environ['FAKE_AWS_CALLS'],'a') as f: f.write(json.dumps(args)+'\\n')
+profile=args[args.index('--profile')+1] if '--profile' in args else os.environ['AWS_PROFILE']
 mode=os.environ.get('FAKE_MODE','ok')
 if mode in ('expired','missing'):
  print('session expired SENTINEL_SECRET' if mode=='expired' else 'Unable to locate credentials SENTINEL_SECRET',file=sys.stderr);sys.exit(255)
@@ -47,6 +48,8 @@ if 'get-caller-identity' in args:
  arn='arn:aws:sts::'+account+':assumed-role/WorkspaceOperator/session'
  if mode=='wrong-role':arn=arn.replace('WorkspaceOperator','OtherRole')
  print(json.dumps({'account':account,'arn':arn}));sys.exit(0)
+if mode=='direct-command':
+ print(json.dumps({'argv':args,'profile':os.environ['AWS_PROFILE'],'region':os.environ['AWS_REGION'],'stdin':sys.stdin.read()}));sys.exit(0)
 if mode=='state' and 'head-object' in args:
  print(json.dumps({'version':'immutable-version','size':600}));sys.exit(0)
 if mode=='state' and 'get-object' in args:
@@ -198,6 +201,49 @@ else: print('{}')
     def test_open_tofu_execution_and_cli_overrides_closed(self):
         for command in (['tofu','apply'],['aws','--profile','another','sts','get-caller-identity']):
             self.run_cli('exec','aws-personal','--',*command,success=False)
+
+    def test_direct_aws_forbidden_prefixes_and_value_forms_never_execute(self):
+        # These shortest fixtures were accepted by installed AWS CLI 2.36.14
+        # using credential-free skeleton-input parsing, including = value forms.
+        # Check every longer prefix through each full spelling. The fake records
+        # all invocations before parsing; it does not decide abbreviation validity.
+        flags=(('--profile','--prof','another'),('--region','--reg','us-west-2'),
+               ('--endpoint-url','--endpoint','https://example.invalid'),
+               ('--no-sign-request','--no-sign',None),
+               ('--cli-input-json','--cli-input-j','{}'),
+               ('--cli-input-yaml','--cli-input-y','{}'))
+        for full, shortest, value in flags:
+            for length in range(len(shortest),len(full)+1):
+                option=full[:length]
+                forms=([option,value],[option+'='+value]) if value is not None else ([option],)
+                for form in forms:
+                    with self.subTest(option=option,form=form):
+                        before=len(self.calls())
+                        p=self.run_cli('exec','aws-personal','--','aws','sts','get-caller-identity',*form,success=False)
+                        self.assertIn('command overrides selected AWS target',p.stderr)
+                        calls=self.calls()[before:]
+                        self.assertEqual(len(calls),1,'only initial target identity may execute')
+                        self.assertEqual(calls[0][:4],['--profile','personal-temporary','--region','us-east-1'])
+                        self.assertIn('get-caller-identity',calls[0])
+
+    def test_reviewed_override_reproduction_before_service_never_executes(self):
+        for options in (['--prof','another','--reg','us-west-2','--endpoint','https://example.invalid','--no-sign'],
+                        ['--prof=another','--reg=us-west-2','--endpoint=https://example.invalid','--no-sign']):
+            with self.subTest(options=options):
+                before=len(self.calls())
+                p=self.run_cli('exec','aws-personal','--','aws',*options,'sts','get-caller-identity',success=False)
+                self.assertIn('command overrides selected AWS target',p.stderr)
+                self.assertEqual(len(self.calls()[before:]),1)
+
+    def test_direct_aws_keeps_target_safe_arguments_and_stdin(self):
+        command=['aws','ecr','describe-repositories','--registry-id','222222222222','--output=json']
+        p=subprocess.run(['bash',SCRIPT,'exec','aws-lab','--',*command],input='stdin works',
+                         cwd=self.root,env={**self.env,'FAKE_MODE':'direct-command'},capture_output=True,text=True,timeout=30)
+        self.assertEqual(p.returncode,0,p.stderr)
+        self.assertEqual(json.loads(p.stdout),{'argv':command[1:],'profile':'lab-temporary',
+                                             'region':'us-west-2','stdin':'stdin works'})
+        self.assertEqual(len(self.calls()),2)
+        self.assertEqual(self.calls()[-1],command[1:])
 
     def test_no_bootstrap_migration_or_context_tampering(self):
         self.run_cli('context','aws-personal','bootstrap',success=False)
