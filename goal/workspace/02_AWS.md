@@ -20,6 +20,10 @@ provider's implementation. Every live mutation still needs exact authorization.
 
 ## A. Reconcile resources and simplify
 
+Milestone-A named targets, read-only preflight and proposed disposition/guard
+design are documented in the [AWS workspace quickstart](../../docs/operations/aws-workspace.md).
+Review that milestone before implementation B–D or any cloud mutation.
+
 Refresh the expired source login, then inventory the selected account/region,
 EC2, disks, addresses, schedules, IAM, buckets, registry and exact state lineage.
 Re-establish the historically accepted bootstrap/platform against fresh evidence.

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "targets": {
+    "aws-personal": {
+      "profile": "personal-temporary",
+      "account_id": "111111111111",
+      "region": "us-east-1",
+      "operator_arn": "arn:aws:iam::111111111111:role/WorkspaceOperator",
+      "deployment_role_arn": "arn:aws:iam::111111111111:role/WorkspaceDeployer",
+      "backend": {
+        "bucket": "example-personal-state-111111111111",
+        "region": "us-east-1",
+        "platform_key": "aws/111111111111/us-east-1/platform/platform.tfstate",
+        "runner_prefix": "aws/111111111111/us-east-1/runner/"
+      },
+      "inventory": {
+        "resource_prefix": "example-personal",
+        "buckets": ["example-personal-data", "example-personal-results"],
+        "repositories": ["example-personal/runner"],
+        "roles": ["WorkspaceDeployer", "WorkspaceOperator"],
+        "policies": [],
+        "schedule_groups": ["default"]
+      }
+    },
+    "aws-lab": {
+      "profile": "lab-temporary",
+      "account_id": "222222222222",
+      "region": "us-west-2",
+      "operator_arn": "arn:aws:iam::222222222222:role/WorkspaceOperator",
+      "deployment_role_arn": "arn:aws:iam::222222222222:role/WorkspaceDeployer",
+      "backend": {
+        "bucket": "example-lab-state-222222222222",
+        "region": "us-west-2",
+        "platform_key": "aws/222222222222/us-west-2/platform/platform.tfstate",
+        "runner_prefix": "aws/222222222222/us-west-2/runner/"
+      },
+      "inventory": {
+        "resource_prefix": "example-lab",
+        "buckets": ["example-lab-data", "example-lab-results"],
+        "repositories": ["example-lab/runner"],
+        "roles": ["WorkspaceDeployer", "WorkspaceOperator"],
+        "policies": [],
+        "schedule_groups": ["default"]
+      }
+    }
+  }
+}
