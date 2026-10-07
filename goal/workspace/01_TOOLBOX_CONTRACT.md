@@ -1,6 +1,8 @@
 # Toolbox and workspace contract
 
-Status: target specification; not an implemented interface. Applies independently
+Status: shared interface 2.0.0, toolbox profile and offline acceptance implemented;
+provider launch/access/storage/deadline implementation remains pending.
+See [the executable interface](../../docs/workspace.md). Applies independently
 to [AWS](02_AWS.md), [GCP](03_GCP.md) and [Azure](04_AZURE.md).
 
 ## User journey

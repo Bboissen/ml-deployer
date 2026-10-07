@@ -178,7 +178,8 @@ if [[ "$OPERATION" == plan ]]; then
     "encrypt = true\nuse_lockfile = true\n"
   ' >"${AWS_EVIDENCE_DIRECTORY}/backend.hcl"
 
-  export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-/home/user/.cache/opentofu/plugin-cache}"
+  export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${XDG_CACHE_HOME:-${AWS_DUMMY_REPOSITORY_ROOT}/.tools}/opentofu/plugin-cache}"
+  mkdir -p -- "$TF_PLUGIN_CACHE_DIR"
   [[ -d "$TF_PLUGIN_CACHE_DIR" && "$TF_PLUGIN_CACHE_DIR" != /tmp/* ]] ||
     aws_dummy_fail 'TF_PLUGIN_CACHE_DIR must be an existing durable provider cache outside /tmp'
   TF_DATA_DIR="$TOFU_DATA_DIRECTORY" tofu -chdir="$SEALED_RUNNER_ROOT" init \

@@ -1,5 +1,9 @@
 # Operator lifecycle
 
+Historical batch interface. The [workspace interface 2.0.0](../workspace.md)
+now defines the accepted product boundary. Provider workspace migration is
+pending; existing batch code, contracts and evidence remain preserved.
+
 This is the shortest safe path from local validation to a destroyed runner.
 Commands and examples in the repository are the authority; this guide does not
 assert that a live identity, quota, backend, or resource still exists.

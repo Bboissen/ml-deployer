@@ -68,6 +68,22 @@ done
 temporary_directory="$(mktemp -d)"
 trap 'find "$temporary_directory" -depth -delete' EXIT
 
+maximum_deployment_id="a$(printf '%046d' 0)c"
+overlong_deployment_id="a$(printf '%047d' 0)c"
+jq --arg deployment_id "$maximum_deployment_id" '
+  .deployment_id = $deployment_id
+  | .run_spec_uri |= sub("/run-specs/[^/]+/"; "/run-specs/" + $deployment_id + "/")
+' "$fixtures/valid-aws.json" >"$temporary_directory/maximum-deployment-id.json"
+"$validator" "$temporary_directory/maximum-deployment-id.json" >/dev/null ||
+  fail 'validator rejected a 48-character deployment ID'
+jq --arg deployment_id "$overlong_deployment_id" '
+  .deployment_id = $deployment_id
+  | .run_spec_uri |= sub("/run-specs/[^/]+/"; "/run-specs/" + $deployment_id + "/")
+' "$fixtures/valid-aws.json" >"$temporary_directory/overlong-deployment-id.json"
+if "$validator" "$temporary_directory/overlong-deployment-id.json" >/dev/null 2>&1; then
+  fail 'validator accepted a 49-character deployment ID'
+fi
+
 jq '.oci_repository = (.oci_repository + ("a" * 256))' \
   "$fixtures/valid-aws.json" >"$temporary_directory/overlong-repository.json"
 if "$validator" "$temporary_directory/overlong-repository.json" >/dev/null 2>&1; then

@@ -5,15 +5,17 @@ repository, and work with a persistent native object-store dataset. This repo
 owns the machine, bucket, toolbox, access and safe lifetime. The external repo
 owns project dependencies, data content, ML scripts and results.
 
-Implementation is pending. The current image-first dummy workflow must be
-migrated; these goals do not claim the new workspace commands already exist.
+Shared foundation 2.0.0 is implemented and checked offline. Provider workspace
+launch commands remain pending; historical image-first dummy workflows are
+preserved until each reviewed migration.
 
 ## Current goals
 
 | Goal | Outcome | Status |
 | --- | --- | --- |
-| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Planned |
-| [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Target accepted |
+| [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete; review gate |
+| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Exact inventory proposed; no cleanup executed |
+| [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
 | [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Planned |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |

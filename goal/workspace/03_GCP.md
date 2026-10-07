@@ -4,6 +4,20 @@ Status: target accepted; implementation/live acceptance pending. Follow the
 [scope](00_SCOPE_AND_CLEANUP.md) and [toolbox contract](01_TOOLBOX_CONTRACT.md).
 GCP works independently of AWS, Azure and the homelab.
 
+
+## Shared foundation inputs and integration boundary
+
+Consume [workspace interface 2.0.0](../../docs/workspace.md),
+[the integration ownership and task prompt](05_FOUNDATION_AND_HANDOFF.md) and
+[the exact cleanup inventory](06_CLEANUP_INVENTORY.md). Work from the merged
+foundation commit in your own provider worktree/branch. Emit request, handoff and
+readiness records; use the common validator and toolbox probe. Implement native
+storage/authentication/terminal/deadline evidence only in your provider paths.
+The shared acceptance source is `shared/workspace/example/`; pin uploaded and
+retrieved versions in provider-specific evidence. Local-copy tests are not live
+storage acceptance. Do not edit shared files concurrently or require another
+provider's implementation. Every live mutation still needs exact authorization.
+
 ## A. Reconcile existing state and leftovers
 
 Refresh project/region/zone, APIs, quota, images, IAM, storage and compute inventory.

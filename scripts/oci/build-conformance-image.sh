@@ -20,7 +20,7 @@ docker buildx version >/dev/null 2>&1 || fail "docker buildx is required"
 "${SCRIPT_DIRECTORY}/verify-image-source-manifest.sh" >/dev/null
 source_manifest="$(sha256sum "${BUILD_CONTEXT}/image-source-manifest.json" | cut -d' ' -f1)"
 
-runtime_directory="${REPOSITORY_ROOT}/.dummy-runtime/build"
+runtime_directory="${REPOSITORY_ROOT}/evidence/.test-runtime/build"
 mkdir -p "$runtime_directory"
 metadata_path="$(mktemp "${runtime_directory}/metadata.XXXXXX.json")"
 trap 'rm -f -- "$metadata_path"' EXIT

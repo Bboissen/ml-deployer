@@ -18,6 +18,11 @@ required_files=(
   AGENTS.md
   README.md
   Makefile
+  evidence/.gitignore
+  evidence/README.md
+  shared/workspace/schema.json
+  shared/workspace/toolbox.json
+  docs/workspace.md
   docs/architecture.md
   docs/contract.md
   docs/opentofu-architecture.html
@@ -36,6 +41,16 @@ required_files=(
 for required_file in "${required_files[@]}"; do
   [[ -f "$required_file" ]] || fail "required file is missing: ${required_file}"
 done
+
+mapfile -t visible_evidence_files < <(
+  git ls-files --cached --others --exclude-standard evidence | LC_ALL=C sort
+)
+[[ "${visible_evidence_files[*]}" == 'evidence/.gitignore evidence/README.md' ]] ||
+  fail 'only evidence layout documentation may be visible to Git'
+git check-ignore -q evidence/aws/LOCAL-RUNTIME-PROBE || fail 'local evidence is not ignored'
+if rg -q --glob '!check-repository.sh' '\.dummy-runtime|/home/user/\.cache/opentofu' scripts tests; then
+  fail 'runtime/cache writers must use portable ignored paths'
+fi
 
 for provider_name in aws gcp azure; do
   [[ -f "infra/${provider_name}/README.md" ]] ||
@@ -61,17 +76,25 @@ fi
 
 if find . -xdev -mindepth 1 \
   -not -path './.git' -not -path './.git/*' \
+  -not -path './evidence' -not -path './evidence/*' \
+  -not -path './.tools' -not -path './.tools/*' \
   -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
+  -not -path './scripts/workspace/validate.py' \
+  -not -path './scripts/workspace/probe-toolbox.py' \
+  -not -path './tests/workspace/test_workspace.py' \
+  -not -path './shared/workspace/example/example.py' \
   -not -path './shared/conformance/oci-ml-smoke/conformance.py' \
   -not -path './shared/conformance/oci-ml-smoke/generate-fixture.py' \
   -not -path './shared/conformance/oci-ml-smoke/test_conformance.py' \
   \( -name '*.py' -o -name 'requirements*.txt' -o -name 'pyproject.toml' \) \
   -print -quit | grep -q .; then
-  fail 'Python or ML project files remain outside the bounded conformance fixture'
+  fail 'Python or ML project files remain outside the bounded infrastructure validation/acceptance files'
 fi
 
 if find . -xdev -mindepth 1 \
   -not -path './.git' -not -path './.git/*' \
+  -not -path './evidence' -not -path './evidence/*' \
+  -not -path './.tools' -not -path './.tools/*' \
   -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
   \( -name '.terraform' -o -name '.venv' -o -name '__pycache__' \
      -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '*.tfstate' \
@@ -90,11 +113,12 @@ fi
 
 while IFS= read -r json_file; do
   jq -e . "$json_file" >/dev/null
-done < <(find shared/contracts -type f -name '*.json' -print | LC_ALL=C sort)
+done < <(find shared/contracts shared/workspace -type f -name '*.json' -print | LC_ALL=C sort)
 
 link_failure=0
 while IFS=: read -r source_file source_line link_target; do
   [[ -n "$source_file" && -n "$link_target" ]] || continue
+  [[ "$link_target" == *://* || "$link_target" == mailto:* ]] && continue
   resolved_path="$(realpath -m "$(dirname "$source_file")/$link_target")"
   if [[ ! -e "$resolved_path" ]]; then
     printf 'ERROR: broken Markdown link: %s:%s -> %s\n' \
@@ -103,8 +127,9 @@ while IFS=: read -r source_file source_line link_target; do
   fi
 done < <(
   rg --no-heading --line-number -o \
-    '\]\(([^)#]+\.md)(?:#[^)]+)?\)' \
+    '\]\(([^)#]+)(?:#[^)]+)?\)' \
     --replace '$1' \
+    --glob '*.md' \
     --glob '!docs/ml-project/**' \
     README.md AGENTS.md docs goal infra shared scripts tests
 )
