@@ -5,7 +5,9 @@
 - This repository provisions ML-ready infrastructure on AWS, Google Cloud, and Azure with OpenTofu.
 - It does not own model code, training logic, experiment parameters, data transformations, or result analysis.
 - DigitalOcean, Ray cluster orchestration, Spotify-specific code, and local ML execution are out of scope.
-- The ML repository supplies an OCI image pinned by digest and an opaque run specification.
+- The target is an independent cloud workspace with persistent native object storage and a clone-ready toolbox; `goal/README.md` defines the migration goals.
+- The external ML repository owns its dependencies and scripts. A pinned OCI workload image and opaque run specification are historical batch interfaces, not mandatory workspace inputs.
+- A small locked deterministic data-science example is allowed for toolbox/storage acceptance; production ML remains outside this repository.
 - The Gold dataset is not present yet. Provider storage must be generic and empty until a later reviewed integration.
 
 ## Working rules
@@ -23,7 +25,7 @@
 - Never apply, destroy, import, move state, change IAM, or mutate billing without an exact reviewed scope and explicit authorization.
 - A general request to implement infrastructure does not authorize a cloud apply.
 - Preserve local state, state backups, plans, authorization ledgers, receipts, and evidence unless their exact deletion is separately authorized.
-- Preservation during the pivot is temporary quarantine. Before new provider implementation, move required state/evidence to a verified archive outside the repository and remove all obsolete legacy material from the workspace through an explicitly reviewed cleanup.
+- Local state, plans, receipts, authorization ledgers, and evidence belong under the repository-local, Git-ignored `evidence/` root. Keep only its layout documentation tracked. Remove obsolete or rebuildable material only through an explicitly reviewed cleanup with a verified migration/pruning receipt.
 - Do not create a permanent `legacy/` tree inside this repository.
 - Do not silently orphan or destroy existing resources during the pivot. Record whether each resource will be adopted or decommissioned.
 - State storage and workload storage are separate resources.

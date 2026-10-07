@@ -1,69 +1,49 @@
-# Multi-cloud ML infrastructure
+# Independent cloud ML workspaces
 
-This repository provisions one disposable, single-node ML runner on AWS,
-Google Cloud, or Azure. A run stays on one provider; this is not a cross-cloud
-cluster.
+This repository creates an ML-ready machine, persistent native object storage,
+toolbox, authenticated terminal access and bounded lifetime on AWS, Google Cloud
+or Azure. Each provider operates independently. The user connects, clones an
+external ML repository and installs its project dependencies; that repository
+owns scripts, datasets, transformations, training and results.
 
-The ML repository supplies a digest-pinned OCI image and an opaque validated
-run specification. This repository owns only cloud infrastructure, native
-identity, storage boundaries, runtime deadlines, and acceptance evidence.
+Shared foundation **2.0.0** is implemented offline. Provider workspace launch,
+interactive access and native storage/deadline acceptance are pending. Existing
+batch roots, contracts and historical evidence remain preserved during migration.
+No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
 
-## Current status
+Read the [workspace interface and validation guide](docs/workspace.md),
+[goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
+and [cleanup inventory for review](goal/workspace/06_CLEANUP_INVENTORY.md).
 
-- AWS bootstrap and persistent platform acceptance are recorded; runner and
-  trusted-publisher completion remain open.
-- GCP and Azure have offline-valid bootstrap, platform, and runner roots; their
-  live acceptance tasks remain open.
-- [`goal/README.md`](goal/README.md) is the status index. Code, lock files,
-  external saved-plan evidence, and fresh provider CLI output override prose.
-
-## Start here
-
-Run the complete offline suite:
+Install the small hash-locked Python 3.13 test environment, then validate:
 
 ```bash
-make check
+make workspace-test-setup  # package downloads; no cloud account operation
+make check                 # workspace tests and nine existing provider roots
+make historical-check      # explicit preserved batch/demo regression suite
 ```
 
-It checks repository invariants, contracts, OCI source, all nine OpenTofu
-roots, provider policy regressions, and formatting. Backend initialization is
-disabled and no cloud API is called.
+Routine tests query no cloud accounts or APIs. Backend-disabled OpenTofu init
+may download pinned providers. Offline passing results are not live readiness.
+The acceptance example checks tiny `1, 2, 3, 4` bucket fixture values for count 4,
+sum 10, mean 2.5 and stable JSON round-trip bytes. Its offline transfers are
+simulated; actual upload/authentication is separately reviewed per provider.
 
-For account setup, use the provider guide:
+| Owner | Scope |
+| --- | --- |
+| AWS / GCP / Azure | `infra/<provider>/{bootstrap,platform,runner}`, provider scripts/tests and operations guide |
+| Shared integration | `shared/workspace/`, `scripts/workspace/`, `tests/workspace/`, repository checks and shared docs |
+| Local evidence | Ignored `evidence/`; only layout documentation is tracked |
+| External ML repository | Project dependency locks, code, dataset content and durable output choices |
 
-- [AWS](docs/account-setup/aws.md)
-- [Google Cloud](docs/account-setup/gcp.md)
-- [Azure](docs/account-setup/azure.md)
+Account setup guides: [AWS](docs/account-setup/aws.md),
+[GCP](docs/account-setup/gcp.md), [Azure](docs/account-setup/azure.md).
+Existing [architecture](docs/architecture.md), [batch contract](docs/contract.md)
+and [batch lifecycle](docs/operations/lifecycle.md) describe historical interfaces
+until provider migration. They do not define the new workspace user journey.
 
-After authenticating manually, load the ignored `.env` binding into the current
-shell:
-
-```bash
-source scripts/load-cloud-env.sh aws   # or gcp / azure
-```
-
-The loader validates names and related fields. It does not log in, enable APIs,
-create identities, plan, or apply.
-
-## Repository layout
-
-```text
-infra/<provider>/{bootstrap,platform,runner}  independent OpenTofu state roots
-shared/contracts/                            provider-neutral JSON contracts
-shared/bootstrap/                            portable guest execution core
-shared/conformance/                          bounded OCI infrastructure smoke
-scripts/                                     validators and narrow operations
-tests/                                       offline contract/provider tests
-docs/                                        stable design and operator guides
-goal/                                        current implementation gates
-```
-
-See [architecture](docs/architecture.md), [contract](docs/contract.md), and
-[lifecycle](docs/operations/lifecycle.md).
-
-## Mutation boundary
-
-Validation and planning are not apply authorization. Cloud apply, destroy,
-import, state movement, IAM changes, image publication, and object upload each
-require their own exact reviewed scope. An apply consumes the exact saved plan
-that was authorized; it never silently replans.
+Validation is not apply authorization. Cloud apply, destroy, import, state
+movement, IAM/billing changes, image publication, data upload and local pruning
+each require an exact reviewed scope and explicit authorization. Preserve old
+state/evidence and classify existing resources before migration. Workspace
+teardown retains persistent workload storage and state storage separately.

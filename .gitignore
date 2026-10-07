@@ -22,6 +22,9 @@ crash.*.log
 
 # Local runtime evidence and generated data
 .*-runtime/
+/evidence/*
+!/evidence/.gitignore
+!/evidence/README.md
 .tools/
 artifacts/
 data/

@@ -1,9 +1,13 @@
 # Goal 06: Tool-complete dummy image and cross-cloud acceptance
 
+Historical batch/demo plan. The current product target is the
+[workspace milestone](README.md). Existing interfaces and immutable evidence
+remain preserved until a separately reviewed provider migration.
+
 Status: **Common image/contract/operator milestone ready for review; provider
 adapters and live acceptance remain pending**.
 
-This is the terminal goal for the current repository stage. Deploy one bounded
+This was the terminal goal for the historical batch stage. Deploy one bounded
 dummy ML workload through the final process on AWS, Google Cloud, and Azure.
 The dummy performs representative work with synthetic data and the real
 runtime toolchain, but contains no production model logic, experiment choices,
@@ -12,7 +16,7 @@ Spotify-specific transformation, or production Gold dataset.
 ## Task A: freeze the tool-complete dummy image
 
 Use the ML planning package under
-[`docs/ml-project`](../docs/ml-project/README.md) to freeze an exact package
+`docs/ml-project/` (untracked, awaiting reviewed export) to freeze an exact package
 matrix and hashed dependency lock. Tool-complete means the packages required by
 the accepted default workflow, not every speculative future challenger.
 

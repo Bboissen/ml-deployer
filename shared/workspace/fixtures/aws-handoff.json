@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "aws",
+  "account_scope": "123456789012",
+  "region": "eu-west-1",
+  "workspace_id": "workspace-example",
+  "kind": "handoff",
+  "request_sha256": "75cf8a80aab58a2a9678d9be5a03cedcd8047a7596d205e6b1c5a5da75299964",
+  "toolbox_profile": "cpu-python-v1",
+  "image_reference": "provider-owned-immutable-image-example",
+  "bootstrap_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "machine_id": "provider-machine-example",
+  "user": "workspace",
+  "project_directory": "/home/workspace/projects",
+  "storage": {
+    "data_uri": "s3://workspace-data-example/datasets/example/",
+    "output_uri": "s3://workspace-data-example/outputs/workspace-example/",
+    "state_uri": "s3://workspace-state-example/aws/runner/example.tfstate"
+  },
+  "identity": {
+    "mode": "instance_role",
+    "selector": "arn:aws:iam::123456789012:role/workspace-example"
+  },
+  "terminal": {
+    "method": "ssm",
+    "argv": [
+      "aws",
+      "ssm",
+      "start-session",
+      "--target",
+      "i-0123456789abcdef0"
+    ]
+  },
+  "lifetime": {
+    "started_at": "2026-10-07T12:00:00Z",
+    "expires_at": "2026-10-07T13:00:00Z",
+    "guard_active_at": "2026-10-07T11:59:00Z",
+    "guard_id": "provider-side-guard-example",
+    "expiry_action": "terminate"
+  }
+}

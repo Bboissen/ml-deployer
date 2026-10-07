@@ -1,5 +1,9 @@
 # Goal 03: AWS
 
+Historical batch/demo plan. The current product target is the
+[workspace milestone](README.md). Existing interfaces and immutable evidence
+remain preserved until a separately reviewed provider migration.
+
 Status: **Tasks A and B accepted; Task C implementation prepared; live
 publisher policy, publication, runner, receipt and destroy acceptance pending**.
 

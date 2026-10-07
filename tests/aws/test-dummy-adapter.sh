@@ -5,7 +5,7 @@ set -euo pipefail
 readonly TEST_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly REPOSITORY_ROOT="$(cd -- "${TEST_DIRECTORY}/../.." && pwd -P)"
 readonly DISPATCH="${REPOSITORY_ROOT}/scripts/dummy/dispatch.sh"
-readonly RUNTIME_PARENT="${REPOSITORY_ROOT}/.dummy-runtime"
+readonly RUNTIME_PARENT="${REPOSITORY_ROOT}/evidence/.test-runtime"
 mkdir -p -- "$RUNTIME_PARENT"
 readonly TEST_ROOT="$(mktemp -d "${RUNTIME_PARENT}/aws-adapter-test.XXXXXX")"
 trap 'rm -rf -- "$TEST_ROOT"' EXIT

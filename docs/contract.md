@@ -1,5 +1,9 @@
 # Cross-cloud runner contract
 
+Historical batch interface. The [workspace interface 2.0.0](workspace.md)
+now defines the accepted product boundary. Provider workspace migration is
+pending; existing batch code, contracts and evidence remain preserved.
+
 This version `1.0.0` contract is the stable boundary between the ML repository and the AWS, Google Cloud and Azure implementations. Provider roots may map the contract to native resources but may not silently rename, weaken or reinterpret it.
 
 ## Validation authority

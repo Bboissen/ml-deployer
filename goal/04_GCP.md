@@ -1,5 +1,9 @@
 # Goal 04: Google Cloud
 
+Historical batch/demo plan. The current product target is the
+[workspace milestone](README.md). Existing interfaces and immutable evidence
+remain preserved until a separately reviewed provider migration.
+
 Status: **Offline implementation complete; live ownership and acceptance pending**.
 
 ## Task A: ownership, services, and identities

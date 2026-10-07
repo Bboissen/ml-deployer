@@ -6,7 +6,7 @@ readonly TEST_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly REPOSITORY_ROOT="$(cd -- "${TEST_DIRECTORY}/../.." && pwd -P)"
 readonly VALIDATOR="${REPOSITORY_ROOT}/scripts/dummy/validate-cross-cloud-acceptance.sh"
 readonly WORKLOAD_ROOT="${REPOSITORY_ROOT}/shared/conformance/oci-ml-smoke"
-readonly TEST_PARENT="${REPOSITORY_ROOT}/.dummy-runtime"
+readonly TEST_PARENT="${REPOSITORY_ROOT}/evidence/.test-runtime"
 mkdir -p "$TEST_PARENT"
 readonly TEST_ROOT="$(mktemp -d "${TEST_PARENT}/acceptance-test.XXXXXX")"
 trap 'find "$TEST_ROOT" -depth -delete' EXIT

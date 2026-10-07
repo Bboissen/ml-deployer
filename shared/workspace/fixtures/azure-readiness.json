@@ -1,0 +1,63 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "azure",
+  "account_scope": "00000000-0000-0000-0000-000000000001",
+  "region": "westeurope",
+  "workspace_id": "workspace-example",
+  "kind": "readiness",
+  "request_sha256": "560cf4c29c5bef06c3cdc2bd409dd41bfd85078b9c895e8b0e7aa891b36dc42c",
+  "handoff_sha256": "69e2db8726f7520f3b56175f2a6f38c2d433991b335b16af210ca4917231d9f7",
+  "observed_at": "2026-10-07T12:05:00Z",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 4096,
+    "disk_gb": 20
+  },
+  "versions": {
+    "git": "2.47.2",
+    "python": "3.13.5",
+    "uv": "0.11.28",
+    "cc": "13.3.0",
+    "make": "4.4.1",
+    "storage_cli": "provider-pinned-example",
+    "storage_sdk": "provider-pinned-example"
+  },
+  "checks": {
+    "toolbox": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "terminal": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "identity": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "storage": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "state_denied": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "unrelated_denied": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "profile": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "deadline": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    },
+    "writable_project": {
+      "status": "pass",
+      "evidence": "evidence/azure/workspace-example/mock-readiness.json"
+    }
+  }
+}

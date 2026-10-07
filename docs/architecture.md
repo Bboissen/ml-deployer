@@ -1,5 +1,9 @@
 # Architecture
 
+Historical batch interface. The [workspace interface 2.0.0](workspace.md)
+now defines the accepted product boundary. Provider workspace migration is
+pending; existing batch code, contracts and evidence remain preserved.
+
 ## System boundary
 
 This repository creates equivalent infrastructure behavior on AWS, Google

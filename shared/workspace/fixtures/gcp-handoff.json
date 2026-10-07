@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "gcp",
+  "account_scope": "example-project",
+  "region": "europe-west1",
+  "workspace_id": "workspace-example",
+  "kind": "handoff",
+  "request_sha256": "9ea0272a991cfe6881c983e357d34016bb5a09b6785e61f9c46de249716ffc7f",
+  "toolbox_profile": "cpu-python-v1",
+  "image_reference": "provider-owned-immutable-image-example",
+  "bootstrap_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "machine_id": "provider-machine-example",
+  "user": "workspace",
+  "project_directory": "/home/workspace/projects",
+  "storage": {
+    "data_uri": "gs://workspace-data-example/datasets/example/",
+    "output_uri": "gs://workspace-data-example/outputs/workspace-example/",
+    "state_uri": "gs://workspace-state-example/gcp/runner/example.tfstate"
+  },
+  "identity": {
+    "mode": "service_account",
+    "selector": "workspace-example@example-project.iam.gserviceaccount.com"
+  },
+  "terminal": {
+    "method": "iap_oslogin",
+    "argv": [
+      "gcloud",
+      "compute",
+      "ssh",
+      "workspace-example",
+      "--tunnel-through-iap"
+    ]
+  },
+  "lifetime": {
+    "started_at": "2026-10-07T12:00:00Z",
+    "expires_at": "2026-10-07T13:00:00Z",
+    "guard_active_at": "2026-10-07T11:59:00Z",
+    "guard_id": "provider-side-guard-example",
+    "expiry_action": "delete"
+  }
+}
