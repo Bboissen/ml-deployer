@@ -1,0 +1,63 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "gcp",
+  "account_scope": "example-project",
+  "region": "europe-west1",
+  "workspace_id": "workspace-example",
+  "kind": "readiness",
+  "request_sha256": "9ea0272a991cfe6881c983e357d34016bb5a09b6785e61f9c46de249716ffc7f",
+  "handoff_sha256": "5e872b9b03f75a02001bfb246ea9bffe4f5f4817757d3e476010c99cf6dc4317",
+  "observed_at": "2026-10-07T12:05:00Z",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 4096,
+    "disk_gb": 20
+  },
+  "versions": {
+    "git": "2.47.2",
+    "python": "3.13.5",
+    "uv": "0.11.28",
+    "cc": "13.3.0",
+    "make": "4.4.1",
+    "storage_cli": "provider-pinned-example",
+    "storage_sdk": "provider-pinned-example"
+  },
+  "checks": {
+    "toolbox": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "terminal": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "identity": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "storage": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "state_denied": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "unrelated_denied": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "profile": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "deadline": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    },
+    "writable_project": {
+      "status": "pass",
+      "evidence": "evidence/gcp/workspace-example/mock-readiness.json"
+    }
+  }
+}

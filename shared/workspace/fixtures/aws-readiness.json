@@ -1,0 +1,63 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "aws",
+  "account_scope": "123456789012",
+  "region": "eu-west-1",
+  "workspace_id": "workspace-example",
+  "kind": "readiness",
+  "request_sha256": "75cf8a80aab58a2a9678d9be5a03cedcd8047a7596d205e6b1c5a5da75299964",
+  "handoff_sha256": "bf8a21fb1f982af27b759c37fdff0d6125928f62268997c15d1e6e4e21eb6174",
+  "observed_at": "2026-10-07T12:05:00Z",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 4096,
+    "disk_gb": 20
+  },
+  "versions": {
+    "git": "2.47.2",
+    "python": "3.13.5",
+    "uv": "0.11.28",
+    "cc": "13.3.0",
+    "make": "4.4.1",
+    "storage_cli": "provider-pinned-example",
+    "storage_sdk": "provider-pinned-example"
+  },
+  "checks": {
+    "toolbox": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "terminal": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "identity": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "storage": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "state_denied": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "unrelated_denied": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "profile": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "deadline": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    },
+    "writable_project": {
+      "status": "pass",
+      "evidence": "evidence/aws/workspace-example/mock-readiness.json"
+    }
+  }
+}

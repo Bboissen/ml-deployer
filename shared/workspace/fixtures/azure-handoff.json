@@ -1,0 +1,42 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "azure",
+  "account_scope": "00000000-0000-0000-0000-000000000001",
+  "region": "westeurope",
+  "workspace_id": "workspace-example",
+  "kind": "handoff",
+  "request_sha256": "560cf4c29c5bef06c3cdc2bd409dd41bfd85078b9c895e8b0e7aa891b36dc42c",
+  "toolbox_profile": "cpu-python-v1",
+  "image_reference": "provider-owned-immutable-image-example",
+  "bootstrap_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "machine_id": "provider-machine-example",
+  "user": "workspace",
+  "project_directory": "/home/workspace/projects",
+  "storage": {
+    "data_uri": "https://workloaddataexample.blob.core.windows.net/data/datasets/example/",
+    "output_uri": "https://workloaddataexample.blob.core.windows.net/data/outputs/workspace-example/",
+    "state_uri": "https://workspacestateexample.blob.core.windows.net/state/azure/runner/example.tfstate"
+  },
+  "identity": {
+    "mode": "managed_identity",
+    "selector": "00000000-0000-0000-0000-000000000002"
+  },
+  "terminal": {
+    "method": "reviewed_ssh",
+    "argv": [
+      "az",
+      "network",
+      "bastion",
+      "ssh",
+      "--name",
+      "workspace-access-example"
+    ]
+  },
+  "lifetime": {
+    "started_at": "2026-10-07T12:00:00Z",
+    "expires_at": "2026-10-07T13:00:00Z",
+    "guard_active_at": "2026-10-07T11:59:00Z",
+    "guard_id": "provider-side-guard-example",
+    "expiry_action": "deallocate"
+  }
+}
