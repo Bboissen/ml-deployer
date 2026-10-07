@@ -1,5 +1,9 @@
 # Goal 06: Tool-complete dummy image and cross-cloud acceptance
 
+Historical batch/demo plan. The current product target is the
+[workspace milestone](README.md). Existing interfaces and immutable evidence
+remain preserved until a separately reviewed provider migration.
+
 Status: **Common image/contract/operator milestone ready for review; provider
 adapters and live acceptance remain pending**.
 
