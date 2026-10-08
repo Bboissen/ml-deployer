@@ -895,7 +895,7 @@ def plan_scope(plan, stage, recovery=None):
 def recovery_context(directory, target_name, stage, config, target, state, base, client):
     directory=checked_path(directory)
     m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); started=read(directory/'apply-started.json')
-    require(stage in ('fresh-platform','prepare') and m['stage']==stage and m['target_name']==target_name and m['target']==target,
+    require(stage in ('fresh-platform','prepare','cleanup') and m['stage'] in ({'launch'} if stage=='cleanup' else {stage}) and m['target_name']==target_name and m['target']==target,
             'recovery target/root/stage differs')
     require(m['root']==str(stage_root(stage)) and prior_source(m['source']) and
             authorization['review_sha256']==started['review_sha256']==sha(canon(m)) and
@@ -910,11 +910,13 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
         expected=foundation['FRESH_ADDRESSES']
     else:
         # Only lease/observation may change. Never repurpose existing identities.
-        require({k:v for k,v in previous.items() if k not in ('lease','guard_observation')}==
-                {k:v for k,v in config.items() if k not in ('lease','guard_observation')}, 'preparation recovery changes workspace configuration')
+        excluded={'guard_observation','phase'} if stage=='cleanup' else {'lease','guard_observation'}
+        require({k:v for k,v in previous.items() if k not in excluded}==
+                {k:v for k,v in config.items() if k not in excluded}, 'recovery changes workspace configuration')
         expected=prepared_addresses(config)
+        if stage=='cleanup': expected.add('aws_instance.workspace[0]')
         require({r['address'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}==expected,
-                'recovery reference must contain only the ten preparation controls')
+                'recovery reference contains unexpected controls/compute')
     require(state['version'] and state['key']==m['backend']['key'] and
             (m['state']['lineage'] is None or state['lineage']==m['state']['lineage']), 'recovery state lineage/key differs')
     response=client(base,'s3').get_object(Bucket=target['backend']['bucket'], Key=state['key'],
@@ -1002,7 +1004,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     config=read(config_path)
     if stage=='fresh-platform':foundation['config'](config,foundation['target'](boundary['targets']()[target_name]))
     dependencies=[]
-    if stage in ('fresh-platform','prepare','launch','cleanup') or (stage=='retire' and dependency):
+    if stage in ('fresh-platform','prepare','launch') or (stage=='cleanup' and not recover_from) or (stage=='retire' and dependency):
         require(dependency is not None,'this stage requires its exact successful prior apply receipt')
         dep=checked_path(dependency); prior=read(dep/'review.json'); receipt=read(dep/'apply-result.json')
         require(prior['target_name']==target_name and prior['stage'] in ({'platform','fresh-platform'} if stage=='prepare' else { {'fresh-platform':'bootstrap','launch':'prepare','retire':'launch','cleanup':'retire'}[stage] })
@@ -1037,7 +1039,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
         require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease not open')
     if stage=='cleanup':
         inventory(base,client,config)
-        remaining_owned(base,client,read(checked_path(dependency)/'retired-owned.json'))
+        if not recovery: remaining_owned(base,client,read(checked_path(dependency)/'retired-owned.json'))
     directory.mkdir(parents=True,mode=0o700)
     write(directory/'config.tfvars.json',config)
     backend={'bucket':target['backend']['bucket'],'key':state['key'],'region':target['region'],'profile':target['profile'],
@@ -1125,7 +1127,7 @@ def apply(directory):
         require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease closed')
     if m['stage']=='cleanup':
         absence=inventory(base,client,config)
-        remaining_owned(base,client,read(Path(m['dependencies'][0]['directory'])/'retired-owned.json'))
+        if not recovery: remaining_owned(base,client,read(Path(m['dependencies'][0]['directory'])/'retired-owned.json'))
         write(directory/'absence.json',absence)
     env.update(TF_DATA_DIR=str(directory/'tofu-data'))
     require(json.loads(run(['tofu','version','-json'],env,10))['terraform_version']==m['tofu_version'],'OpenTofu version drift')

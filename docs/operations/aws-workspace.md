@@ -745,6 +745,15 @@ permits only its two owned inline policy updates or a refreshed no-op checkpoint
 Both refuse covered live compute and foreign resources. Preserve the failed
 plan and receipts; apply only the newly inspected, single-use saved plan.
 
+After a failed launch has expired, `cleanup --recover-from FAILED_LAUNCH_PLAN`
+can remove its remaining preparation controls. It verifies the consumed launch
+plan, exact workspace/lease, state ownership and native compute/disk/interface
+absence; it does not manufacture a successful launch receipt. The external
+guard terminates stopped instances too, so EC2 leaves guest-shutdown behavior at
+its default instead of issuing a forbidden post-launch attribute modification.
+Bootstrap output goes to the journal and EC2 console for failure diagnosis even
+when Session Manager stays disabled during installation.
+
 Successful historical receipts and unchanged artifact content may survive a
 committed source upgrade along the same Git ancestry. Every pending apply stays
 bound to its exact current source, configuration, artifact hashes and state

@@ -651,6 +651,8 @@ def tofu_tests():
     if fresh_addresses!=LIFE['foundation']['FRESH_ADDRESSES']:raise AssertionError('fresh root creates unexpected/missing resources')
     runner=plans['runner']['guarded_launch_is_encrypted_disposable_and_tagged']
     resources={r['address']:r for r in runner['configuration']['root_module']['resources']}
+    if 'instance_initiated_shutdown_behavior' in resources['aws_instance.workspace'].get('expressions',{}):
+        raise AssertionError('guest-shutdown setting triggers forbidden ModifyInstanceAttribute after RunInstances')
     depends=resources['aws_instance.workspace'].get('depends_on',[])
     for name in ('aws_scheduler_schedule.workspace_deadline','aws_iam_role_policy.launch','aws_iam_instance_profile.workspace','aws_ssm_document.terminal','aws_iam_user_policy.operator'):
         if name not in depends: raise AssertionError('missing guard/identity/terminal ordering: '+name)

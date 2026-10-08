@@ -70,19 +70,20 @@ resource "aws_ssm_document" "terminal" {
 }
 
 resource "aws_instance" "workspace" {
-  key_name                             = ""
-  count                                = var.phase == "launch" ? 1 : 0
-  ami                                  = var.ami_id
-  instance_type                        = var.instance_type
-  subnet_id                            = var.subnet_id
-  vpc_security_group_ids               = [var.security_group_id]
-  associate_public_ip_address          = true
-  iam_instance_profile                 = aws_iam_instance_profile.workspace[local.id].name
-  disable_api_termination              = false
-  disable_api_stop                     = false
-  instance_initiated_shutdown_behavior = "terminate"
-  tags                                 = local.guard_tags
-  volume_tags                          = local.guard_tags
+  key_name                    = ""
+  count                       = var.phase == "launch" ? 1 : 0
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  subnet_id                   = var.subnet_id
+  vpc_security_group_ids      = [var.security_group_id]
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.workspace[local.id].name
+  disable_api_termination     = false
+  disable_api_stop            = false
+  # Expiry is enforced by the external guard, including stopped instances.
+  # Setting guest-shutdown behavior triggers a forbidden post-launch modify.
+  tags        = local.guard_tags
+  volume_tags = local.guard_tags
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"

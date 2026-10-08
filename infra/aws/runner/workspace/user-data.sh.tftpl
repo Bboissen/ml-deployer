@@ -32,6 +32,8 @@ ExecStart=/opt/workspace/install.sh
 RemainAfterExit=yes
 TimeoutStartSec=600
 KillMode=control-group
+StandardOutput=journal+console
+StandardError=journal+console
 ExecStopPost=/bin/bash -c 'if test "$SERVICE_RESULT" != success; then /usr/bin/touch /var/lib/workspace/bootstrap-failed; fi'
 [Install]
 WantedBy=multi-user.target
