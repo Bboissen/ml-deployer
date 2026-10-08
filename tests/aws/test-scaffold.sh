@@ -28,6 +28,10 @@ for root_name in bootstrap platform runner; do
     -chdir="${REPOSITORY_ROOT}/infra/aws/${root_name}" validate -no-color >/dev/null
 done
 
+AWS_STORAGE_PLATFORM_TF_DATA_DIR="${temporary_console_directory}/terraform-platform" \
+  AWS_STORAGE_RUNNER_TF_DATA_DIR="${temporary_console_directory}/terraform-runner" \
+  bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-storage.sh"
+
 expected_request_sha256="$("${REPOSITORY_ROOT}/scripts/hash-runner-request.sh" "$VALID_AWS_REQUEST")"
 request_path_literal="$(jq -Rn --arg value "$VALID_AWS_REQUEST" '$value')"
 actual_request_sha256="$({

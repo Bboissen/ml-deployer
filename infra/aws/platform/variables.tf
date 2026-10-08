@@ -19,7 +19,7 @@ variable "aws_account_id" {
 }
 
 variable "project_name" {
-  description = "Short lower-case project identifier used in names and tags."
+  description = "Historical infrastructure ownership identifier for names/tags; separate from ml_projects ML project names."
   type        = string
 
   validation {
@@ -49,7 +49,7 @@ variable "state_bucket_arn" {
 }
 
 variable "data_bucket_name" {
-  description = "Globally unique reviewed name for the initially empty generic data bucket."
+  description = "Retained generic data bucket name at its historical platform address; existing contents are preserved."
   type        = string
 
   validation {

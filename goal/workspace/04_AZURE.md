@@ -18,6 +18,96 @@ retrieved versions in provider-specific evidence. Local-copy tests are not live
 storage acceptance. Do not edit shared files concurrently or require another
 provider's implementation. Every live mutation still needs exact authorization.
 
+## Common project storage architecture
+
+Architecture decision: the implementation goal in this task remains **AWS only**.
+GCP and Azure consume the same target architecture in their later provider tasks;
+updating these goals does not authorize either provider's implementation or any
+cloud mutation. Keep provider implementations and native authentication separate.
+
+The deployment input is `ml_project_name`, distinct from the cloud account/project
+identifier, infrastructure ownership prefix and external repository dependencies.
+Derive a stable, provider-safe `project_slug` from that name and use an explicit
+workspace suffix to derive the workspace ID. For example, `fraud-detection` and
+workspace `dev-01` identify `fraud-detection-dev-01`. Reject invalid names and
+ambiguous/colliding assignments; do not silently reinterpret an existing project.
+Do not invent a deployed ML project name from historical infrastructure ownership.
+
+For example, the proposed provider deployment inputs are:
+
+```hcl
+ml_project_name = "fraud-detection"
+workspace_name  = "dev-01"
+storage_mode    = "auto"
+```
+
+These inputs derive workspace ID `fraud-detection-dev-01`, data prefix
+`projects/fraud-detection/data/` and output prefix
+`projects/fraud-detection/workspaces/fraud-detection-dev-01/output/`. Native
+resource names retain a readable project component plus a deterministic scope
+suffix to satisfy each provider's global-name and length constraints. This is a
+configuration example and future behavior, not an existing deployment command
+or evidence that storage/compute has been created.
+
+Use **one persistent native workload storage unit per ML project per provider**:
+an S3 bucket, a GCS bucket, or an Azure Blob container in its workload storage
+account. Keep state in a separate bucket/account. Under the workload storage unit,
+use the same namespace on every provider:
+
+- Dataset reads: `projects/<project_slug>/data/`.
+- Workspace outputs: `projects/<project_slug>/workspaces/<workspace_id>/output/`.
+
+A workspace may read its reviewed dataset prefix and upload/list/retrieve current
+and exact-version objects within its own output prefix, including scoped multipart
+operations where supported. Grant no unspecified object/version deletion. Preserve
+objects, native version identifiers and storage when a workspace is torn down.
+Independent identities enforce these boundaries; a name/prefix alone is not IAM.
+
+Expose `storage_mode = auto | create | existing` in provider deployment
+configuration, with `auto` as the intended normal mode:
+
+- `auto`: reuse the project's explicit assignment (including managed storage
+  already in its persistent state); otherwise include new empty storage in the
+  authorized deployment plan.
+- `create`: provision new platform-managed storage initially and reuse that same
+  storage/state on subsequent deployments. Never create a new bucket per runner.
+- `existing`: require an exact reviewed native storage assignment; verify its
+  provider/account/region, private access, versioning/recovery, separate state
+  storage and permitted prefixes before use.
+
+An assignment records the ML project, native resource identifiers, account/region,
+ownership (`platform-managed` or `external`) and state/source binding. Permission
+errors, name collisions, missing assigned storage and unknown ownership fail
+closed; they never trigger fallback creation or inferred adoption. Externally
+owned storage is referenced without automatic import, state transfer, bucket-policy
+replacement or content changes. Switching a managed assignment to an external
+reference or renaming/removing it requires a separately reviewed migration; a flag
+must not orphan/destroy the old resource.
+
+Creation belongs to the persistent platform root and its reviewed state owner,
+separate from state-bootstrap and the disposable runner. Keep all historical
+addresses, lineages, objects, plans and evidence. Existing AWS/GCP data/results
+buckets do not become empty project storage by relabelling them. New storage uses
+provider-safe names derived from the project and a deterministic account/region
+suffix; it is private, versioned/recoverable, protected from ordinary destruction
+and initially empty. No Gold data upload or ML execution is implied.
+
+Resolve native data/output/state URIs before validating and hashing workspace
+interface **2.0.0**. Project name, creation mode and ownership are provider
+configuration, not new fields silently added to that closed shared interface.
+Emit truthful requested/observed storage metadata; no ready machine handoff is
+fabricated. Later deployment still requires reviewed effective identity, exact
+backend/source/state binding and authorization for the exact saved plan. Compute
+remains closed until toolbox/access and provider lifetime safeguards are accepted.
+
+One storage unit is the small-project default because it keeps ownership and
+configuration simple. Bucket count alone is not a meaningful spending cap:
+stored bytes, retained versions, requests, transfers and optional networking or
+replication features drive costs. Provider-specific cost/access choices remain
+explicit at the deployment review. See [AWS storage pricing](https://aws.amazon.com/s3/pricing/),
+[GCP storage pricing](https://cloud.google.com/storage/pricing) and
+[Azure Blob pricing](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/).
+
 ## A. Account readiness and simplification
 
 Refresh tenant/subscription, region policy, provider registration, CPU quota,
@@ -37,8 +127,15 @@ Stop for review before account, IAM or provisioning changes.
 ## B. Blob storage and managed identity
 
 Keep Entra-authenticated state storage separate from persistent private workload
-storage. Create a workload account/container with public access disabled and
-appropriate recovery/versioning. Publish the native HTTPS Blob location plus
+storage. Implement the common project storage architecture above in the later
+Azure task:
+`ml_project_name`, the same project/workspace namespaces and `auto/create/existing`
+selection. Use one project workload container in its workload account; create the
+required empty native storage when unassigned or reuse an explicit reviewed
+assignment. Keep public/anonymous object access disabled and require recovery/
+versioning. Review storage-network reachability and its cost separately; the
+common architecture does not prescribe an unreviewed paid access route. Publish
+the native HTTPS Blob location plus
 account/container/prefix fields and azure-identity/azure-storage-blob/Azure CLI
 usage. Do not require SAS tokens, account keys or an S3 gateway.
 

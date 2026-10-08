@@ -17,3 +17,11 @@ tags = {
   Environment = "replace"
   Owner       = "replace"
 }
+
+# Optional persistent ML project storage, separate from project_name ownership.
+# Keep every previously managed entry in this complete map. New buckets are empty.
+# ml_projects = {
+#   fraud-detection = { ml_project_name = "fraud-detection", storage_mode = "auto" }
+# }
+# For existing storage, use the inspected assignment entry from the AWS workspace
+# quickstart; never infer/import ownership or replace historical bucket names.

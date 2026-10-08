@@ -193,35 +193,16 @@ data "aws_iam_policy_document" "runtime_boundary" {
   }
 
   statement {
-    sid    = "UseSystemsManagerControlChannels"
-    effect = "Allow"
-    actions = [
-      "ec2messages:AcknowledgeMessage",
-      "ec2messages:DeleteMessage",
-      "ec2messages:FailMessage",
-      "ec2messages:GetEndpoint",
-      "ec2messages:GetMessages",
-      "ec2messages:SendReply",
-      "ssm:DescribeAssociation",
-      "ssm:DescribeDocument",
-      "ssm:GetDeployablePatchSnapshotForInstance",
-      "ssm:GetDocument",
-      "ssm:GetManifest",
-      "ssm:GetParameter",
-      "ssm:GetParameters",
-      "ssm:ListAssociations",
-      "ssm:ListInstanceAssociations",
-      "ssm:PutComplianceItems",
-      "ssm:PutConfigurePackageResult",
-      "ssm:PutInventory",
-      "ssm:UpdateAssociationStatus",
-      "ssm:UpdateInstanceAssociationStatus",
-      "ssm:UpdateInstanceInformation",
-      "ssmmessages:CreateControlChannel",
-      "ssmmessages:CreateDataChannel",
-      "ssmmessages:OpenControlChannel",
-      "ssmmessages:OpenDataChannel",
-    ]
+    sid       = "UseSystemsManagerControlChannels"
+    effect    = "Allow"
+    actions   = local.session_manager_actions
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "DenyParameterStoreReads"
+    effect    = "Deny"
+    actions   = ["ssm:GetParameter*", "ssm:DescribeParameters"]
     resources = ["*"]
   }
 
@@ -417,10 +398,10 @@ data "aws_iam_policy_document" "deployer" {
     condition {
       test     = "ArnEquals"
       variable = "iam:PermissionsBoundary"
-      values = [
+      values = concat([
         aws_iam_policy.runtime_boundary.arn,
         aws_iam_policy.scheduler_boundary.arn,
-      ]
+      ], [for boundary in aws_iam_policy.project_workspace_boundary : boundary.arn])
     }
   }
 
