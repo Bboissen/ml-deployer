@@ -530,8 +530,9 @@ def plan_scope(plan, stage):
         require(item.get('mode')=='managed','unexpected mutation')
         if stage=='platform':
             require('delete' not in actions,'platform deletion forbidden')
+            project_prerequisite=(address=='aws_iam_policy.session_manager' or address.startswith(('aws_s3_bucket_lifecycle_configuration.project[','terraform_data.project_storage_checks[')))
             require(('workspace_guard' in address or address.startswith(('aws_s3_bucket.project[','aws_s3_bucket_versioning.project[','aws_s3_bucket_server_side_encryption_configuration.project[','aws_s3_bucket_public_access_block.project[','aws_s3_bucket_ownership_controls.project[','aws_s3_bucket_policy.project[','aws_iam_policy.project_workspace_boundary[','aws_iam_policy.workspace_launch_boundary['))
-                     or address=='aws_iam_role_policy.deployer') and not ('workload' in address), 'unreviewed platform mutation: '+address)
+                     or address=='aws_iam_role_policy.deployer' or (project_prerequisite and actions==['create'])) and not ('workload' in address), 'unreviewed platform mutation: '+address)
         elif stage=='launch':
             require(address=='aws_instance.workspace[0]' and actions==['create'],'launch must create only its prepared EC2/root volume')
             after=item['change']['after']

@@ -316,6 +316,18 @@ class Boundary(unittest.TestCase):
         def plan(address,type,actions): return {'resource_changes':[{'address':address,'type':type,'mode':'managed','change':{'actions':actions,'after':{}}}]}
         for stage,p in [('prepare',plan('aws_instance.workspace[0]','aws_instance',['create'])),('launch',plan('aws_iam_role.launch','aws_iam_role',['update'])),('cleanup',plan('aws_s3_bucket.project','aws_s3_bucket',['delete'])),('platform',plan('aws_vpc.runner','aws_vpc',['update']))]:
             with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](p,stage)
+    def test_platform_accepts_new_storage_and_terminal_prerequisites(self):
+        for address in ('aws_iam_policy.session_manager','aws_s3_bucket_lifecycle_configuration.project["demo"]','terraform_data.project_storage_checks["demo"]'):
+            item={'address':address,'mode':'managed','change':{'actions':['create']}}
+            self.assertEqual(LIFE['plan_scope']({'resource_changes':[item]},'platform'),[{'address':address,'actions':['create']}])
+    def test_platform_prerequisites_cannot_modify_existing_resources(self):
+        for address in ('aws_iam_policy.session_manager','aws_s3_bucket_lifecycle_configuration.project["demo"]','terraform_data.project_storage_checks["demo"]'):
+            for actions in (['update'],['delete'],['delete','create']):
+                item={'address':address,'mode':'managed','change':{'actions':actions}}
+                with self.assertRaises(LIFE['Failure']): LIFE['plan_scope']({'resource_changes':[item]},'platform')
+    def test_platform_rejects_historical_runtime_policy_update(self):
+        item={'address':'aws_iam_policy.runtime_boundary','mode':'managed','change':{'actions':['update']}}
+        with self.assertRaisesRegex(LIFE['Failure'],'unreviewed platform mutation'): LIFE['plan_scope']({'resource_changes':[item]},'platform')
     def test_exact_authorization_hash_and_immutable_ledger(self):
         directory=OUT/'authorization'; directory.mkdir(); review={'plan_sha256':'a'*64,'scope':[{'address':'owned','actions':['create']}]}
         LIFE['write'](directory/'review.json',review)

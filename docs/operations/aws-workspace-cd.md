@@ -170,6 +170,11 @@ bash scripts/aws/workspace-lifecycle.sh plan aws-personal platform \
 ```
 
 Review `review.json`, `plan.json`, the exact scope and displayed review SHA256.
+The platform scope permits creation of the project storage checks, multipart-upload
+lifecycle rule and minimal Session Manager policy. It rejects changes to those
+existing prerequisites and to the historical runtime boundary. If current native
+state differs from that historical policy source, preserve the failed plan and
+resolve its scope before preparing a fresh plan; do not authorize the rejected plan.
 For **each** later authorized saved plan, explicitly record approval and apply it:
 
 ```bash
