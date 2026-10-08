@@ -5,6 +5,10 @@ the image-first synthetic batch demonstration as the repository's final target.
 
 ## Final product and ownership
 
+All providers use the [RAM-first, quota-bounded default](../README.md#execution-rules).
+Select and pin the largest eligible supported CPU machine for the named target;
+account restrictions do not authorize quota increases or replace lifetime/cost review.
+
 Launch one ML-ready machine on AWS, Google Cloud or Azure, connect to it, clone
 an independent project, and access a persistent dataset bucket on that provider.
 This repository creates the machine, toolbox, storage, identity, access and

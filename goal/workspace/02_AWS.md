@@ -1,9 +1,8 @@
 # AWS ML workspace goals
 
-Status: target accepted; implementation/live acceptance pending. Follow the
+Status: C/D source design approved and source implementation delivered for review; native acceptance E remains pending. Follow the
 [scope](00_SCOPE_AND_CLEANUP.md) and [toolbox contract](01_TOOLBOX_CONTRACT.md).
 AWS works independently of GCP, Azure and the homelab.
-
 
 ## Shared foundation inputs and integration boundary
 
@@ -156,6 +155,17 @@ resources remain inaccessible; deleting workspace state cannot delete buckets.
 
 ## C. EC2 toolbox and terminal
 
+Source implementation: see the [C/D runbook](../../docs/operations/aws-workspace-cd.md). Offline checks do not establish native access or readiness.
+
+Use the [global RAM-first quota-bounded default](../README.md#execution-rules).
+For `aws-personal` / `000000000000` / `us-east-1`, refreshed AWS CLI metadata shows
+standard on-demand quota 8 vCPUs, no active usage, and zero X/High Memory/GPU quota.
+The C/D source default is `r8i.2xlarge`: 8 vCPUs and 64 GiB RAM, offered in
+`us-east-1a` and compatible with the reviewed ENA-enabled x86_64 AMI. Readiness
+reports usable RAM after OS overhead. A quota does not guarantee launch capacity
+or rights; reread it before the exact native plan and never increase it implicitly.
+Record regional EC2/disk/network/guard costs independently of quota.
+
 Replace fire-and-exit bootstrap with persistent toolbox readiness. Select a
 reviewed supported Linux image, publish tool versions, create a non-root writable
 project directory and verify requested instance capacity. Keep IMDSv2 and no
@@ -171,6 +181,10 @@ secrets. Repo-specific packages and scripts remain owned by that repo.
 Acceptance: usable session, clone/install/storage handoff and reconnect work.
 
 ## D. Safe lifetime and teardown
+
+Source implementation provides a persistent watchdog, a deadline armed during
+preparation, a separate lease-bound launch role and two reviewed teardown stages.
+Native timing/failure acceptance remains in E.
 
 Close the audit's EC2-before-Scheduler gap: design a provider-side guard active
 before or with compute creation. Do not launch under a claim of hard runtime

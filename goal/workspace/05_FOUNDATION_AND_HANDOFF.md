@@ -32,6 +32,11 @@ rerun both check suites before provider branches rebase.
 
 ## One integration owner
 
+The user explicitly requested global RAM-first quota-bounded sizing documentation
+during AWS C/D. The proposed edits to the active shared goals and `docs/workspace.md`
+are included for integration-owner review, alongside AWS's selected-target default;
+the closed 2.0.0 schema and other provider implementations remain unchanged.
+
 The foundation integrator owns `AGENTS.md`, `.gitignore`, `Makefile`,
 `README.md`, `evidence/{README.md,.gitignore}`, `goal/README.md`,
 `goal/workspace/{00_SCOPE_AND_CLEANUP,01_TOOLBOX_CONTRACT,05_FOUNDATION_AND_HANDOFF,06_CLEANUP_INVENTORY}.md`,

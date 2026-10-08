@@ -30,6 +30,14 @@ and storage path. Stop expanding the previous model/HPO/tracking demonstration.
 
 ## Execution rules
 
+- Default workspace sizing is RAM-first within the selected account's remaining
+  regional and machine-family quotas. Among supported CPU machines, maximize RAM,
+  then vCPUs as the tie-breaker. Require enough CPUs for the accepted request,
+  image/toolbox compatibility and an offered size in the reviewed zone. Pin the
+  selected SKU/capacity in the plan; do not request quota increases, change billing,
+  fall back silently or select the largest advertised SKU regardless of eligibility.
+  Refresh quota and usage before native planning/launch and report costs separately:
+  an account quota is a capacity limit, not a financial spending cap.
 - Start with baseline and ownership reconciliation, then review each bounded task.
 - Preserve existing working changes and review useful main/PR18/PR19 fixes before
   integration; do not import the old demo architecture wholesale.

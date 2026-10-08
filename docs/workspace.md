@@ -65,6 +65,13 @@ Providers validate exact target/operator/region/account arguments themselves.
 
 ## Toolbox and readiness
 
+All provider goals use a [RAM-first, quota-bounded CPU sizing default](../goal/README.md#execution-rules).
+Maximize RAM among image-compatible, zone-offered sizes within the named account's
+remaining regional/family quotas, then prefer more vCPUs. Resolve and review the
+exact SKU and costs before launch; unknown eligibility fails closed. This provider
+selection policy adds no fields to interface 2.0.0 and does not change historical
+batch plans or authorize quota/billing changes.
+
 The [toolbox profile](../shared/workspace/toolbox.json) is Linux x86_64 CPU with
 Python 3.13, venv, Git, uv, cc and make. Each provider pins its immutable OS image,
 versioned bootstrap and native CLI/SDK; no common OCI image/registry is required.

@@ -4,7 +4,6 @@ Status: target accepted; implementation/live acceptance pending. Follow the
 [scope](00_SCOPE_AND_CLEANUP.md) and [toolbox contract](01_TOOLBOX_CONTRACT.md).
 Azure works independently of AWS, GCP and the homelab.
 
-
 ## Shared foundation inputs and integration boundary
 
 Consume [workspace interface 2.0.0](../../docs/workspace.md),
@@ -148,6 +147,13 @@ Acceptance: native multi-object operations work under managed identity; state,
 unrelated containers and other workspace outputs are denied; data survives teardown.
 
 ## C. Toolbox VM and actual terminal access
+
+Use the [global RAM-first quota-bounded default](../README.md#execution-rules):
+maximize RAM, then vCPUs, within this subscription's remaining regional/family
+quotas and the reviewed image/zone constraints. Observe Azure quotas, SKU
+restrictions and usage before selecting the exact VM size; do not transplant
+AWS's 8-vCPU limit, request quota increases or silently reduce capacity. No Azure
+default SKU or native capacity acceptance is established by the AWS C/D task.
 
 Provide a supported, reproducible Linux image/bootstrap with the common toolbox,
 a writable non-root project directory and accurate CPU/memory/disk facts. Remove

@@ -1,4 +1,4 @@
-# AWS workspace milestones A and B
+# AWS independent workspace milestones A–D
 
 This milestone provides named account targets, bounded read-only preflight and
 resource disposition. It consumes [workspace interface 2.0.0](../workspace.md)
@@ -7,8 +7,10 @@ The corrected cleanup lineage is present. Historical provider roots and their
 state addresses remain intact. PR22's CLI abbreviation fix was independently
 verified and merged at `fee07909e6b2686c4ecd9abb0fdb05f75e0e5c7a` before B.
 B adds offline project storage selection and scoped identity source. Deployment
-and native access acceptance remain closed. Review B before C/D; GCP/Azure goals
-are aligned but their implementation is outside this task.
+and native access acceptance remain closed. B was reviewed and merged in PR23.
+C/D source adds the toolbox, terminal and pre-launch lifetime guard; see the
+[C/D runbook and later native test packet](aws-workspace-cd.md). Native milestone E
+has not run. GCP/Azure implementation is outside this task.
 
 ## Account-switching quickstart
 
@@ -507,3 +509,353 @@ changes. No shared interface/ownership files or other providers change here.
 Review milestone B before proceeding to C/D. Source review authorizes no deployment.
 No apply/destroy/import/state move, IAM/billing change, upload or image publication
 is included. Saved-plan application always needs authorization for that exact plan.
+
+## C/D milestone 1: concrete source-design review
+
+**Source design approved:** “Approve this source design and finish C+D.” This packet is source design, not compute
+implementation, deployment authorization or native acceptance. Task branch:
+`feat/aws-workspace-toolbox-lifetime`; exact base/head before implementation:
+`50731dc21c594add1b5a23ac2a57c546f46b9cf3`. PR20–23 and PR22's direct-CLI
+abbreviation fix are present. Worktree:
+`/home/user/docker/Ray_terraform-aws-toolbox-lifetime`. The original dirty checkout
+and other worktrees are preserved. Design evidence is local and ignored at
+`evidence/aws/milestone-cd/design-01/`; no state was initialized or moved.
+
+### Target, project and persistent ownership
+
+Reuse `aws-personal`: account `000000000000`, region `us-east-1`, native profile
+`sposhfi-admin`, operator `arn:aws:iam::000000000000:user/sposhfi-admin` and runner
+preparation/teardown deployer `arn:aws:iam::000000000000:role/demo-tofu-deployer`.
+The operator identity was freshly observed. Deployer assumption, SDK/provider/backend
+authentication and effective deployment rights remain unverified.
+
+The user selected **Demo**. Propose canonical `ml_project_name=demo`, workspace
+suffix `dev-01`, ID `demo-dev-01`, `storage_mode=auto`, and no external assignment.
+This would plan new empty platform-owned bucket `ml-demo-8aeb909b8cf3edd3` at
+`aws_s3_bucket.project["demo"]`; existence/global availability is unverified.
+The full retained `ml_projects` map must be supplied, preserving other assignments.
+
+| Binding | Proposed exact value |
+| --- | --- |
+| Data | `s3://ml-demo-8aeb909b8cf3edd3/projects/demo/data/` |
+| Own output | `s3://ml-demo-8aeb909b8cf3edd3/projects/demo/workspaces/demo-dev-01/output/` |
+| State bucket | `demo-tofu-state-000000000000-us-east-1` |
+| Platform key | `aws/000000000000/us-east-1/platform/platform.tfstate` |
+| New runner key | `aws/000000000000/us-east-1/runner/demo-dev-01.tfstate` |
+
+Preserve bootstrap/platform lineages and every historical runner key. Keep existing
+data/results buckets, registry, publisher and their addresses/objects; their later
+decommission remains separately reviewed. No Gold data is present or transferred.
+Project storage protection and B's identity envelope remain unchanged.
+
+Provisioning precedes cloning, so a clone-directory basename can suggest a project
+name but cannot silently choose persistent ownership. Use the existing explicit
+input, optionally supplied by an operator environment variable:
+
+```bash
+ML_PROJECT_NAME=demo
+bash scripts/aws/workspace-storage.sh prepare aws-personal \
+  --ml-project-name "$ML_PROJECT_NAME" --workspace-name dev-01 --storage-mode auto
+```
+
+No inferred name from this infrastructure repository, mandatory external repository
+input or shared schema extension is proposed. Later namespace changes need migration
+review rather than a renamed bucket or abandoned assignment.
+
+### Image, toolbox and verification
+
+Propose Amazon Linux 2023 default x86_64 HVM EBS image in **us-east-1**:
+`ami-03c3da4cfa8e8943a`, name
+`al2023-ami-2023.12.20260930.0-kernel-6.1-x86_64`, Amazon owner `137112412989`.
+Scoped `DescribeImages` observed it available, created 2026-09-29, with deprecation
+2026-12-28. Resolve no `latest` parameter during deployment; reread this exact ID,
+owner, architecture and availability before planning. Refresh the reviewed pin if
+it becomes unavailable/deprecated. See [release provenance](https://docs.aws.amazon.com/linux/al2023/release-notes/relnotes-2023.12.20260930.html).
+
+Fix DNF to release `2023.12.20260930`, keeping Amazon's system Python separate.
+The versioned repository primary metadata was fetched and its advertised SHA-256
+verified; selected RPM checksums are preserved locally. Proposed direct tool pins:
+
+| Component | Pin and installation boundary |
+| --- | --- |
+| Python / headers | `python3.13` and `python3.13-devel` `3.13.15-1.amzn2023.0.1` |
+| venv / pip | Python 3.13 venv; `python3.13-pip` `24.2-259.amzn2023.0.8` |
+| Git / git-core | `2.50.1-1.amzn2023.0.1` |
+| Compiler | `gcc` `11.5.0-5.amzn2023.0.5` |
+| Make | `4.3-5.amzn2023.0.2` |
+| SSM agent | Amazon repository RPM `3.3.5226.0-1.amzn2023` |
+| uv | `0.12.23`, x86_64 GNU release archive, SHA-256 `9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6` |
+| AWS CLI | `2.36.14`, version-specific x86_64 ZIP; dedicated toolbox install |
+| boto3 / botocore | Both `1.43.109`, isolated root-owned toolbox venv |
+| SDK dependencies | jmespath `1.1.0`, python-dateutil `2.9.0.post0`, s3transfer `0.19.2`, six `1.17.0`, urllib3 `2.8.0`; hash-resolved lock in design evidence |
+| Operator Session Manager plugin | `1.2.835.0`; currently absent on this workstation |
+
+Amazon Linux supports [version-locked repositories](https://docs.aws.amazon.com/linux/al2023/ug/managing-repos-os-updates.html)
+and [parallel Python versions](https://docs.aws.amazon.com/linux/al2023/ug/python.html).
+Use exact RPM versions and signatures, archive SHA-256, and hash-required wheel
+installation. AWS CLI archive hash must be recorded after verifying its signature
+against the [documented AWS signing fingerprint](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+`FB5DB77FD5C118B80511ADA8A6310ACC4672475C`. Pin/hash the operator plugin artifact
+before E; [AWS lists its release and supported minimum](https://docs.aws.amazon.com/systems-manager/latest/userguide/plugin-version-history.html).
+No installer or bootstrap artifact hash is invented at this design gate.
+
+Bootstrap is a bounded systemd oneshot with a 10-minute ceiling and root-owned
+success/failure record, not a workload command. Stop the preinstalled SSM service
+before package changes; enable its reviewed version only after creating `workspace`
+without sudo access and `/workspaces/demo-dev-01` writable by that user.
+Remove default `ssm-user` sudo grants and verify they do not reappear. Maintain
+root ownership of toolbox binaries, manifest and bootstrap records. Bootstrap
+failure, missing tools, wrong versions or interrupted execution cannot mark ready.
+Do not clone/install external project code as root or publish an image.
+
+The bootstrap bundles the unchanged common probe. Collect tool versions, venv
+creation, writable directory, non-root UID, OS/architecture and observed usable
+capacity. Check native SSM online state/agent version and actual session identity
+separately. Interface 2.0.0 request/handoff/readiness hashes use the common validator;
+handoff needs actual instance/profile/launch/deadline evidence. Local fixtures are
+explicitly offline. All nine readiness checks require their own observed evidence;
+no local toolbox result attests storage, access denial or guard operation.
+
+### Capacity, egress and terminal
+
+The user selected a RAM-first default bounded by this account's existing quota.
+Fresh AWS CLI reads observed 8 standard on-demand vCPUs with no active regional
+instances, and zero X/High Memory/GPU quotas. Select `r8i.2xlarge`: 8 vCPUs,
+65536 MiB (64 GiB) RAM, offered in `us-east-1a`, compatible with the pinned AMI.
+Among compatible eligible sizes RAM is maximized, then CPU count; use the current
+R8i family as the reviewed tie choice. X-family candidates with more RAM cannot
+use the standard quota. The older `m2.4xlarge` reports 70041 MiB, but its ENA
+support is `unsupported` while the selected AMI has ENA enabled, so it is excluded.
+Zone offering is not a reservation or proof of actual launch capacity/permissions.
+
+The global goals now carry that selection policy for all providers, explicitly
+requested by the user; GCP/Azure still require their own account/quota observations.
+Quota and usage evidence is recorded at `evidence/aws/milestone-cd/sizing-02/` and
+must be refreshed before native planning. No quota increase, billing change,
+secret export or actual launch was performed. Account quota is not a cost cap.
+
+Propose one on-demand `r8i.2xlarge`, one encrypted gp3
+root volume of 30 GiB with `delete_on_termination=true`, baseline IOPS/throughput,
+IMDSv2 required with hop limit 1, disabled metadata tags, no SSH key and no inbound
+security rules. Request minima account for OS-reserved RAM and disk overhead;
+readiness reports usable capacity, not the SKU's nominal totals. Standard quota
+was observed at 8 vCPUs; actual availability and launch rights remain unverified.
+
+Retain platform-owned VPC `vpc-00000000000000000`, subnet
+`subnet-00000000000000000` in `us-east-1a`, SG `sg-00000000000000000`, and the
+existing associated route table/IGW. Fresh metadata observed no inbound rules,
+outbound access and the subnet's active internet-gateway route. Propose an
+**ephemeral public IPv4** on this instance for outbound Git HTTPS, Amazon packages,
+PyPI and SSM; it supplies no inbound permission. No Elastic IP, NAT gateway or
+paid interface endpoint is proposed. Git HTTPS is the initial supported path;
+private Git authentication is operator-controlled after connection. Never pass
+tokens in user data, URLs, recorded commands, plans or logs.
+
+The scoped AWS price-list read returned Linux `r8i.2xlarge` at **$0.55568/hour**.
+[Public IPv4 is $0.005/hour](https://aws.amazon.com/vpc/pricing/), so EC2 plus that
+address is $0.56068/hour before EBS, transfer, object storage, guard services and
+taxes. EBS continues while stopped; obtain a regional EBS quote before native
+authorization. Persistent watchdog, Scheduler, DLQ, alarms and logs have continuing
+costs even without a workspace. NAT/endpoints would add fixed hourly and data
+charges and do not supply general Git/PyPI egress by themselves. Review a private
+network alternative if the proposed public address is unacceptable.
+
+Recommend the one existing operator for first acceptance. Additional named users
+are useful for teammates; each needs reviewed IAM access. A shared Linux user
+shares files/processes, not individual OS isolation. Existing AWS administrative
+rights are not reduced by a scoped grant or non-root guest session.
+
+Use a runner-owned custom `Standard_Stream` Session document, Run As enabled,
+default `workspace`, no command parameters or account-wide preference changes.
+Validate that the principal has no conflicting `SSMSessionRunAs` tag; the current
+user-tag read found none. IAM/session tags take precedence over document defaults
+([Run As rules](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-preferences-run-as.html)).
+Terminal grants restrict StartSession to this workspace's exact ownership tags
+and the exact custom document, requiring document access checks. Resume/end/data
+channels are limited to the named user's own sessions. Do not grant SendCommand,
+other documents, port forwarding or root-session access as part of this flow.
+Effective inherited privileges and actual non-root behavior remain E checks.
+
+The future `connect` command must validate target STS identity, handoff hashes,
+fresh exact-instance/profile/tags/deadline facts, SSM online status, document hash,
+run-as policy and client versions, then invoke StartSession without saving its
+token-bearing response. It emits concrete instance/document argv only after those
+observations. Reconnect starts a new session on that same instance; supported
+ResumeSession also validates the recorded session target/owner. No invented
+instance ID or runnable real-machine handoff is included here.
+
+After connection, clone an operator-reviewed external HTTPS repository, fetch and
+detach at its full commit, verify `git rev-parse HEAD`, then create a writable
+project-local Python environment. The external repository owns its lock/install
+command and Python/dependency choices. Toolbox boto3 remains in its own environment;
+projects choose their SDK themselves. Use native instance-role credentials and
+the exact S3 prefixes/version IDs described above; no static credentials or home
+server dependency. Repository URL/revision remain E packet inputs.
+
+### Guard architecture and service ordering
+
+Implement the B watchdog proposal, with a fixed ownership guard ID derived from
+account/region/infrastructure scope. Platform owns protected Lambda function and
+immutable published code version, invocation role, enabled `rate(1 minute)`
+Scheduler schedule, log group, encrypted SQS failure queue and CloudWatch alarms.
+Bundle the hash-locked SDK in the deterministic function ZIP; use Python 3.13's
+AWS-managed runtime with its security updates. Code/version/SDK are pinned;
+the AWS-managed runtime patch is explicitly not an immutable image claim.
+The function does not run in the VPC or access workload/state S3.
+
+Runner owns its immutable lease record, one-time Scheduler deadline, launch role,
+workload role/profile, terminal document/grant and instance. Lease fields bind
+account, region, workspace, request hash, unique lease ID, earliest/latest launch
+and absolute expiry. Mandatory instance/volume creation tags include `ManagedBy`,
+`Project`, `Root`, `GuardId`, `WorkspaceId`, `LeaseId` and UTC `ExpiresAt`.
+Tags are applied atomically in RunInstances; exact values and required presence
+must be enforced in IAM, not only by an HCL precondition.
+
+Use three separately reviewed stages, each requiring its exact saved-plan approval:
+
+1. **Platform preparation:** install guard/policies/recurrence/visibility resources
+   alongside B storage/boundaries; retain every historical address. Guard source
+   success and mocked tests do not establish native readiness.
+2. **Runner preparation:** create workload policies/profile, terminal access, lease,
+   enabled one-time deadline and its invocation permissions; then create the
+   dedicated lease-bound launch role. No EC2 exists in this plan. Policies precede
+   profiles; invocation-role policies precede schedule activation. Bounded readback
+   (at most six attempts/90 seconds) verifies IAM visibility. Retry only transient
+   visibility errors; stop on permission failure or lease expiry.
+3. **Runner launch:** configure the root provider to assume the already prepared
+   launch role, check the exact role identity and state binding, then plan only
+   the reviewed EC2/owned root-volume creation. The launch role gets state-lock
+   access and necessary refresh reads, exact profile PassRole to EC2, and narrowly
+   conditioned RunInstances/CreateTags-at-creation. It has no IAM/schedule write
+   permissions. Preparation and teardown use the reviewed normal deployer.
+
+The launch role's policy fixes the AMI, subnet, SG, SKU, required metadata/encryption
+and ownership/lease/deadline tags, plus `aws:CurrentTime` within a **five-minute
+launch window**. It cannot extend its policy/lease, edit tags, change instance
+protection, restart compute or alter guard controls. Workload B policies deny
+those operations too. Revoke the old deployer's broad RunInstances grants in the
+reviewed platform source policy; adding a narrower Allow does not narrow an
+existing Allow. Historical dummy launch commands must fail closed rather than
+offer the old EC2-before-Scheduler path. Preserve their records and state addresses.
+The trusted account administrator still has external privileges; this design
+does not prevent an administrator deliberately bypassing the controlled workflow.
+
+Before a launch plan and immediately before its exact authorized apply, require
+matching function version/code hash, enabled recurrence and deadline readback,
+invocation-role policy hashes, non-alarmed guard status, and a successful full
+recurring sweep heartbeat no more than **120 seconds** old. A heartbeat includes
+guard version/scope and scan completion, not just an invocation count. Missing,
+stale, partial or mismatched observation closes launch. Bind observations to the
+plan and refresh through read-only checks without changing that saved artifact.
+No active/mutation-capable Lambda invocation is authorized by this source task.
+
+Propose a **60-minute** first acceptance lease, measured from earliest permitted
+launch, with termination triggered **five minutes before absolute expiry**. Both
+the one-time schedule and recurring sweep use that early-trigger threshold;
+therefore usable session time can be shorter than the nominal maximum. Scheduler
+flexible windows are off, with 300-second event age and three delivery retries.
+Lambda asynchronous event age is 300 seconds with two function retries; function
+timeout 30 seconds and SDK bounded timeouts/retries. The initially reviewed
+reservation of two executions was amended with user approval after observing the
+restricted account limit of five. Use the existing shared unreserved pool, with no
+quota increase; admission checks require an unreserved limit of at least five.
+Other Lambda demand may delay cleanup, so this does not guarantee execution
+capacity or zero overshoot.
+These are bounded attempts, not guaranteed delivery times. AWS documents
+[minute-level Scheduler precision](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html)
+and [asynchronous Lambda retries/duplicates](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-error-handling.html).
+
+Watchdog scans all pages of regional guard-owned inventory within its execution
+bound and records incomplete scans as failures. It validates tags and lease time
+bounds, describes again before termination, and terminates each exact matching
+pending/running/stopping/stopped instance separately. No match is not accepted as
+permanent absence: recurring sweeps continue. Exact owned instances with malformed
+expiry/lease tags fail to termination; foreign guard/account/project/root tags are
+never adopted. Its IAM termination permission also requires the exact static
+ownership tags; it cannot alter protection/tags or read storage. Terminated and
+shutting-down instances are handled idempotently. Duplicate/late events cannot
+extend a lease or affect a later workspace lease; recurrence covers missed events,
+failed bootstrap, disconnected operators and eventual EC2 visibility.
+
+Propose failure visibility through the persistent DLQ, Errors/Throttles/incomplete
+sweep alarms and missing-heartbeat alarm. A reviewed existing SNS alarm destination
+is a native-launch prerequisite; none has been supplied or subscribed here.
+Retain the queue/log/guard state under platform ownership. Retry recovery never
+extends a lease or widens IAM. **No finite AWS-outage latency bound or zero-overshoot
+financial cap is claimed.** Native E must measure invocation/visibility/termination
+delay; exceeding the five-minute safety margin fails acceptance and closes later
+launches pending review. Guest shutdown is supplementary.
+
+Stop/restart cannot renew expiry. Initially support reconnect and separately
+authorized stop/teardown; do not expose a restart/relaunch shortcut. A stopped
+instance remains guard-covered until termination. Replacement/relaunch needs a new
+lease, refreshed guard observations and separately authorized saved plan; retained
+storage is reused. Unexpected replacement in an ordinary launch plan is rejected.
+
+### Plans, partial failure and storage-preserving teardown
+
+Extend the AWS-owned launcher deliberately; keep milestone A's generic OpenTofu
+exec rejection and abbreviation/ambient-override regressions. Commands select an
+exact named target, root, default OpenTofu workspace, phase and state key; never
+use a context from another source/root/target. Pin OpenTofu/provider/lock files
+unchanged. Separate provider, SDK, backend and assumed-role identity checks;
+operator STS alone proves none of the other bindings.
+
+Before native planning, bind exact retained backend version/lineage/serial and
+verify no unexpected resource ownership changes. Seal immutable source/config
+snapshots, request/assignment/guard/lease hashes, identities, account/region,
+backend bucket/key/workspace, state version/lineage/serial, plan SHA-256 and allowed
+mutation scope. Artifacts and TF_DATA_DIR stay under this repository's ignored
+evidence root. Phase/identity changes select fresh initialization contexts but
+retain the same reviewed runner key/lineage. Recheck source/config/state and live
+guard/lease facts before apply; reject stale/conflicting bindings or an expired
+window. Apply only the exact reviewed plan after explicit authorization, never
+auto-replan. Present no fabricated hashes or native plan at this gate.
+
+Dependencies retain deadlines/launch permissions until compute removal. Normal
+teardown first revokes launch eligibility and terminates the exact owned instance,
+then verifies its disk/address deletion before removing disposable deadline,
+terminal grants/document and workload/launch roles/profiles. A second reviewed
+cleanup plan is required where an initial partial destroy leaves dependencies.
+On failure, retain guard/lease/state/evidence and inventory surviving resource IDs;
+no orphan sweep or historical cleanup is implied. Never remove the platform guard
+while any covered compute may remain; protected guard deletion requires a separate
+complete inventory/disposition review. Buckets, versions and state survive runner
+teardown. Stop leaves disk costs; termination deletes only explicitly owned
+delete-on-termination disks and releases the proposed ephemeral address; residual
+volumes/addresses and persistent storage/guard costs require honest reconciliation.
+See [EC2 lifecycle and retained-resource billing](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html).
+
+### Offline validation and subsequent milestone E
+
+The approved implementation changes AWS-owned paths only. Keep shared 2.0.0,
+integration-owned executable files and other provider implementations unchanged.
+The user-authorized global sizing prose is proposed for integration-owner review;
+any further shared executable change requires its own proposal. Preserve historical source
+validation where compatible, explicitly testing its launch closure.
+
+Add meaningful mocked plans/behavior tests for guard-before-compute graphs, all
+IAM statements, exact AMI/profile/storage/session binding, tool/bootstrap failure,
+missing/stale/mismatched guard evidence, lease/tag/window rejection, duplicates,
+delayed visibility, expired/stopped instances, interrupted preparation/launch/
+destroy, replacement refusal and retention. Reuse B's 14 mocked plans/65 IAM cases
+and A's direct-CLI override regressions; run make check, historical compatibility,
+locked root validation and diff checks. Logs/results remain ignored, commands
+bounded with a monitoring script. These checks do not establish native guard or
+machine readiness.
+
+Final source gate will provide one AWS PR, clean tracked worktree, exact head/base,
+tests and accounted untracked files, and leave the PR unmerged. E's later packet
+must identify the Demo external repository/full commit and isolated install
+command, a reviewed alarm destination, platform/runner effective identity/backend
+checks, exact saved plans/scopes, launch timing/costs, and separately authorized
+fixture transfers. Pin the shared CSV/version/hash, expect count 4/sum 10/mean 2.5,
+retrieve the exact output version, test state/unrelated/other-workspace denials,
+non-root connect/reconnect, missed deadline/fallback/expiry, failed bootstrap and
+storage-preserving teardown/reuse. Native plan hashes and ready records are only
+produced when their actual prerequisites and observations exist.
+
+The user approved this source design. C/D implementation and the concrete later
+native test packet are described in the [C/D runbook](aws-workspace-cd.md).
+Source delivery stops at PR review. No native plan hash, machine readiness,
+cloud mutation, or milestone-E acceptance is asserted here.

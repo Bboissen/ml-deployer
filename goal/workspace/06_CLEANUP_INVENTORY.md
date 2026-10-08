@@ -1,5 +1,7 @@
 # Exact cleanup inventory proposed for review
 
+Cloud sizing follows the [global RAM-first quota-bounded default](../README.md#execution-rules).
+
 Source: original checkout's ignored
 `evidence/audits/20261007-pivot-audit/RECONCILED_AUDIT.txt` and its snapshots.
 Inventory date: 7 October 2026; it is historical point-in-time evidence. This

@@ -15,6 +15,11 @@ Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
 and [cleanup inventory for review](goal/workspace/06_CLEANUP_INVENTORY.md).
 
+All providers default to the supported CPU machine with the most RAM within the
+selected account's remaining regional/family quotas, then prefer more vCPUs.
+Review the exact size, image/zone compatibility and costs; do not increase quotas
+or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
+
 Install the small hash-locked Python 3.13 test environment, then validate:
 
 ```bash

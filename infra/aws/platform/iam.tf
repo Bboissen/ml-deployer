@@ -269,6 +269,24 @@ resource "aws_iam_policy" "scheduler_boundary" {
 }
 
 data "aws_iam_policy_document" "deployer" {
+  dynamic "statement" {
+    for_each = local.workspace_guards
+    content {
+      sid       = "ManageReviewedNamedOperatorWorkspaceGrant"
+      effect    = "Allow"
+      actions   = ["iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:GetUserPolicy", "iam:ListUserTags"]
+      resources = ["arn:aws:iam::${var.aws_account_id}:user/sposhfi-admin"]
+    }
+  }
+  dynamic "statement" {
+    for_each = local.workspace_guards
+    content {
+      sid       = "ManageReviewedNonRootTerminalDocuments"
+      effect    = "Allow"
+      actions   = ["ssm:CreateDocument", "ssm:DeleteDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"]
+      resources = ["arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-terminal"]
+    }
+  }
   statement {
     sid    = "ReadRunnerInfrastructure"
     effect = "Allow"
@@ -314,14 +332,17 @@ data "aws_iam_policy_document" "deployer" {
 
   statement {
     sid       = "LaunchTaggedRunner"
-    effect    = "Allow"
+    effect    = var.workspace_guard == null ? "Allow" : "Deny"
     actions   = ["ec2:RunInstances"]
     resources = ["arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:instance/*"]
 
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/Project"
-      values   = [var.project_name]
+    dynamic "condition" {
+      for_each = var.workspace_guard == null ? [var.project_name] : []
+      content {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/Project"
+        values   = [condition.value]
+      }
     }
   }
 
@@ -387,6 +408,31 @@ data "aws_iam_policy_document" "deployer" {
     ]
   }
 
+  dynamic "statement" {
+    for_each = local.workspace_guards
+    content {
+      sid       = "AssumeOnlyPreparedWorkspaceLaunchRoles"
+      effect    = "Allow"
+      actions   = ["sts:AssumeRole"]
+      resources = ["arn:aws:iam::${var.aws_account_id}:role/${substr(var.resource_prefix, 0, 12)}-run-ws-*-launch"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.workspace_guards
+    content {
+      sid       = "PassPersistentWatchdogInvokerOnly"
+      effect    = "Allow"
+      actions   = ["iam:PassRole"]
+      resources = [aws_iam_role.workspace_guard_invoker[statement.key].arn]
+      condition {
+        test     = "StringEquals"
+        variable = "iam:PassedToService"
+        values   = ["scheduler.amazonaws.com"]
+      }
+    }
+  }
+
   statement {
     sid     = "RequireAcceptedRunnerBoundaries"
     effect  = "Allow"
@@ -401,7 +447,7 @@ data "aws_iam_policy_document" "deployer" {
       values = concat([
         aws_iam_policy.runtime_boundary.arn,
         aws_iam_policy.scheduler_boundary.arn,
-      ], [for boundary in aws_iam_policy.project_workspace_boundary : boundary.arn])
+      ], [for boundary in aws_iam_policy.project_workspace_boundary : boundary.arn], [for boundary in aws_iam_policy.workspace_launch_boundary : boundary.arn])
     }
   }
 

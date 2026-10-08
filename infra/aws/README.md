@@ -2,8 +2,11 @@
 
 For the independent workspace migration, use the
 [AWS workspace quickstart](../../docs/operations/aws-workspace.md). Milestone B
-prepares optional project storage and scoped workspace identity offline. Historical
-compute remains closed until toolbox/access and the pre-compute guard are accepted.
+prepares optional project storage and scoped workspace identity offline. C/D add a workspace runner configuration under `runner/workspace`, documented
+in the [C/D runbook](../../docs/operations/aws-workspace-cd.md). It uses a fresh
+workspace key in the existing runner namespace and preserves the historical
+runner configuration and state. Launch requires exact plan authorization and
+fresh native guard/identity observations. Native acceptance remains pending.
 The batch descriptions below are retained historical interfaces.
 
 - `bootstrap`: protected S3 remote-state bucket; local bootstrap state.
