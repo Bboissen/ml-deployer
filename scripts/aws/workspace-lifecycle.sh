@@ -111,16 +111,29 @@ def foundation_extension():
         L['require'](not alarms.get('NextToken') and not alarms.get('MetricAlarms') and not alarms.get('CompositeAlarms'), 'guard alarm already exists')
 
 
-    def prepare_absent(base, client, value):
+    def prepare_absent(base, client, value, owned=()):
         """PutUserPolicy and other create APIs must not overwrite an old grant."""
         name = L['role_name'](value)
         iam = client(base, 'iam')
-        for role in (name, name+'-launch'):
-            missing(lambda role=role: iam.get_role(RoleName=role), {'NoSuchEntity'})
-        missing(lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'})
-        missing(lambda: iam.get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal'), {'NoSuchEntity'})
-        missing(lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'})
-        missing(lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'})
+        wid = value['workspace_identity']['request']['workspace_id']
+        checks = [
+            (f'aws_iam_role.workspace["{wid}"]', lambda: iam.get_role(RoleName=name), {'NoSuchEntity'}),
+            ('aws_iam_role.launch', lambda: iam.get_role(RoleName=name+'-launch'), {'NoSuchEntity'}),
+            (f'aws_iam_instance_profile.workspace["{wid}"]', lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'}),
+            ('aws_iam_user_policy.operator', lambda: iam.get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal'), {'NoSuchEntity'}),
+            ('aws_ssm_document.terminal', lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'}),
+            ('aws_scheduler_schedule.workspace_deadline', lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'}),
+        ]
+        for address, callback, codes in checks:
+            if address not in owned: missing(callback, codes)
+        for address, role, policy in ((f'aws_iam_role_policy.workspace_storage["{wid}"]',name,'workspace-storage'),
+                                      ('aws_iam_role_policy.launch',name+'-launch','immutable-lease-launch')):
+            if address not in owned:
+                missing(lambda role=role,policy=policy: iam.get_role_policy(RoleName=role,PolicyName=policy), {'NoSuchEntity'})
+        if f'aws_iam_role.workspace["{wid}"]' in owned and f'aws_iam_role_policy_attachment.workspace_ssm["{wid}"]' not in owned:
+            attached=iam.list_attached_role_policies(RoleName=name)
+            L['require'](not attached.get('IsTruncated') and not any(p['PolicyArn']==value['workspace_identity']['session_policy_arn'] for p in attached['AttachedPolicies']),
+                         'unowned session-policy attachment exists')
 
 
     def packet(name, artifacts_path, alarm_topic, output):
@@ -265,6 +278,13 @@ def foundation_extension():
         actual = iam.get_role(RoleName=role)['Role']
         L['require'](actual['Arn'] == selected['deployment_role_arn'] and actual['AssumeRolePolicyDocument'] == L['json'].loads(resources['aws_iam_role.deployer']['assume_role_policy']), 'fresh deployer trust drift')
         policy = resources['aws_iam_role_policy.deployer']
+        if 'policy' not in policy:
+            # On first apply, provider-generated ARNs defer this data source.
+            # Resolve it from the applied compiler output, never the live grant.
+            env = L['boundary']['environment'](selected)
+            env.update(TF_DATA_DIR=str(directory/'tofu-data'))
+            state = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'show', '-json'], env, 30))
+            policy = L['resolved_deployer_policy'](resources, state)
         names = iam.list_role_policies(RoleName=role)
         attached = iam.list_attached_role_policies(RoleName=role)
         L['require'](not names.get('IsTruncated') and names['PolicyNames'] == [policy['name']] and not attached.get('IsTruncated') and not attached['AttachedPolicies'], 'fresh deployer grant set drift')
@@ -326,6 +346,24 @@ def utc(value):
 
 def stamp(value=None):
     return (value or dt.datetime.now(dt.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def prior_source(value):
+    """Receipts survive source upgrades; a pending saved apply remains exact."""
+    if value == source(): return True
+    if value.get('working_tree_sha256') != sha(b''): return False
+    revision = value.get('revision', '')
+    if len(revision) != 40 or any(c not in '0123456789abcdef' for c in revision): return False
+    return subprocess.run(['git','merge-base','--is-ancestor',revision,'HEAD'],
+                          capture_output=True, timeout=10).returncode == 0
+
+def resolved_deployer_policy(planned, state):
+    resources = {r['address']:r['values'] for r in state['values']['root_module']['resources']}
+    policy = resources['aws_iam_role_policy.deployer']
+    compiled = resources['data.aws_iam_policy_document.deployer']['json']
+    require(policy['name'] == planned['aws_iam_role_policy.deployer']['name'] and
+            policy['role'] == planned['aws_iam_role.deployer']['name'] and
+            json.loads(policy['policy']) == json.loads(compiled), 'applied deployer compiler/policy mismatch')
+    return policy
 
 def checked_path(value):
     return inside(Path(value).resolve())
@@ -400,7 +438,7 @@ def lease(request, starts_at):
 
 def verify_artifact(path,expected,kind):
     path=checked_path(path); manifest=read(path.parent/'artifacts.json')
-    require(manifest['source']==source() and manifest[kind+'_zip_path']==str(path) and manifest[kind+'_zip_sha256']==expected
+    require(prior_source(manifest['source']) and manifest[kind+'_zip_path']==str(path) and manifest[kind+'_zip_sha256']==expected
             and sha(path.read_bytes())==expected,'artifact source/path/hash mismatch; rebuild and review')
     with zipfile.ZipFile(path) as zipped:
         require(len(zipped.namelist())==len(set(zipped.namelist())),'duplicate archive member')
@@ -507,6 +545,13 @@ def role_name(config):
     ident=config['workspace_identity']; request=ident['request']; wid=request['workspace_id']
     suffix=sha(f"{config['aws_account_id']}/{config['aws_region']}/{ident['ml_project_name']}/{wid}".encode())[:10]
     return f"{config['resource_prefix'][:12]}-run-ws-{wid[:24]}-{suffix}"
+
+def prepared_addresses(config):
+    wid=config['workspace_identity']['request']['workspace_id']
+    return {'terraform_data.lease','aws_iam_role.launch','aws_iam_role_policy.launch','aws_iam_user_policy.operator',
+            'aws_ssm_document.terminal','aws_scheduler_schedule.workspace_deadline',
+            *{name+'['+json.dumps(wid)+']' for name in ('aws_iam_role.workspace','aws_iam_role_policy.workspace_storage',
+                'aws_iam_role_policy_attachment.workspace_ssm','aws_iam_instance_profile.workspace')}}
 
 def capacity(base,client,config):
     ec2=client(base,'ec2')
@@ -651,7 +696,7 @@ def guard_policies(config):
         {'Effect':'Allow','Action':['logs:CreateLogStream','logs:PutLogEvents'],
          'Resource':f"arn:aws:logs:{region}:{account}:log-group:{guard['log_group']}:*"},
         {'Effect':'Allow','Action':'sqs:SendMessage','Resource':guard['failure_queue_arn']},
-        {'Effect':'Deny','NotAction':['ec2:DescribeInstances','ec2:TerminateInstances','logs:CreateLogStream','logs:PutLogEvents','sqs:SendMessage'],'Resource':'*'}]}
+        {'Effect':'Deny','NotAction':['ec2:DescribeInstances','ec2:TerminateInstances','logs:CreateLogStream','logs:PutLogEvents','sqs:SendMessage','kms:Decrypt'],'Resource':'*'}]}
     invoker={'Version':'2012-10-17','Statement':[
         {'Effect':'Allow','Action':'lambda:InvokeFunction','Resource':guard['function_arn']},
         {'Effect':'Allow','Action':'sqs:SendMessage','Resource':guard['failure_queue_arn']},
@@ -808,14 +853,17 @@ def validate_config(config, target, stage):
     require(utc(config['lease']['starts_at']) < utc(config['lease']['launch_before']) <= utc(config['lease']['starts_at'])+dt.timedelta(minutes=5),'invalid launch window')
     require(utc(config['lease']['expires_at'])==utc(config['lease']['starts_at'])+dt.timedelta(minutes=request['maximum_runtime_minutes']),'lease extends/shortens request')
 
-def plan_scope(plan, stage):
+def plan_scope(plan, stage, recovery=None):
     mutations=[]
     for item in plan.get('resource_changes',[]):
         actions=item['change']['actions']; address=item['address']
         if actions in (['no-op'],['read']): continue
         require(item.get('mode')=='managed','unexpected mutation')
         if stage=='fresh-platform':
-            foundation['scope'](item)
+            if recovery:
+                require(address in recovery['owned'] and address in ('aws_iam_role_policy.deployer','aws_iam_role_policy.workspace_guard["active"]') and actions==['update'],
+                        'foundation recovery permits only its two owned inline policy updates')
+            else: foundation['scope'](item)
         elif stage=='platform':
             require('delete' not in actions,'platform deletion forbidden')
             project_prerequisite=(address=='aws_iam_policy.session_manager' or address.startswith(('aws_s3_bucket_lifecycle_configuration.project[','terraform_data.project_storage_checks[')))
@@ -830,14 +878,67 @@ def plan_scope(plan, stage):
             require(root['encrypted'] and root['delete_on_termination'] and root['volume_size']==30 and
                     metadata['http_tokens']=='required' and metadata['http_put_response_hop_limit']==1,'unsafe disk/metadata')
         elif stage=='prepare':
-            require(item['type'] in ('terraform_data','aws_iam_role','aws_iam_role_policy','aws_iam_role_policy_attachment','aws_iam_instance_profile','aws_iam_user_policy','aws_ssm_document','aws_scheduler_schedule') and actions==['create'],'preparation cannot mutate existing resources or launch compute')
+            require(item['type'] in ('terraform_data','aws_iam_role','aws_iam_role_policy','aws_iam_role_policy_attachment','aws_iam_instance_profile','aws_iam_user_policy','aws_ssm_document','aws_scheduler_schedule'), 'preparation cannot launch compute')
+            if recovery:
+                require(address in recovery['expected'] and (actions==['create'] or
+                        (address in recovery['owned'] and (actions==['update'] or
+                        (address=='aws_ssm_document.terminal' and actions==['delete','create'])))), 'preparation recovery exceeds owned controls')
+            else: require(actions==['create'], 'preparation cannot mutate existing resources or launch compute')
         elif stage=='retire':
             require((address=='aws_instance.workspace[0]' and actions==['delete']) or (address=='aws_iam_role_policy.launch' and actions==['update']),'retirement must revoke launch and terminate only owned EC2')
         else:
             require(item['type'] in ('terraform_data','aws_iam_role','aws_iam_role_policy','aws_iam_role_policy_attachment','aws_iam_instance_profile','aws_iam_user_policy','aws_ssm_document','aws_scheduler_schedule') and actions==['delete'],'cleanup cannot delete storage, guard or compute')
         mutations.append({'address':address,'actions':actions})
-    require(mutations,'empty plan has no mutation scope')
+    require(mutations or recovery,'empty plan has no mutation scope')
     return mutations
+
+def recovery_context(directory, target_name, stage, config, target, state, base, client):
+    directory=checked_path(directory)
+    m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); started=read(directory/'apply-started.json')
+    require(stage in ('fresh-platform','prepare') and m['stage']==stage and m['target_name']==target_name and m['target']==target,
+            'recovery target/root/stage differs')
+    require(m['root']==str(stage_root(stage)) and prior_source(m['source']) and
+            authorization['review_sha256']==started['review_sha256']==sha(canon(m)) and
+            authorization['plan_sha256']==m['plan_sha256'] and
+            authorization['scope']==m['scope'] and
+            sha((directory/'saved.tfplan').read_bytes())==m['plan_sha256'] and
+            sha((directory/'plan.json').read_bytes())==m['plan_json_sha256'], 'recovery plan/authorization/source drift')
+    previous=read(directory/'config.tfvars.json')
+    require(sha(canon(previous))==m['config_sha256'], 'recovery config drift')
+    if stage=='fresh-platform':
+        require(read(directory/'apply-result.json')['status']=='success' and previous==config, 'foundation recovery requires its successful exact configuration')
+        expected=foundation['FRESH_ADDRESSES']
+    else:
+        # Only lease/observation may change. Never repurpose existing identities.
+        require({k:v for k,v in previous.items() if k not in ('lease','guard_observation')}==
+                {k:v for k,v in config.items() if k not in ('lease','guard_observation')}, 'preparation recovery changes workspace configuration')
+        expected=prepared_addresses(config)
+        require({r['address'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}==expected,
+                'recovery reference must contain only the ten preparation controls')
+    require(state['version'] and state['key']==m['backend']['key'] and
+            (m['state']['lineage'] is None or state['lineage']==m['state']['lineage']), 'recovery state lineage/key differs')
+    response=client(base,'s3').get_object(Bucket=target['backend']['bucket'], Key=state['key'],
+        VersionId=state['version'], ExpectedBucketOwner=target['account_id'])
+    raw=response['Body'].read(2*1024*1024+1)
+    require(sha(raw)==state['sha256'], 'recovery state version changed')
+    current=json.loads(raw); owned=set()
+    planned={r['address']:r['values'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}
+    for resource in current['resources']:
+        if resource['mode']!='managed': continue
+        require(not resource.get('module'), 'nested recovery state rejected')
+        for instance in resource['instances']:
+            index=instance.get('index_key')
+            address=resource['type']+'.'+resource['name']+('['+json.dumps(index)+']' if index is not None else '')
+            require(address in expected and address not in owned, 'foreign or duplicate recovery state resource')
+            attributes=instance['attributes']
+            for field in ('id','arn','name','bucket','role','user','policy_arn','vpc_id','subnet_id'):
+                if planned[address].get(field) is not None:
+                    require(attributes.get(field)==planned[address][field], 'recovery resource identity differs: '+address)
+            owned.add(address)
+    require(owned and (stage!='fresh-platform' or owned==expected), 'recovery state incomplete')
+    platform_compute_absent(base,client,config)
+    return {'directory':str(directory),'review_sha256':sha(canon(m)), 'authorization_sha256':sha(canon(authorization)),
+            'started_sha256':sha(canon(started)), 'owned':sorted(owned), 'expected':sorted(expected), 'state':state}
 
 def context(target_name, stage, config):
     ts=boundary['targets'](); require(target_name in ts,'unknown target')
@@ -896,7 +997,7 @@ def alarm_destination(base,client,config):
     require(attributes.get('TopicArn')==topic and attributes.get('Owner')==config['aws_account_id']
             and int(attributes.get('SubscriptionsConfirmed','0'))>0,'alarm destination must exist with a confirmed subscription in reviewed account')
 
-def native_plan(target_name,stage,config_path,directory,dependency=None):
+def native_plan(target_name,stage,config_path,directory,dependency=None,recover_from=None):
     directory=checked_path(directory); require(not directory.exists(),'plan directory already exists')
     config=read(config_path)
     if stage=='fresh-platform':foundation['config'](config,foundation['target'](boundary['targets']()[target_name]))
@@ -905,7 +1006,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
         require(dependency is not None,'this stage requires its exact successful prior apply receipt')
         dep=checked_path(dependency); prior=read(dep/'review.json'); receipt=read(dep/'apply-result.json')
         require(prior['target_name']==target_name and prior['stage'] in ({'platform','fresh-platform'} if stage=='prepare' else { {'fresh-platform':'bootstrap','launch':'prepare','retire':'launch','cleanup':'retire'}[stage] })
-                and receipt['status']=='success' and prior['source']==source(),'dependency target/stage/source/apply mismatch')
+                and receipt['status']=='success' and prior_source(prior['source']),'dependency target/stage/source/apply mismatch')
         if stage=='fresh-platform':
             require(prior['target']==foundation['target'](boundary['targets']()[target_name]),'bootstrap target mismatch')
         elif stage!='prepare':
@@ -916,11 +1017,12 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
             require(config['guard']['code_sha256']==platform_config['workspace_guard']['zip_sha256'],'runner guard code differs from exact platform artifact')
         dependencies=[{'directory':str(dep),'review_sha256':sha(canon(prior)),'receipt_sha256':sha(canon(receipt))}]
     target,env,base,client,identities,state=context(target_name,stage,config)
+    recovery=recovery_context(recover_from,target_name,stage,config,target,state,base,client) if recover_from else None
     if dependencies:require(prior['target']==target,'dependency target configuration differs')
     if is_platform(stage): verify_artifact(config['workspace_guard']['zip_path'],config['workspace_guard']['zip_sha256'],'guard')
     else: verify_artifact(config['toolbox_zip_path'],config['toolbox_zip_sha256'],'toolbox')
-    if stage=='fresh-platform':foundation['absent'](base,client,config)
-    if stage=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config)
+    if stage=='fresh-platform' and not recovery:foundation['absent'](base,client,config)
+    if stage=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config,recovery['owned'] if recovery else ())
     if is_platform(stage):
         platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
     details=None
@@ -949,10 +1051,14 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
     run(['tofu',f'-chdir={root}','init','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f'-chdir={root}','validate','-no-color'],env)
     command=['tofu',f'-chdir={root}','plan','-input=false','-lock-timeout=30s','-no-color',f'-var-file={directory}/config.tfvars.json',f'-out={directory}/saved.tfplan']
+    # Native readbacks above and below verify preparation independently. Avoid
+    # asking the restricted launch identity to refresh unrelated control-plane
+    # resources; it only needs to create its exact prepared instance.
+    if stage=='launch': command.append('-refresh=false')
     if stage=='cleanup': command.append('-destroy')
     run(command,env,240)
     raw=run(['tofu',f'-chdir={root}','show','-json',str(directory/'saved.tfplan')],env,60)
-    plan=json.loads(raw); scope=plan_scope(plan,stage)
+    plan=json.loads(raw); scope=plan_scope(plan,stage,recovery)
     if stage=='launch':
         compare_prepared_iam(plan,details,config)
         preparation=read(checked_path(dependency)/'review.json')
@@ -974,6 +1080,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
               'lock_sha256':sha((root/'.terraform.lock.hcl').read_bytes()),'tofu_version':json.loads(run(['tofu','version','-json'],env,10))['terraform_version'],
               'artifacts':artifacts,'guard_observation':config.get('guard_observation'),'guard_iam':details,'scope':scope,
               'dependencies':dependencies,
+              'recovery':recovery,
               'created_at':stamp(),'deployment_authorized':False}
     write(directory/'review.json',manifest)
     return {'evidence':str(directory.relative_to(REPO)),'review_sha256':sha(canon(manifest)),'scope':scope,'deployment_authorized':False}
@@ -997,14 +1104,18 @@ def apply(directory):
                 sha(canon(read(Path(dep['directory'])/'apply-result.json')))==dep['receipt_sha256'],'dependency receipt changed')
     for p,h in m['artifacts'].items(): require(sha(checked_path(p).read_bytes())==h,'artifact changed')
     require(sha((directory/'saved.tfplan').read_bytes())==m['plan_sha256'] and sha((directory/'plan.json').read_bytes())==m['plan_json_sha256'],'saved plan changed')
-    require(plan_scope(read(directory/'plan.json'),m['stage'])==m['scope'],'plan scope drift')
+    require(plan_scope(read(directory/'plan.json'),m['stage'],m.get('recovery'))==m['scope'],'plan scope drift')
     require(sha((Path(m['root'])/'.terraform.lock.hcl').read_bytes())==m['lock_sha256'],'provider lock drift')
     require(Path(m['root'])==stage_root(m['stage']),'review root differs from named stage')
     require((directory/'backend.json').is_file() and read(directory/'backend.json')==m['backend'],'backend configuration drift')
     target,env,base,client,identities,state=context(m['target_name'],m['stage'],config)
     require(target==m['target'] and identities==m['identities'] and state==m['state'],'target/identity/backend state changed; replan and review')
-    if m['stage']=='fresh-platform':foundation['absent'](base,client,config)
-    if m['stage']=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config)
+    recovery=m.get('recovery')
+    if recovery:
+        require(recovery_context(recovery['directory'],m['target_name'],m['stage'],config,target,state,base,client)==recovery,
+                'recovery ownership changed')
+    if m['stage']=='fresh-platform' and not recovery:foundation['absent'](base,client,config)
+    if m['stage']=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config,recovery['owned'] if recovery else ())
     if is_platform(m['stage']):
         platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
     if m['stage']=='launch':
@@ -1042,7 +1153,8 @@ def apply(directory):
             'volume_ids':[b['Ebs']['VolumeId'] for b in instance['BlockDeviceMappings']],
             'interface_id':next(n['NetworkInterfaceId'] for n in instance['NetworkInterfaces'] if n['Attachment']['DeviceIndex']==0),
             'workspace_id':config['workspace_identity']['request']['workspace_id'],'lease_id':config['lease']['id']})
-    write(directory/'apply-result.json',{'status':'success','completed_at':stamp(),'native_workspace_ready':False})
+    write(directory/'apply-result.json',{'status':'success','completed_at':stamp(),'native_workspace_ready':False,
+        'state':snapshot(base,client,target,state['key'])})
     return {'status':'success','evidence':str(directory.relative_to(REPO)),'native_workspace_ready':False}
 
 def main():
@@ -1053,7 +1165,7 @@ def main():
     p=sub.add_parser('lease'); p.add_argument('request'); p.add_argument('starts_at'); p.add_argument('output')
     p=sub.add_parser('packet'); p.add_argument('target'); p.add_argument('--storage-directory',required=True); p.add_argument('--artifacts',required=True); p.add_argument('--platform-config',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('outputs'); p.add_argument('target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
-    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency')
+    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency'); p.add_argument('--recover-from',help='prior saved plan with a consumed apply receipt; reconcile only its owned controls without live compute')
     p=sub.add_parser('foundation-packet'); p.add_argument('target'); p.add_argument('--artifacts',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('bootstrap-plan'); p.add_argument('target'); p.add_argument('config'); p.add_argument('directory')
     p=sub.add_parser('activate-target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
@@ -1069,7 +1181,7 @@ def main():
         result=lease(read(args.request),args.starts_at); write(checked_path(args.output),result)
     elif args.verb=='packet': result=packet(args.target,args.storage_directory,args.artifacts,args.platform_config,args.alarm_topic,args.output)
     elif args.verb=='outputs': result=outputs(args.target,args.plan_directory,args.output)
-    elif args.verb=='plan': result=native_plan(args.target,args.stage,args.config,args.directory,args.dependency)
+    elif args.verb=='plan': result=native_plan(args.target,args.stage,args.config,args.directory,args.dependency,args.recover_from)
     elif args.verb=='foundation-packet': result=foundation['packet'](args.target,args.artifacts,args.alarm_topic,args.output)
     elif args.verb=='bootstrap-plan': result=foundation['bootstrap_plan'](args.target,args.config,args.directory)
     elif args.verb=='activate-target': result=foundation['activate'](args.plan_directory,args.output)

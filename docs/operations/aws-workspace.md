@@ -711,7 +711,9 @@ and absolute expiry. Mandatory instance/volume creation tags include `ManagedBy`
 Tags are applied atomically in RunInstances; exact values and required presence
 must be enforced in IAM, not only by an HCL precondition.
 
-Use three separately reviewed stages, each requiring its exact saved-plan approval:
+Use three stages with inspected immutable plans and recorded task authorization.
+Once the user authorizes the bounded native setup/test, routine stages continue
+without another confirmation. A material scope expansion still requires review.
 
 1. **Platform preparation:** install guard/policies/recurrence/visibility resources
    alongside B storage/boundaries; retain every historical address. Guard source
@@ -725,9 +727,28 @@ Use three separately reviewed stages, each requiring its exact saved-plan approv
 3. **Runner launch:** configure the root provider to assume the already prepared
    launch role, check the exact role identity and state binding, then plan only
    the reviewed EC2/owned root-volume creation. The launch role gets state-lock
-   access and necessary refresh reads, exact profile PassRole to EC2, and narrowly
+   access, exact profile PassRole to EC2, and narrowly
    conditioned RunInstances/CreateTags-at-creation. It has no IAM/schedule write
    permissions. Preparation and teardown use the reviewed normal deployer.
+
+Launch planning uses `-refresh=false` because the launch identity only creates
+compute. Independent native checks still verify the guard, four alarms, prepared
+IAM/profile/document, network, image and capacity before planning; fresh guard/IAM
+checks and the unchanged state version are required again before saved apply.
+
+For an interrupted preparation or a source fix, use the normal `plan` command
+with `--recover-from PREVIOUS_PLAN_DIRECTORY`. The previous immutable plan,
+consumed authorization, target, root, configuration and current versioned state
+must prove ownership. `prepare` can renew only the lease, complete missing owned
+controls, or replace its tainted terminal document. `fresh-platform` recovery
+permits only its two owned inline policy updates or a refreshed no-op checkpoint.
+Both refuse covered live compute and foreign resources. Preserve the failed
+plan and receipts; apply only the newly inspected, single-use saved plan.
+
+Successful historical receipts and unchanged artifact content may survive a
+committed source upgrade along the same Git ancestry. Every pending apply stays
+bound to its exact current source, configuration, artifact hashes and state
+version. No previous saved plan is replayed.
 
 The launch role's policy fixes the AMI, subnet, SG, SKU, required metadata/encryption
 and ownership/lease/deadline tags, plus `aws:CurrentTime` within a **five-minute

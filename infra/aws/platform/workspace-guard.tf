@@ -65,7 +65,8 @@ resource "aws_iam_role_policy" "workspace_guard" {
       Resource = "${trimsuffix(aws_cloudwatch_log_group.workspace_guard[each.key].arn, ":*")}:*"
     },
     { Effect = "Allow", Action = "sqs:SendMessage", Resource = aws_sqs_queue.workspace_guard_failures[each.key].arn },
-    { Effect = "Deny", NotAction = ["ec2:DescribeInstances", "ec2:TerminateInstances", "logs:CreateLogStream", "logs:PutLogEvents", "sqs:SendMessage"], Resource = "*" }
+    # Preserve AWS-managed Lambda environment-key grants; do not grant KMS administration.
+    { Effect = "Deny", NotAction = ["ec2:DescribeInstances", "ec2:TerminateInstances", "logs:CreateLogStream", "logs:PutLogEvents", "sqs:SendMessage", "kms:Decrypt"], Resource = "*" }
   ] })
 }
 

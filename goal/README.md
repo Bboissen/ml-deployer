@@ -47,8 +47,9 @@ and storage path. Stop expanding the previous model/HPO/tracking demonstration.
   datasets and infrastructure evidence; explicit resource disposition comes first.
 - Use temporary/native identities, exact operators and a provider-side maximum
   lifetime that also covers partial deployment and failed guest startup.
-- A saved plan, IAM change, data upload, apply, destroy or local pruning step each
-  retains its own exact reviewed authorization. A goal is not an apply approval.
+- Inspect and retain the exact scope and receipts for cloud mutations. The user's
+  task authorization covers routine steps within that scope; ask again only for
+  a material expansion. Preserve state and evidence unless deletion is authorized.
 - Routine tests remain offline. Passing them does not establish live acceptance.
 - CPU workspaces are the first target. GPU/distributed frameworks and persistent
   ML services require separately scoped compatibility and lifecycle work.

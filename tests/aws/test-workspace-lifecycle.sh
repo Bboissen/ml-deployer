@@ -402,6 +402,72 @@ class Boundary(unittest.TestCase):
 
 class Foundation(unittest.TestCase):
     F=LIFE['foundation']
+    def test_guard_default_environment_decryption_keeps_termination_scope(self):
+        config={'aws_account_id':'000000000000','aws_region':'us-east-1','project_name':'demo',
+                'guard':{'guard_id':'a'*32,'log_group':'/aws/lambda/guard','failure_queue_arn':'offline-queue','function_arn':'offline-function'}}
+        execution,_=LIFE['guard_policies'](config)
+        self.assertIn('kms:Decrypt',execution['Statement'][-1]['NotAction'])
+        self.assertFalse(any(s['Effect']=='Allow' and 'kms:' in str(s['Action']) for s in execution['Statement']))
+        terminate=next(s for s in execution['Statement'] if s.get('Action')=='ec2:TerminateInstances')
+        self.assertEqual(set(terminate['Condition']['StringEquals']),{'ec2:ResourceTag/GuardId','ec2:ResourceTag/ManagedBy','ec2:ResourceTag/Project','ec2:ResourceTag/Root'})
+    def test_computed_deployer_policy_comes_from_applied_compiler(self):
+        planned={'aws_iam_role.deployer':{'name':'deployer'},'aws_iam_role_policy.deployer':{'name':'grant'}}
+        grant={'name':'grant','role':'deployer','policy':'{"Statement":[]}'}
+        state={'values':{'root_module':{'resources':[
+            {'address':'aws_iam_role_policy.deployer','values':grant},
+            {'address':'data.aws_iam_policy_document.deployer','values':{'json':grant['policy']}}]}}}
+        self.assertEqual(LIFE['resolved_deployer_policy'](planned,state),grant)
+        grant['policy']='{"Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}'
+        with self.assertRaises(LIFE['Failure']): LIFE['resolved_deployer_policy'](planned,state)
+    def test_recovery_scope_accepts_owned_updates_but_rejects_compute_and_foreign_controls(self):
+        owned=['aws_iam_role_policy.launch','aws_ssm_document.terminal']
+        recovery={'owned':owned,'expected':owned}
+        def plan(address,actions):
+            return {'resource_changes':[{'address':address,'type':address.split('.')[0],'mode':'managed','change':{'actions':actions}}]}
+        LIFE['plan_scope'](plan(owned[0],['update']),'prepare',recovery)
+        LIFE['plan_scope'](plan(owned[1],['delete','create']),'prepare',recovery)
+        for address,actions in [('aws_instance.workspace[0]',['create']),('aws_iam_role.foreign',['update']),('aws_iam_role_policy.launch',['delete'])]:
+            with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan(address,actions),'prepare',recovery)
+        for address in ('aws_iam_role.deployer','aws_s3_bucket.project["demo"]'):
+            with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan(address,['update']),'fresh-platform',{'owned':[address]})
+        self.assertEqual(LIFE['plan_scope']({'resource_changes':[]},'fresh-platform',{'owned':[]}),[])
+    def test_source_upgrade_receipt_does_not_accept_uncommitted_or_foreign_source(self):
+        with patch.dict(LIFE,{'source':lambda:{'revision':'b'*40,'working_tree_sha256':LIFE['sha'](b'')}}):
+            self.assertFalse(LIFE['prior_source']({'revision':'a'*40,'working_tree_sha256':'c'*64}))
+            with patch('subprocess.run',return_value=types.SimpleNamespace(returncode=1)):
+                self.assertFalse(LIFE['prior_source']({'revision':'a'*40,'working_tree_sha256':LIFE['sha'](b'')}))
+    def test_partial_recovery_binds_owned_state_and_consumed_plan(self):
+        directory=OUT/'partial-recovery'; directory.mkdir()
+        config={'workspace_identity':{'request':{'workspace_id':'demo-dev-01'}},'lease':{'id':'old'}}
+        address='aws_iam_role.launch'
+        planned=[{'address':a,'mode':'managed','values':{'name':'owned-launch'} if a==address else {}}
+                 for a in LIFE['prepared_addresses'](config)]
+        plan={'planned_values':{'root_module':{'resources':planned}}}
+        LIFE['write'](directory/'plan.json',plan); LIFE['write'](directory/'config.tfvars.json',config)
+        (directory/'saved.tfplan').write_bytes(b'partial-plan')
+        target={'account_id':'000000000000','backend':{'bucket':'state'}}
+        m={'stage':'prepare','target_name':'offline','target':target,'source':LIFE['source'](),
+           'root':str(LIFE['stage_root']('prepare')),'backend':{'key':'runner/demo-dev-01.tfstate'},
+           'state':{'lineage':None},'config_sha256':LIFE['sha'](LIFE['canon'](config)), 'scope':[],
+           'plan_sha256':LIFE['sha'](b'partial-plan'),'plan_json_sha256':LIFE['sha']((directory/'plan.json').read_bytes())}
+        LIFE['write'](directory/'review.json',m); LIFE['authorize'](directory,LIFE['sha'](LIFE['canon'](m)),'Authorized bounded offline recovery')
+        LIFE['write'](directory/'apply-started.json',{'review_sha256':LIFE['sha'](LIFE['canon'](m))})
+        current={'resources':[{'mode':'managed','type':'aws_iam_role','name':'launch','instances':[{'attributes':{'name':'owned-launch'}}]}]}
+        def recover():
+            raw=LIFE['canon'](current)
+            state={'key':m['backend']['key'],'version':'native-version','lineage':'owned-lineage','sha256':LIFE['sha'](raw)}
+            api=types.SimpleNamespace(get_object=lambda **kw:{'Body':io.BytesIO(raw)})
+            return LIFE['recovery_context'](directory,'offline','prepare',dict(config,lease={'id':'new'}),target,state,None,lambda *_:api)
+        with patch.dict(LIFE,{'platform_compute_absent':lambda *_:None}):
+            self.assertEqual(recover()['owned'],[address])
+            current['resources'][0]['instances'][0]['attributes']['name']='foreign-launch'
+            with self.assertRaises(LIFE['Failure']): recover()
+            current['resources'][0]['name']='foreign'
+            with self.assertRaises(LIFE['Failure']): recover()
+        current['resources'][0]['name']='launch';current['resources'][0]['instances'][0]['attributes']['name']='owned-launch'
+        def live(*_): raise LIFE['Failure']('covered compute remains')
+        with patch.dict(LIFE,{'platform_compute_absent':live}):
+            with self.assertRaises(LIFE['Failure']): recover()
     def test_target_derivation_preserves_old_registry_and_identity(self):
         old={'account_id':'000000000000','region':'us-east-1','operator_arn':'operator','profile':'offline',
              'deployment_role_arn':'old-role','backend':{'bucket':'old-state'},'inventory':{'resource_prefix':'ml-infra'}}
@@ -440,7 +506,7 @@ class Foundation(unittest.TestCase):
         def missing(**kw):raise Missing()
         api=types.SimpleNamespace(get_role=missing,get_instance_profile=missing,get_user_policy=lambda **kw:{'PolicyDocument':{'old':'grant'}})
         with patch.dict(LIFE,{'role_name':lambda _: 'offline-new-workspace'}):
-            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{})
+            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{'workspace_identity':{'request':{'workspace_id':'offline'}}})
     def test_bootstrap_plan_binds_local_state_and_never_applies(self):
         directory=OUT/'bootstrap-offline-plan';config_path=OUT/'bootstrap-offline-config.json';calls=[]
         selected={'account_id':'000000000000','region':'us-east-1','profile':'offline','operator_arn':'arn:aws:iam::000000000000:user/offline',
