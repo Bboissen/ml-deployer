@@ -400,6 +400,84 @@ class Boundary(unittest.TestCase):
             with self.assertRaises(LIFE['Failure']): LIFE['apply'](directory)
         self.assertEqual(called,[]); self.assertFalse((directory/'apply-started.json').exists())
 
+class Foundation(unittest.TestCase):
+    F=LIFE['foundation']
+    def test_target_derivation_preserves_old_registry_and_identity(self):
+        old={'account_id':'000000000000','region':'us-east-1','operator_arn':'operator','profile':'offline',
+             'deployment_role_arn':'old-role','backend':{'bucket':'old-state'},'inventory':{'resource_prefix':'ml-infra'}}
+        frozen=copy.deepcopy(old);new=self.F['target'](old)
+        self.assertEqual(old,frozen);self.assertEqual(new['operator_arn'],old['operator_arn'])
+        self.assertTrue(new['deployment_role_arn'].endswith('/ml-infra-workspace-deployer'))
+        self.assertTrue(new['backend']['bucket'].endswith('-ws-v1'));self.assertEqual(new['inventory']['repositories'],[])
+    def test_fresh_scope_rejects_old_iam_and_all_updates(self):
+        for address,actions in [('aws_iam_policy.runtime_boundary',['create']),('aws_iam_role.deployer',['update']),('aws_iam_role.deployer',['delete','create']),('aws_instance.workspace[0]',['create']),('aws_sns_topic.alerts',['create'])]:
+            item={'address':address,'mode':'managed','change':{'actions':actions}}
+            with self.assertRaises(LIFE['Failure']):LIFE['plan_scope']({'resource_changes':[item]},'fresh-platform')
+    def test_exact_fresh_create_scope_is_admitted(self):
+        items=[{'address':address,'mode':'managed','change':{'actions':['create']}} for address in self.F['FRESH_ADDRESSES']]
+        self.assertEqual(len(LIFE['plan_scope']({'resource_changes':items},'fresh-platform')),len(items))
+    def test_bootstrap_requires_all_seven_protections(self):
+        items=[{'address':address,'mode':'managed','change':{'actions':['create']}} for address in self.F['BOOTSTRAP_ADDRESSES']]
+        self.assertEqual(len(self.F['bootstrap_scope']({'resource_changes':items})),7)
+        with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items[:-1]})
+        items[0]['change']['actions']=['update']
+        with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items})
+    def test_unknown_or_existing_names_never_count_as_absent(self):
+        class Error(Exception):
+            def __init__(self,code):self.response={'Error':{'Code':code}}
+        def denied():raise Error('403')
+        with self.assertRaises(LIFE['Failure']):self.F['missing'](denied,{'404'})
+        with self.assertRaises(LIFE['Failure']):self.F['missing'](lambda:{'exists':True},{'404'})
+        def missing():raise Error('404')
+        self.F['missing'](missing,{'404'})
+    def test_retained_same_name_iam_stops_fresh_plan(self):
+        calls=[]
+        api=types.SimpleNamespace(get_role=lambda **kw:calls.append(kw) or {'Role':{'retained':True}})
+        with self.assertRaises(LIFE['Failure']):self.F['absent'](None,lambda *_:api,{'aws_account_id':'000000000000','resource_prefix':'ml-infra','aws_region':'us-east-1'})
+        self.assertEqual(len(calls),1)
+    def test_existing_operator_grant_cannot_be_overwritten(self):
+        class Missing(Exception):response={'Error':{'Code':'NoSuchEntity'}}
+        def missing(**kw):raise Missing()
+        api=types.SimpleNamespace(get_role=missing,get_instance_profile=missing,get_user_policy=lambda **kw:{'PolicyDocument':{'old':'grant'}})
+        with patch.dict(LIFE,{'role_name':lambda _: 'offline-new-workspace'}):
+            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{})
+    def test_bootstrap_plan_binds_local_state_and_never_applies(self):
+        directory=OUT/'bootstrap-offline-plan';config_path=OUT/'bootstrap-offline-config.json';calls=[]
+        selected={'account_id':'000000000000','region':'us-east-1','profile':'offline','operator_arn':'arn:aws:iam::000000000000:user/offline',
+                  'deployment_role_arn':'old','backend':{'bucket':'old','platform_key':'platform.tfstate','runner_prefix':'runner/'},'inventory':{'resource_prefix':'ml-infra'}}
+        value={'aws_account_id':'000000000000','aws_region':'us-east-1','project_name':'ml-infra','state_bucket_name':self.F['target'](selected)['backend']['bucket']}
+        LIFE['write'](config_path,value)
+        class Missing(Exception):response={'Error':{'Code':'404'}}
+        def head(**kw):raise Missing()
+        api=types.SimpleNamespace(head_bucket=head)
+        plan={'resource_changes':[{'address':a,'mode':'managed','change':{'actions':['create']}} for a in self.F['BOOTSTRAP_ADDRESSES']]}
+        def run(args,*_):
+            calls.append(args)
+            if args[1:]==['version','-json']:return json.dumps({'terraform_version':'1.12.3'})
+            if 'plan' in args:Path(next(a.split('=',1)[1] for a in args if a.startswith('-out='))).write_bytes(b'offline-plan')
+            if 'show' in args:return json.dumps(plan)
+            return ''
+        with patch.dict(LIFE,{'run':run,'sessions':lambda _:(None,lambda *_:api,None)}),patch.dict(LIFE['boundary'],{'targets':lambda:{'aws-offline':selected},'environment':lambda _: {},'identity':lambda *_:selected['operator_arn']}):
+            self.F['bootstrap_plan']('aws-offline',str(config_path),str(directory))
+        m=LIFE['read'](directory/'review.json')
+        self.assertEqual(m['backend'],{'path':str(directory/'bootstrap.tfstate')});self.assertFalse(m['deployment_authorized'])
+        self.assertFalse(any('apply' in call for call in calls));self.assertFalse((directory/'authorization.json').exists())
+    def test_changed_bootstrap_plan_cannot_reach_native_context(self):
+        directory=OUT/'bootstrap-tamper';directory.mkdir()
+        LIFE['write'](directory/'config.tfvars.json',{});LIFE['write'](directory/'backend.json',{'path':str(directory/'bootstrap.tfstate')})
+        LIFE['write'](directory/'plan.json',{});(directory/'saved.tfplan').write_bytes(b'tampered')
+        m={'root':str(ROOT/'infra/aws/bootstrap/workspace'),'backend':{'path':str(directory/'bootstrap.tfstate')},'stage':'bootstrap',
+           'source':LIFE['source'](),'config_sha256':LIFE['sha'](LIFE['canon']({})),'plan_sha256':'a'*64,'scope':[]}
+        LIFE['write'](directory/'review.json',m);LIFE['authorize'](directory,LIFE['sha'](LIFE['canon'](m)),'Explicit offline fixture approval')
+        calls=[]
+        with patch.dict(self.F,{'bootstrap_context':lambda *a:calls.append(a)}):
+            with self.assertRaises(LIFE['Failure']):LIFE['apply'](directory)
+        self.assertEqual(calls,[]);self.assertFalse((directory/'apply-started.json').exists())
+    def test_fresh_root_cannot_disable_guard(self):
+        selected=self.F['target']({'account_id':'000000000000','region':'us-east-1','operator_arn':'operator','backend':{},'inventory':{'resource_prefix':'ml-infra'}})
+        value={'aws_account_id':selected['account_id'],'aws_region':selected['region'],'resource_prefix':'ml-infra','project_name':'ml-infra','state_bucket_arn':'arn:aws:s3:::'+selected['backend']['bucket'],'workspace_guard':None}
+        with self.assertRaises(LIFE['Failure']):self.F['config'](value,selected)
+
 def evaluate(document,action,resource,context):
     # Covers only emitted IAM operators; does not attest SCP/account/live rights.
     def values(value): return value if isinstance(value,list) else [value]
@@ -490,23 +568,28 @@ def tofu_tests():
     platform={'workspace_guard':{'zip_path':str(OUT/'toolbox.zip'),'zip_sha256':toolbox_sha,'alarm_topic_arn':'arn:aws:sns:us-east-1:000000000000:offline-review'}}
     platform_path=OUT/'platform.tfvars.json'; platform_path.write_text(json.dumps(platform))
     plans={}
-    for root,testdir,varfile in [('infra/aws/runner/workspace','../../../../tests/aws/workspace',config_path),('infra/aws/platform','../../../tests/aws/guard',platform_path)]:
-        label='runner' if root.endswith('workspace') else 'platform'
+    for root,testdir,varfile in [('infra/aws/runner/workspace','../../../../tests/aws/workspace',config_path),('infra/aws/platform','../../../tests/aws/guard',platform_path),('infra/aws/bootstrap/workspace','../../../../tests/aws/foundation/bootstrap',None),('infra/aws/platform/workspace','../../../../tests/aws/foundation/platform',platform_path)]:
+        label={'infra/aws/runner/workspace':'runner','infra/aws/platform':'platform','infra/aws/bootstrap/workspace':'fresh-bootstrap','infra/aws/platform/workspace':'fresh-platform'}[root]
         env={k:v for k,v in os.environ.items() if not k.startswith(('AWS_','TF_'))}
         env.update(TF_DATA_DIR=str(OUT/(label+'-data')),AWS_EC2_METADATA_DISABLED='true',PYTHONDONTWRITEBYTECODE='1')
-        for phase,args in [('init',['init','-backend=false','-lockfile=readonly','-input=false','-no-color']),('test',['test','-test-directory='+testdir,'-var-file='+str(varfile),'-json','-verbose','-no-color'])]:
+        for phase,args in [('init',['init','-backend=false','-lockfile=readonly','-input=false','-no-color']),('test',['test','-test-directory='+testdir,*(['-var-file='+str(varfile)] if varfile else []),'-json','-verbose','-no-color'])]:
             log=OUT/(label+'-'+phase+'.log')
             with log.open('w') as f: result=subprocess.run(['tofu','-chdir='+root,*args],env=env,stdout=f,stderr=subprocess.STDOUT,timeout=180)
             if result.returncode: raise RuntimeError(label+' '+phase+' failed: '+str(log.relative_to(ROOT)))
         events=[json.loads(line) for line in log.read_text().splitlines()]
         plans[label]={e['@testrun']:e['test_plan'] for e in events if e.get('type')=='test_plan'}
+    fresh=plans['fresh-platform']['independent_workspace_platform']
+    LIFE['plan_scope'](fresh,'fresh-platform')
+    LIFE['foundation']['bootstrap_scope'](plans['fresh-bootstrap']['protected_new_backend'])
+    fresh_addresses={r['address'] for r in fresh['planned_values']['root_module']['resources'] if r['mode']=='managed'}
+    if fresh_addresses!=LIFE['foundation']['FRESH_ADDRESSES']:raise AssertionError('fresh root creates unexpected/missing resources')
     runner=plans['runner']['guarded_launch_is_encrypted_disposable_and_tagged']
     resources={r['address']:r for r in runner['configuration']['root_module']['resources']}
     depends=resources['aws_instance.workspace'].get('depends_on',[])
     for name in ('aws_scheduler_schedule.workspace_deadline','aws_iam_role_policy.launch','aws_iam_instance_profile.workspace','aws_ssm_document.terminal','aws_iam_user_policy.operator'):
         if name not in depends: raise AssertionError('missing guard/identity/terminal ordering: '+name)
     LIFE['plan_scope']({'resource_changes':[r for r in runner['resource_changes'] if r['address']=='aws_instance.workspace[0]']},'launch')
-    return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),
+    return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),'fresh_foundation_mocked_plans':len(plans['fresh-platform'])+len(plans['fresh-bootstrap']),
             'iam_cases':iam_cases(runner,plans['platform']['persistent_sweep_failure_path_and_runtime_ceiling'],config)}
 
 result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))

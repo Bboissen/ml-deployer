@@ -27,6 +27,292 @@ boundary = {'__name__': 'aws_target_boundary'}
 exec(code.rsplit('\ntry:\n    main()', 1)[0], boundary)
 Failure, require, inside, write, source = (boundary[n] for n in ('Failure','require','inside','write','source'))
 
+# AWS-only fresh foundation extension; historical roots and A remain unchanged.
+def foundation_extension():
+    L = globals()
+    import copy
+
+
+    def target(original):
+        result = copy.deepcopy(original)
+        prefix, account, region = (result['inventory']['resource_prefix'], result['account_id'], result['region'])
+        result['deployment_role_arn'] = f'arn:aws:iam::{account}:role/{prefix}-workspace-deployer'
+        result['backend']['bucket'] = f'{prefix}-tofu-state-{account}-{region}-ws-v1'
+        result['inventory'].update(
+            buckets=['ml-demo-'+L['sha'](f'{account}/{region}/demo'.encode())[:16]],
+            repositories=[], roles=[prefix+'-workspace-deployer', prefix+'-workspace-watchdog', prefix+'-workspace-watchdog-invoke'],
+            policies=[prefix+'-ws-demo-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal'])
+        return result
+
+
+    def config(value, selected):
+        L['validate_config'](value, selected, 'fresh-platform')
+        L['require'](value['deployer_principal_arns'] == [selected['operator_arn']], 'fresh deployer trusts only the named operator')
+        L['require'](value['ml_projects'] == {'demo': {'ml_project_name': 'demo', 'storage_mode': 'auto'}}, 'fresh foundation starts with empty auto Demo storage')
+        L['require'](value['availability_zone'] == 'us-east-1a', 'accepted fresh network zone differs')
+
+
+    FRESH_ADDRESSES = {
+        'aws_vpc.runner', 'aws_subnet.runner', 'aws_internet_gateway.runner', 'aws_route_table.runner',
+        'aws_route_table_association.runner', 'aws_security_group.runner', 'aws_iam_role.deployer', 'aws_iam_role_policy.deployer',
+        'aws_iam_policy.session_manager',
+        *{name+'["demo"]' for name in (
+            'aws_s3_bucket.project', 'aws_s3_bucket_versioning.project', 'aws_s3_bucket_public_access_block.project',
+            'aws_s3_bucket_ownership_controls.project', 'aws_s3_bucket_server_side_encryption_configuration.project',
+            'aws_s3_bucket_lifecycle_configuration.project', 'aws_s3_bucket_policy.project',
+            'terraform_data.project_storage_checks', 'aws_iam_policy.project_workspace_boundary')},
+        *{name+'["active"]' for name in (
+            'aws_cloudwatch_log_group.workspace_guard', 'aws_sqs_queue.workspace_guard_failures',
+            'aws_iam_role.workspace_guard', 'aws_iam_role_policy.workspace_guard', 'aws_lambda_function.workspace_guard',
+            'aws_lambda_function_event_invoke_config.workspace_guard', 'aws_iam_role.workspace_guard_invoker',
+            'aws_iam_role_policy.workspace_guard_invoker', 'aws_scheduler_schedule.workspace_guard',
+            'aws_cloudwatch_log_metric_filter.workspace_guard_heartbeat', 'aws_cloudwatch_metric_alarm.workspace_guard_heartbeat',
+            'aws_cloudwatch_metric_alarm.workspace_guard_errors', 'aws_iam_policy.workspace_launch_boundary')},
+        'aws_cloudwatch_metric_alarm.workspace_guard_delivery["throttles"]',
+        'aws_cloudwatch_metric_alarm.workspace_guard_delivery["failures"]',
+    }
+    BOOTSTRAP_ADDRESSES = {name+'.state' for name in (
+        'aws_s3_bucket', 'aws_s3_bucket_ownership_controls', 'aws_s3_bucket_public_access_block',
+        'aws_s3_bucket_versioning', 'aws_s3_bucket_server_side_encryption_configuration',
+        'aws_s3_bucket_lifecycle_configuration', 'aws_s3_bucket_policy')}
+
+
+    def scope(item):
+        L['require'](item['address'] in FRESH_ADDRESSES and item['change']['actions'] == ['create'],
+                     'fresh platform permits only its exact new resources; no old IAM updates/adoption/deletion')
+
+
+    def missing(callback, codes):
+        try:
+            callback()
+        except Exception as error:
+            L['require'](getattr(error, 'response', {}).get('Error', {}).get('Code') in codes, 'resource absence unknown')
+            return
+        L['require'](False, 'same-name resource exists; explicit adoption/recovery review required')
+
+
+    def absent(base, client, value):
+        """Reject idempotent-create APIs that could overwrite/adopt retained objects."""
+        account, prefix = value['aws_account_id'], value['resource_prefix']
+        iam = client(base, 'iam')
+        for name in (prefix+'-workspace-deployer', prefix+'-workspace-watchdog', prefix+'-workspace-watchdog-invoke'):
+            missing(lambda name=name: iam.get_role(RoleName=name), {'NoSuchEntity'})
+        for name in (prefix+'-ws-demo-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal'):
+            missing(lambda name=name: iam.get_policy(PolicyArn=f'arn:aws:iam::{account}:policy/{name}'), {'NoSuchEntity'})
+        bucket = 'ml-demo-'+L['sha'](f"{account}/{value['aws_region']}/demo".encode())[:16]
+        missing(lambda: client(base, 's3').head_bucket(Bucket=bucket, ExpectedBucketOwner=account), {'404', 'NoSuchBucket'})
+        name = prefix+'-workspace-watchdog'
+        missing(lambda: client(base, 'lambda').get_function_configuration(FunctionName=name), {'ResourceNotFoundException'})
+        missing(lambda: client(base, 'sqs').get_queue_url(QueueName=name+'-failures', QueueOwnerAWSAccountId=account), {'AWS.SimpleQueueService.NonExistentQueue', 'QueueDoesNotExist'})
+        missing(lambda: client(base, 'scheduler').get_schedule(Name=name+'-sweep', GroupName='default'), {'ResourceNotFoundException'})
+        logs = client(base, 'logs').describe_log_groups(logGroupNamePrefix='/aws/lambda/'+name, limit=50)
+        L['require'](not logs.get('nextToken') and not any(x['logGroupName'] == '/aws/lambda/'+name for x in logs['logGroups']), 'guard log-group ownership unknown')
+        alarms = client(base, 'cloudwatch').describe_alarms(AlarmNames=[name+'-'+suffix for suffix in ('missing-heartbeat', 'errors', 'throttles', 'failures')])
+        L['require'](not alarms.get('NextToken') and not alarms.get('MetricAlarms') and not alarms.get('CompositeAlarms'), 'guard alarm already exists')
+
+
+    def prepare_absent(base, client, value):
+        """PutUserPolicy and other create APIs must not overwrite an old grant."""
+        name = L['role_name'](value)
+        iam = client(base, 'iam')
+        for role in (name, name+'-launch'):
+            missing(lambda role=role: iam.get_role(RoleName=role), {'NoSuchEntity'})
+        missing(lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'})
+        missing(lambda: iam.get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal'), {'NoSuchEntity'})
+        missing(lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'})
+        missing(lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'})
+
+
+    def packet(name, artifacts_path, alarm_topic, output):
+        selected = target(L['boundary']['targets']()[name])
+        L['require'](selected['account_id'] == '000000000000' and selected['region'] == 'us-east-1', 'fresh design requires its accepted target')
+        directory = L['checked_path'](output)
+        L['require'](not directory.exists(), 'preserve earlier foundation packet')
+        artifacts = L['read'](artifacts_path)
+        L['verify_artifact'](artifacts['guard_zip_path'], artifacts['guard_zip_sha256'], 'guard')
+        L['verify_artifact'](artifacts['toolbox_zip_path'], artifacts['toolbox_zip_sha256'], 'toolbox')
+        account, region = selected['account_id'], selected['region']
+        bucket = selected['inventory']['buckets'][0]
+        request = {'schema_version':'2.0.0', 'kind':'request', 'provider':'aws', 'account_scope':account,
+            'region':region, 'workspace_id':'demo-dev-01', 'toolbox_profile':'cpu-python-v1',
+            'resources':{'cpus':8, 'memory_mb':60000, 'disk_gb':25}, 'operators':[selected['operator_arn']],
+            'maximum_runtime_minutes':60, 'storage':{'data_uri':f's3://{bucket}/projects/demo/data/',
+            'output_uri':f's3://{bucket}/projects/demo/workspaces/demo-dev-01/output/',
+            'state_uri':f"s3://{selected['backend']['bucket']}/{selected['backend']['runner_prefix']}demo-dev-01.tfstate"}}
+        bootstrap = {'aws_account_id':account, 'aws_region':region, 'project_name':selected['inventory']['resource_prefix'], 'state_bucket_name':selected['backend']['bucket']}
+        platform = {'aws_account_id':account, 'aws_region':region, 'project_name':bootstrap['project_name'], 'resource_prefix':bootstrap['project_name'],
+            'state_bucket_arn':'arn:aws:s3:::'+bootstrap['state_bucket_name'], 'availability_zone':'us-east-1a',
+            'deployer_principal_arns':[selected['operator_arn']], 'ml_projects':{'demo':{'ml_project_name':'demo', 'storage_mode':'auto'}},
+            'workspace_guard':{'zip_path':artifacts['guard_zip_path'], 'zip_sha256':artifacts['guard_zip_sha256'], 'alarm_topic_arn':alarm_topic}}
+        config(platform, selected)
+        directory.mkdir(parents=True, mode=0o700)
+        for label, value in (('request.json', request), ('bootstrap.tfvars.json', bootstrap), ('platform.tfvars.json', platform), ('proposed-target.json', selected), ('artifacts.json', artifacts)):
+            L['write'](directory/label, value)
+        L['run']([L['sys'].executable, 'scripts/workspace/validate.py', str(directory/'request.json')], L['os'].environ.copy(), 15)
+        return {'packet':str(directory), 'compute_enabled':False, 'target_activation':'only after successful fresh platform and verified deployment role'}
+
+
+    def bootstrap_context(name, value, path):
+        selected = target(L['boundary']['targets']()[name])
+        L['require'](value['aws_account_id'] == selected['account_id'] and value['aws_region'] == selected['region'] and
+                     value['project_name'] == selected['inventory']['resource_prefix'] and value['state_bucket_name'] == selected['backend']['bucket'], 'bootstrap target/config mismatch')
+        env = L['boundary']['environment'](selected)
+        operator = L['boundary']['identity'](selected, env)
+        base, client, _ = L['sessions'](selected)
+        path = L['checked_path'](path)
+        L['require'](not path.exists(), 'bootstrap state exists; preserve it and review recovery')
+        missing(lambda: client(base, 's3').head_bucket(Bucket=value['state_bucket_name'], ExpectedBucketOwner=selected['account_id']), {'404', 'NoSuchBucket'})
+        identities = {'cli':operator, 'sdk_operator':selected['operator_arn'], 'provider':selected['operator_arn'], 'backend':'local'}
+        state = {'path':str(path), 'lineage':None, 'serial':None, 'sha256':None}
+        return selected, env, identities, state
+
+
+    def bootstrap_scope(plan):
+        mutations = []
+        for item in plan.get('resource_changes', []):
+            if item['change']['actions'] in (['read'], ['no-op']):
+                continue
+            L['require'](item.get('mode') == 'managed' and item['address'] in BOOTSTRAP_ADDRESSES and item['change']['actions'] == ['create'], 'bootstrap permits only new state-storage prerequisites')
+            mutations.append({'address':item['address'], 'actions':['create']})
+        L['require']({x['address'] for x in mutations} == BOOTSTRAP_ADDRESSES, 'bootstrap must create all seven protected state resources')
+        return mutations
+
+
+    def bootstrap_plan(name, config_path, output):
+        directory = L['checked_path'](output)
+        L['require'](not directory.exists(), 'preserve earlier bootstrap plan')
+        value = L['read'](config_path)
+        selected, env, identities, state = bootstrap_context(name, value, directory/'bootstrap.tfstate')
+        root = L['REPO']/'infra/aws/bootstrap/workspace'
+        L['require'](not any(root.glob('*.auto.tfvars*')) and not (root/'terraform.tfvars').exists(), 'implicit root configuration rejected')
+        directory.mkdir(parents=True, mode=0o700)
+        backend = {'path':state['path']}
+        L['write'](directory/'backend.json', backend)
+        L['write'](directory/'config.tfvars.json', value)
+        env.update(TF_DATA_DIR=str(directory/'tofu-data'))
+        for key in list(env):
+            if key.startswith('TF_VAR_'): del env[key]
+        L['run'](['tofu', f'-chdir={root}', 'init', '-input=false', '-lockfile=readonly', f'-backend-config={directory}/backend.json', '-no-color'], env)
+        L['run'](['tofu', f'-chdir={root}', 'validate', '-no-color'], env)
+        L['run'](['tofu', f'-chdir={root}', 'plan', '-input=false', '-lock-timeout=30s', '-no-color', f'-var-file={directory}/config.tfvars.json', f'-out={directory}/saved.tfplan'], env, 240)
+        raw = L['run'](['tofu', f'-chdir={root}', 'show', '-json', str(directory/'saved.tfplan')], env, 60)
+        scope_value = bootstrap_scope(L['json'].loads(raw))
+        (directory/'plan.json').write_text(raw)
+        manifest = {'target_name':name, 'target':selected, 'stage':'bootstrap', 'source':L['source'](), 'root':str(root),
+            'identities':identities, 'backend':backend, 'state':state, 'config_sha256':L['sha'](L['canon'](value)),
+            'plan_sha256':L['sha']((directory/'saved.tfplan').read_bytes()), 'plan_json_sha256':L['sha'](raw.encode()),
+            'lock_sha256':L['sha']((root/'.terraform.lock.hcl').read_bytes()),
+            'tofu_version':L['json'].loads(L['run'](['tofu', 'version', '-json'], env, 10))['terraform_version'],
+            'artifacts':{}, 'dependencies':[], 'scope':scope_value, 'created_at':L['stamp'](), 'deployment_authorized':False}
+        L['write'](directory/'review.json', manifest)
+        return {'evidence':str(directory), 'review_sha256':L['sha'](L['canon'](manifest)), 'scope':scope_value, 'deployment_authorized':False}
+
+
+    def bootstrap_apply(directory):
+        read, require, sha, canon = (L[k] for k in ('read','require','sha','canon'))
+        m, authorization, value = (read(directory/name) for name in ('review.json','authorization.json','config.tfvars.json'))
+        root = L['REPO']/'infra/aws/bootstrap/workspace'
+        require(m['root'] == str(root) and m['backend'] == {'path':str(directory/'bootstrap.tfstate')} and read(directory/'backend.json') == m['backend'], 'bootstrap root/backend drift')
+        require(authorization['review_sha256'] == sha(canon(m)) and authorization['plan_sha256'] == m['plan_sha256'] and authorization['scope'] == m['scope'], 'authorization does not bind exact bootstrap')
+        require(not (directory/'apply-started.json').exists(), 'single-use authorization consumed')
+        require(L['source']() == m['source'] and sha(canon(value)) == m['config_sha256'], 'source/config drift')
+        require(sha((directory/'saved.tfplan').read_bytes()) == m['plan_sha256'] and sha((directory/'plan.json').read_bytes()) == m['plan_json_sha256'] and bootstrap_scope(read(directory/'plan.json')) == m['scope'], 'bootstrap saved plan drift')
+        require(sha((root/'.terraform.lock.hcl').read_bytes()) == m['lock_sha256'], 'provider lock drift')
+        selected, env, identities, state = bootstrap_context(m['target_name'], value, directory/'bootstrap.tfstate')
+        require(selected == m['target'] and identities == m['identities'] and state == m['state'], 'bootstrap target/identity/state drift')
+        env.update(TF_DATA_DIR=str(directory/'tofu-data'))
+        for key in list(env):
+            if key.startswith('TF_VAR_'): del env[key]
+        require(L['json'].loads(L['run'](['tofu','version','-json'],env,10))['terraform_version'] == m['tofu_version'], 'OpenTofu version drift')
+        L['run'](['tofu', f'-chdir={root}', 'init', '-reconfigure', '-input=false', '-lockfile=readonly', f'-backend-config={directory}/backend.json', '-no-color'], env)
+        L['write'](directory/'apply-started.json', {'review_sha256':authorization['review_sha256'], 'started_at':L['stamp']()})
+        L['run'](['tofu', f'-chdir={root}', 'apply', '-input=false', '-lock-timeout=30s', '-no-color', str(directory/'saved.tfplan')], env, 300)
+        require((directory/'bootstrap.tfstate').is_file(), 'bootstrap local state missing')
+        L['write'](directory/'apply-result.json', {'status':'success', 'completed_at':L['stamp'](), 'state_sha256':sha((directory/'bootstrap.tfstate').read_bytes()), 'native_workspace_ready':False})
+        return {'status':'success', 'evidence':str(directory), 'native_workspace_ready':False}
+
+
+    def applied(directory):
+        directory = L['checked_path'](directory)
+        m, receipt = L['read'](directory/'review.json'), L['read'](directory/'apply-result.json')
+        L['require'](m['stage'] == 'fresh-platform' and m['source'] == L['source']() and receipt['status'] == 'success', 'exact successful fresh platform required')
+        authorization = L['read'](directory/'authorization.json')
+        started = L['read'](directory/'apply-started.json')
+        review_hash = L['sha'](L['canon'](m))
+        L['require'](authorization['review_sha256'] == started['review_sha256'] == review_hash and
+                     authorization['plan_sha256'] == m['plan_sha256'] and
+                     L['sha']((directory/'saved.tfplan').read_bytes()) == m['plan_sha256'] and
+                     L['sha']((directory/'plan.json').read_bytes()) == m['plan_json_sha256'] and
+                     m['root'] == str(L['stage_root']('fresh-platform')), 'fresh applied review/plan/root drift')
+        value = L['read'](directory/'config.tfvars.json')
+        config(value, m['target'])
+        selected, env, base, client, _, _ = L['context'](m['target_name'], 'fresh-platform', value)
+        L['require'](selected == m['target'] and L['sha'](L['canon'](value)) == m['config_sha256'], 'fresh output target/config drift')
+        env.update(TF_DATA_DIR=str(directory/'tofu-data'))
+        platform = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'output', '-json', 'workspace_platform'],env,30))
+        guard = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'output', '-json', 'workspace_guard'],env,30))
+        L['require'](platform['deployer_role_arn'] == selected['deployment_role_arn'] and guard['code_sha256'] == value['workspace_guard']['zip_sha256'], 'fresh outputs mismatch')
+        return directory, m, selected, base, client, platform, guard
+
+
+    def activate(directory, output):
+        directory, m, selected, base, client, platform, guard = applied(directory)
+        # Genuine STS role assumption establishes the desired deployer exists and is usable.
+        _, _, assume = L['sessions'](selected)
+        _, identity = assume(base, selected['deployment_role_arn'])
+        resources = {r['address']:r['values'] for r in L['read'](directory/'plan.json')['planned_values']['root_module']['resources']}
+        iam = client(base, 'iam');role = selected['deployment_role_arn'].rsplit('/',1)[1]
+        actual = iam.get_role(RoleName=role)['Role']
+        L['require'](actual['Arn'] == selected['deployment_role_arn'] and actual['AssumeRolePolicyDocument'] == L['json'].loads(resources['aws_iam_role.deployer']['assume_role_policy']), 'fresh deployer trust drift')
+        policy = resources['aws_iam_role_policy.deployer']
+        names = iam.list_role_policies(RoleName=role)
+        attached = iam.list_attached_role_policies(RoleName=role)
+        L['require'](not names.get('IsTruncated') and names['PolicyNames'] == [policy['name']] and not attached.get('IsTruncated') and not attached['AttachedPolicies'], 'fresh deployer grant set drift')
+        L['require'](iam.get_role_policy(RoleName=role,PolicyName=policy['name'])['PolicyDocument'] == L['json'].loads(policy['policy']), 'fresh deployer policy drift')
+        destination = L['checked_path'](output)
+        L['require'](not destination.exists(), 'preserve earlier target activation')
+        destination.mkdir(parents=True, mode=0o700)
+        registry = L['REPO']/'evidence/aws/targets.json'
+        before = L['read'](registry)
+        L['write'](destination/'targets-before.json', before)
+        after = copy.deepcopy(before)
+        after['targets'][m['target_name']] = selected
+        L['write'](destination/'targets-after.json', after)
+        # Atomic local metadata change, never a credential, IAM or state modification.
+        temporary = destination/'targets-after.json'
+        replacement = registry.with_name('targets.activation.tmp')
+        with replacement.open('xb') as stream: stream.write(temporary.read_bytes())
+        replacement.replace(registry)
+        L['write'](destination/'activation.json', {'target':m['target_name'], 'review_sha256':L['sha'](L['canon'](m)), 'sdk_deployer':identity, 'cloud_mutations':False})
+        return {'activated_target':m['target_name'], 'cloud_mutations':False, 'native_workspace_ready':False}
+
+
+    def runner_packet(plan_directory, packet_directory, lease_path, output):
+        _, m, selected, _, _, platform, guard = applied(plan_directory)
+        packet_directory = L['checked_path'](packet_directory)
+        L['require'](L['boundary']['targets']()[m['target_name']] == selected and L['read'](packet_directory/'proposed-target.json') == selected, 'activate the exact fresh target before runner preparation')
+        request, artifacts = L['read'](packet_directory/'request.json'), L['read'](packet_directory/'artifacts.json')
+        value = {'aws_account_id':selected['account_id'], 'aws_region':selected['region'], 'resource_prefix':selected['inventory']['resource_prefix'],
+            'project_name':selected['inventory']['resource_prefix'], 'backend_bucket_name':selected['backend']['bucket'], 'state_bucket_arn':platform['state_bucket_arn'],
+            'deployer_role_arn':platform['deployer_role_arn'], 'subnet_id':platform['subnet_id'], 'security_group_id':platform['security_group_id'],
+            'phase':'prepare', 'workspace_identity':{'ml_project_name':'demo', 'request':request, 'bucket_name':selected['inventory']['buckets'][0],
+            'permissions_boundary_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-ws-demo-boundary",
+            'session_policy_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-session-manager-minimal"},
+            'toolbox_zip_path':artifacts['toolbox_zip_path'], 'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],
+            'instance_type':'r8i.2xlarge', 'ami_id':'ami-03c3da4cfa8e8943a', 'guard':guard, 'lease':L['read'](lease_path)}
+        L['validate_config'](value, selected, 'prepare')
+        L['write'](L['checked_path'](output), value)
+        return {'runner_config':str(output), 'compute_enabled':False, 'native_workspace_ready':False}
+
+    return locals()
+
+foundation = foundation_extension()
+
+def is_platform(stage): return stage in ('platform','fresh-platform')
+
+def stage_root(stage):
+    return REPO/('infra/aws/platform/workspace' if stage=='fresh-platform' else 'infra/aws/platform' if stage=='platform' else 'infra/aws/runner/workspace')
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -159,8 +445,8 @@ def packet(target_name,storage_directory,artifacts_path,platform_config_path,ala
 
 def outputs(target_name,plan_directory,output):
     directory=checked_path(plan_directory); m=read(directory/'review.json'); config=read(directory/'config.tfvars.json')
-    require(m['target_name']==target_name and m['stage']=='platform' and m['source']==source() and read(directory/'apply-result.json')['status']=='success','exact successful platform required')
-    target,env,base,client,identities,state=context(target_name,'platform',config)
+    require(m['target_name']==target_name and is_platform(m['stage']) and m['source']==source() and read(directory/'apply-result.json')['status']=='success','exact successful platform required')
+    target,env,base,client,identities,state=context(target_name,m['stage'],config)
     require(target==m['target'] and sha(canon(config))==m['config_sha256'],'platform output target/config drift')
     env.update(TF_DATA_DIR=str(directory/'tofu-data'))
     guard=json.loads(run(['tofu',f"-chdir={m['root']}",'output','-json','workspace_guard'],env,30))
@@ -508,7 +794,7 @@ def validate_config(config, target, stage):
     require(config['resource_prefix']==target['inventory']['resource_prefix'],'ownership prefix mismatch')
     require(config['project_name']==target['inventory']['resource_prefix'], 'reviewed ownership project mismatch')
     require(config['state_bucket_arn']=='arn:aws:s3:::'+target['backend']['bucket'],'state bucket mismatch')
-    if stage=='platform':
+    if is_platform(stage):
         require(config.get('workspace_guard') is not None,'platform guard cannot be disabled by workspace workflow')
         return
     require(config['deployer_role_arn']==target['deployment_role_arn'] and config['backend_bucket_name']==target['backend']['bucket'],'runner context mismatch')
@@ -528,7 +814,9 @@ def plan_scope(plan, stage):
         actions=item['change']['actions']; address=item['address']
         if actions in (['no-op'],['read']): continue
         require(item.get('mode')=='managed','unexpected mutation')
-        if stage=='platform':
+        if stage=='fresh-platform':
+            foundation['scope'](item)
+        elif stage=='platform':
             require('delete' not in actions,'platform deletion forbidden')
             project_prerequisite=(address=='aws_iam_policy.session_manager' or address.startswith(('aws_s3_bucket_lifecycle_configuration.project[','terraform_data.project_storage_checks[')))
             require(('workspace_guard' in address or address.startswith(('aws_s3_bucket.project[','aws_s3_bucket_versioning.project[','aws_s3_bucket_server_side_encryption_configuration.project[','aws_s3_bucket_public_access_block.project[','aws_s3_bucket_ownership_controls.project[','aws_s3_bucket_policy.project[','aws_iam_policy.project_workspace_boundary[','aws_iam_policy.workspace_launch_boundary['))
@@ -553,15 +841,15 @@ def plan_scope(plan, stage):
 
 def context(target_name, stage, config):
     ts=boundary['targets'](); require(target_name in ts,'unknown target')
-    target=ts[target_name]; env=boundary['environment'](target); operator=boundary['identity'](target,env)
+    target=foundation['target'](ts[target_name]) if stage=='fresh-platform' else ts[target_name]; env=boundary['environment'](target); operator=boundary['identity'](target,env)
     validate_config(config,target,stage)
     base,client,assume=sessions(target)
     identities={'cli':operator,'sdk_operator':target['operator_arn'],'backend':target['operator_arn']}
-    if stage!='platform':
+    if not is_platform(stage):
         deployer,identities['sdk_deployer']=assume(base,target['deployment_role_arn'])
         if stage=='launch': _,identities['sdk_launch']=assume(deployer,f"arn:aws:iam::{target['account_id']}:role/{role_name(config)}-launch")
     else: identities['provider']=target['operator_arn']
-    key=target['backend']['platform_key'] if stage=='platform' else target['backend']['runner_prefix']+config['workspace_identity']['request']['workspace_id']+'.tfstate'
+    key=target['backend']['platform_key'] if is_platform(stage) else target['backend']['runner_prefix']+config['workspace_identity']['request']['workspace_id']+'.tfstate'
     state=snapshot(base,client,target,key)
     return target,env,base,client,identities,state
 
@@ -611,13 +899,16 @@ def alarm_destination(base,client,config):
 def native_plan(target_name,stage,config_path,directory,dependency=None):
     directory=checked_path(directory); require(not directory.exists(),'plan directory already exists')
     config=read(config_path)
+    if stage=='fresh-platform':foundation['config'](config,foundation['target'](boundary['targets']()[target_name]))
     dependencies=[]
-    if stage in ('prepare','launch','cleanup') or (stage=='retire' and dependency):
+    if stage in ('fresh-platform','prepare','launch','cleanup') or (stage=='retire' and dependency):
         require(dependency is not None,'this stage requires its exact successful prior apply receipt')
         dep=checked_path(dependency); prior=read(dep/'review.json'); receipt=read(dep/'apply-result.json')
-        require(prior['target_name']==target_name and prior['stage']=={'prepare':'platform','launch':'prepare','retire':'launch','cleanup':'retire'}[stage]
+        require(prior['target_name']==target_name and prior['stage'] in ({'platform','fresh-platform'} if stage=='prepare' else { {'fresh-platform':'bootstrap','launch':'prepare','retire':'launch','cleanup':'retire'}[stage] })
                 and receipt['status']=='success' and prior['source']==source(),'dependency target/stage/source/apply mismatch')
-        if stage!='prepare':
+        if stage=='fresh-platform':
+            require(prior['target']==foundation['target'](boundary['targets']()[target_name]),'bootstrap target mismatch')
+        elif stage!='prepare':
             old=read(dep/'config.tfvars.json')
             require(old['lease']==config['lease'] and old['workspace_identity']==config['workspace_identity'] and old['guard']==config['guard'],'dependency workspace/lease/guard mismatch')
         else:
@@ -625,9 +916,12 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
             require(config['guard']['code_sha256']==platform_config['workspace_guard']['zip_sha256'],'runner guard code differs from exact platform artifact')
         dependencies=[{'directory':str(dep),'review_sha256':sha(canon(prior)),'receipt_sha256':sha(canon(receipt))}]
     target,env,base,client,identities,state=context(target_name,stage,config)
-    if stage=='platform': verify_artifact(config['workspace_guard']['zip_path'],config['workspace_guard']['zip_sha256'],'guard')
+    if dependencies:require(prior['target']==target,'dependency target configuration differs')
+    if is_platform(stage): verify_artifact(config['workspace_guard']['zip_path'],config['workspace_guard']['zip_sha256'],'guard')
     else: verify_artifact(config['toolbox_zip_path'],config['toolbox_zip_sha256'],'toolbox')
-    if stage=='platform':
+    if stage=='fresh-platform':foundation['absent'](base,client,config)
+    if stage=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config)
+    if is_platform(stage):
         platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
     details=None
     if stage=='launch':
@@ -647,7 +941,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
     backend={'bucket':target['backend']['bucket'],'key':state['key'],'region':target['region'],'profile':target['profile'],
              'allowed_account_ids':[target['account_id']],'encrypt':True,'use_lockfile':True}
     write(directory/'backend.json',backend)
-    root=REPO/('infra/aws/platform' if stage=='platform' else 'infra/aws/runner/workspace')
+    root=stage_root(stage)
     require(not any(root.glob('*.auto.tfvars*')) and not (root/'terraform.tfvars').exists(),'implicit root configuration rejected')
     env.update(TF_DATA_DIR=str(directory/'tofu-data'))
     for key in list(env):
@@ -669,8 +963,8 @@ def native_plan(target_name,stage,config_path,directory,dependency=None):
                 'launch boundary differs from exact reviewed platform policy')
     (directory/'plan.json').write_text(raw)
     artifacts={}
-    paths=[config['workspace_guard']['zip_path']] if stage=='platform' else [config['toolbox_zip_path']]
-    if stage!='platform':
+    paths=[config['workspace_guard']['zip_path']] if is_platform(stage) else [config['toolbox_zip_path']]
+    if not is_platform(stage):
         write(directory/'request.json',config['workspace_identity']['request'])
         run([sys.executable,'scripts/workspace/validate.py',str(directory/'request.json')],env,15)
     for path in paths: artifacts[str(checked_path(path))]=sha(checked_path(path).read_bytes())
@@ -692,7 +986,9 @@ def authorize(directory,expected,approval):
     return {'authorized_review_sha256':expected,'applied':False}
 
 def apply(directory):
-    directory=checked_path(directory); m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); config=read(directory/'config.tfvars.json')
+    directory=checked_path(directory)
+    if read(directory/'review.json').get('stage')=='bootstrap':return foundation['bootstrap_apply'](directory)
+    m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); config=read(directory/'config.tfvars.json')
     require(authorization['review_sha256']==sha(canon(m)) and authorization['plan_sha256']==m['plan_sha256'] and authorization['scope']==m['scope'],'authorization does not bind exact saved plan')
     require(not (directory/'apply-started.json').exists(),'single-use authorization consumed; partial apply needs fresh inventory/plan/review')
     require(source()==m['source'] and sha(canon(config))==m['config_sha256'],'source/config drift')
@@ -703,9 +999,13 @@ def apply(directory):
     require(sha((directory/'saved.tfplan').read_bytes())==m['plan_sha256'] and sha((directory/'plan.json').read_bytes())==m['plan_json_sha256'],'saved plan changed')
     require(plan_scope(read(directory/'plan.json'),m['stage'])==m['scope'],'plan scope drift')
     require(sha((Path(m['root'])/'.terraform.lock.hcl').read_bytes())==m['lock_sha256'],'provider lock drift')
+    require(Path(m['root'])==stage_root(m['stage']),'review root differs from named stage')
+    require((directory/'backend.json').is_file() and read(directory/'backend.json')==m['backend'],'backend configuration drift')
     target,env,base,client,identities,state=context(m['target_name'],m['stage'],config)
     require(target==m['target'] and identities==m['identities'] and state==m['state'],'target/identity/backend state changed; replan and review')
-    if m['stage']=='platform':
+    if m['stage']=='fresh-platform':foundation['absent'](base,client,config)
+    if m['stage']=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config)
+    if is_platform(m['stage']):
         platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
     if m['stage']=='launch':
         observation,details=bounded(90,lambda:observe_guard(base,client,config))
@@ -733,6 +1033,7 @@ def apply(directory):
     write(directory/'apply-started.json',{'review_sha256':authorization['review_sha256'],'started_at':stamp()})
     # Never replan, autoapprove a fresh plan, destroy directly, or replay after
     # interruption. Raw provider diagnostics stay out of terminal/chat logs.
+    run(['tofu',f"-chdir={m['root']}",'init','-reconfigure','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f"-chdir={m['root']}",'apply','-input=false','-lock-timeout=30s','-no-color',str(directory/'saved.tfplan')],env,300)
     if m['stage']=='launch':
         value=json.loads(run(['tofu',f"-chdir={m['root']}",'output','-json','workspace_preparation'],env,30))
@@ -752,7 +1053,11 @@ def main():
     p=sub.add_parser('lease'); p.add_argument('request'); p.add_argument('starts_at'); p.add_argument('output')
     p=sub.add_parser('packet'); p.add_argument('target'); p.add_argument('--storage-directory',required=True); p.add_argument('--artifacts',required=True); p.add_argument('--platform-config',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('outputs'); p.add_argument('target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
-    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency')
+    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency')
+    p=sub.add_parser('foundation-packet'); p.add_argument('target'); p.add_argument('--artifacts',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
+    p=sub.add_parser('bootstrap-plan'); p.add_argument('target'); p.add_argument('config'); p.add_argument('directory')
+    p=sub.add_parser('activate-target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
+    p=sub.add_parser('runner-packet'); p.add_argument('plan_directory'); p.add_argument('--packet',required=True); p.add_argument('--lease',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('authorize'); p.add_argument('directory'); p.add_argument('--review-sha256',required=True); p.add_argument('--approval',required=True)
     p=sub.add_parser('apply'); p.add_argument('directory')
     p=sub.add_parser('connect'); p.add_argument('target'); p.add_argument('config'); p.add_argument('--instance',required=True)
@@ -765,6 +1070,10 @@ def main():
     elif args.verb=='packet': result=packet(args.target,args.storage_directory,args.artifacts,args.platform_config,args.alarm_topic,args.output)
     elif args.verb=='outputs': result=outputs(args.target,args.plan_directory,args.output)
     elif args.verb=='plan': result=native_plan(args.target,args.stage,args.config,args.directory,args.dependency)
+    elif args.verb=='foundation-packet': result=foundation['packet'](args.target,args.artifacts,args.alarm_topic,args.output)
+    elif args.verb=='bootstrap-plan': result=foundation['bootstrap_plan'](args.target,args.config,args.directory)
+    elif args.verb=='activate-target': result=foundation['activate'](args.plan_directory,args.output)
+    elif args.verb=='runner-packet': result=foundation['runner_packet'](args.plan_directory,args.packet,args.lease,args.output)
     elif args.verb=='authorize': result=authorize(args.directory,args.review_sha256,args.approval)
     elif args.verb=='connect': result=connect(args.target,args.config,args.instance)
     elif args.verb=='handoff': result=handoff(args.target,args.plan_directory,args.instance,args.output)

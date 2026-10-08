@@ -316,3 +316,5 @@ the preserved batch interfaces. Routine tests use mocked providers and backend-
 disabled initialization; they create no infrastructure. A mocked apply is used
 only to exercise apply-time timestamp rejection. Logs and generated fixtures remain
 under unique ignored `evidence/aws/tests/cd/` runs, with bounded command timeouts.
+
+After an explicitly reviewed account decommission, use the [fresh workspace foundation](aws-workspace-fresh.md). It preserves retained IAM and alerts, creates a distinct backend and deployer, and retains the existing guarded runner protocol.

@@ -13,7 +13,7 @@ for command_name in rg tofu; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command is missing: ${command_name}"
 done
 
-for root_name in bootstrap platform runner; do
+for root_name in bootstrap platform runner bootstrap/workspace platform/workspace; do
   root_path="${AWS_ROOT}/${root_name}"
   [[ -d "$root_path" ]] || fail "missing AWS root: ${root_name}"
   [[ -f "${root_path}/versions.tf" ]] || fail "missing versions.tf in ${root_name}"
@@ -32,9 +32,13 @@ for root_name in bootstrap platform runner; do
     fail "${root_name} provider is not bound to the reviewed account"
 done
 
-if rg -n '^\s*backend\s+"' "${AWS_ROOT}/bootstrap" --glob '*.tf' >/dev/null; then
+if rg -n '^\s*backend\s+"' "${AWS_ROOT}/bootstrap/"*.tf >/dev/null; then
   fail 'bootstrap must use local state and may not configure its own backend'
 fi
+rg -F 'backend "local" {}' "${AWS_ROOT}/bootstrap/workspace/versions.tf" >/dev/null ||
+  fail 'fresh bootstrap must bind an explicit evidence-local backend'
+rg -F 'backend "s3" {}' "${AWS_ROOT}/platform/workspace/versions.tf" >/dev/null ||
+  fail 'fresh platform must use its distinct reviewed S3 backend'
 for root_name in platform runner; do
   rg -F 'backend "s3" {}' "${AWS_ROOT}/${root_name}/versions.tf" >/dev/null ||
     fail "${root_name} must declare an externally configured S3 backend"

@@ -37,3 +37,5 @@ The AWS dummy lifecycle adapter and its required durable evidence inputs are
 documented in
 [the AWS dummy runbook](../../docs/operations/aws-dummy-lifecycle.md).
 No command here authorizes plan application or cloud mutation.
+
+The independent workspace roots are `bootstrap/workspace/` (explicit local state bootstrap), `platform/workspace/` (persistent workspace-only platform) and `runner/workspace/` (disposable guarded toolbox). See [fresh workspace operations](../../docs/operations/aws-workspace-fresh.md). Historical roots remain preserved at their existing addresses.
