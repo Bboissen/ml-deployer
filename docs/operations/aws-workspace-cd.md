@@ -129,11 +129,19 @@ account is missing. See the [AWS Run As behavior](https://docs.aws.amazon.com/sy
 
 Run commands from a clean checkout of the delivered branch. Keep every artifact
 under ignored `evidence/`; do not reuse or overwrite earlier directories. Install
-the SDK lock in an operator Python 3.13 environment and set `WORKSPACE_PYTHON` to
-its executable for native lifecycle commands. Keep credentials in the accepted
+the SDK lock and `shared/workspace/requirements.lock` in an operator Python 3.13
+environment; the latter supplies the closed-record validator dependencies. Set
+`WORKSPACE_PYTHON` to its executable for native lifecycle commands. Keep credentials in the accepted
 temporary native profile. A's override checks remain enforced; its generic
 OpenTofu `exec` is still closed. The new named lifecycle verbs are the reviewed
 workspace extension. Raw direct OpenTofu mutation bypasses this protocol.
+
+For a browser-login operator profile, install the `botocore[crt]==1.43.109`
+extra in that isolated operator environment using a hash-locked requirements file
+retained under `evidence/`; its SDK metadata pins `awscrt==0.36.0`. The guest and
+guard use role credentials and do not require this operator-only extra. Standard
+AWS IAM reports SDK region `aws-global` at `https://iam.amazonaws.com`; the wrapper
+accepts that exact IAM endpoint while keeping regional services bound to the target.
 
 These first two commands are local preparation; build downloads verified packages
 but does not publish them or call a cloud account API:

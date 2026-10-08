@@ -96,6 +96,59 @@ class Watchdog(unittest.TestCase):
             result=GUARD['handler'](dict(EVENT,kind='lease',lease_id='b'*32,workspace_id=TAGS['WorkspaceId']),ctx)
         self.assertEqual(result['kind'],'lease_result')
 
+class SDKSessionBoundary(unittest.TestCase):
+    def setUp(self):
+        self.target={'profile':'offline','region':'us-east-1','account_id':'000000000000',
+                     'operator_arn':'arn:aws:iam::000000000000:user/operator'}
+        self.responses={}
+        self.identity={'Account':self.target['account_id'],'Arn':self.target['operator_arn']}
+        self.calls=[]
+        def client(service,**kwargs):
+            self.calls.append((service,kwargs))
+            region,endpoint=self.responses.get(service,('us-east-1','https://'+service+'.us-east-1.amazonaws.com'))
+            return types.SimpleNamespace(meta=types.SimpleNamespace(region_name=region,endpoint_url=endpoint),
+                                         get_caller_identity=lambda:self.identity)
+        self.session=types.SimpleNamespace(client=client)
+        self.boto=types.SimpleNamespace(__version__='1.43.109',Session=lambda **kwargs:self.session)
+        self.core=types.SimpleNamespace(__version__='1.43.109')
+    def sessions(self):
+        with patch.dict(sys.modules,{'boto3':self.boto,'botocore':self.core,'botocore.config':fake_cfg}):
+            return LIFE['sessions'](self.target)
+    def test_standard_global_iam_is_accepted(self):
+        self.responses['iam']=('aws-global','https://iam.amazonaws.com')
+        base,client,_=self.sessions()
+        self.assertEqual(client(base,'iam').meta.region_name,'aws-global')
+        self.assertEqual(self.calls[-1][1]['region_name'],'us-east-1')
+    def test_global_iam_requires_exact_endpoint_and_partition(self):
+        for endpoint in ('https://iam.amazonaws.com.evil.example','http://iam.amazonaws.com','https://sts.amazonaws.com'):
+            with self.subTest(endpoint=endpoint):
+                self.responses['iam']=('aws-global',endpoint)
+                base,client,_=self.sessions()
+                with self.assertRaises(LIFE['Failure']): client(base,'iam')
+        self.responses['iam']=('aws-global','https://iam.amazonaws.com')
+        self.target['operator_arn']='arn:aws-us-gov:iam::000000000000:user/operator'
+        self.identity['Arn']=self.target['operator_arn']
+        base,client,_=self.sessions()
+        with self.assertRaises(LIFE['Failure']): client(base,'iam')
+    def test_regional_services_cannot_use_global_or_other_region(self):
+        for service in ('ec2','s3','sts','lambda','scheduler','ssm','logs'):
+            for region in ('aws-global','us-west-2'):
+                with self.subTest(service=service,region=region):
+                    self.responses={}
+                    self.responses[service]=(region,'https://'+service+'.amazonaws.com')
+                    if service=='sts':
+                        with self.assertRaises(LIFE['Failure']): self.sessions()
+                    else:
+                        base,client,_=self.sessions()
+                        with self.assertRaises(LIFE['Failure']): client(base,service)
+    def test_regional_endpoint_override_is_rejected(self):
+        self.responses['ec2']=('us-east-1','https://example.com')
+        base,client,_=self.sessions()
+        with self.assertRaises(LIFE['Failure']): client(base,'ec2')
+    def test_global_iam_exception_does_not_relax_operator_identity(self):
+        self.identity['Account']='111111111111'
+        with self.assertRaises(LIFE['Failure']): self.sessions()
+
 class HeartbeatObservation(unittest.TestCase):
     def setUp(self):
         account='000000000000'; prefix='ml-infra'

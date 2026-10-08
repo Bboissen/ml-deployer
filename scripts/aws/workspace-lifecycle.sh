@@ -176,7 +176,11 @@ def sessions(target):
     base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
     def client(session, service):
         c = session.client(service,region_name=target['region'],config=cfg)
-        require(c.meta.region_name == target['region'], 'SDK region mismatch')
+        # IAM uses AWS's global endpoint even when explicitly given us-east-1.
+        # Keep regional services bound to the target; allow only standard IAM.
+        global_iam = (service == 'iam' and target['operator_arn'].split(':')[1] == 'aws'
+                      and c.meta.region_name == 'aws-global' and c.meta.endpoint_url == 'https://iam.amazonaws.com')
+        require(c.meta.region_name == target['region'] or global_iam, 'SDK region mismatch')
         require(c.meta.endpoint_url.startswith('https://') and c.meta.endpoint_url.split('/')[2].endswith('.amazonaws.com'), 'SDK endpoint mismatch')
         return c
     observed = client(base,'sts').get_caller_identity()
