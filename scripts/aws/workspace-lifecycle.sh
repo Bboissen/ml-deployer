@@ -657,7 +657,7 @@ def collect(target_name,plan_directory,handoff_path,guest_path,output):
     facts=guest['facts']; require(facts['non_root'] and facts['project_directory_writable'] and not facts['missing_tools'],'guest toolbox failed')
     require(guest['instance_role_arn']==f"arn:aws:sts::{target['account_id']}:assumed-role/{role_name(config)}/{hand['machine_id']}",'guest native identity mismatch')
     require(facts['versions']['python']=='3.13.15' and facts['versions']['git']=='git version 2.50.1'
-            and facts['versions']['uv']=='uv 0.12.23' and facts['versions']['storage_cli'].startswith('aws-cli/2.36.14 ')
+            and facts['versions']['uv'].split()[:2]==['uv','0.12.23'] and facts['versions']['storage_cli'].startswith('aws-cli/2.36.14 ')
             and facts['sdk_versions']['boto3']=='1.43.109','observed toolbox pins mismatch')
     require(guest['state_denied'] is True and guest['unrelated_denied'] is True and guest['output_read_observed'] is True,'native storage evidence incomplete')
     versions=dict(facts['versions'],storage_sdk='boto3 '+facts['sdk_versions']['boto3'])

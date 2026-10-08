@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 022
-export PATH=/opt/workspace/sdk/bin:/usr/local/bin:/usr/bin:/bin
+export PATH=/opt/workspace/sdk/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export PYTHONDONTWRITEBYTECODE=1
 workspace_id="$(cat /var/lib/workspace/workspace-id)"
 [[ "$workspace_id" =~ ^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$ ]]
@@ -21,7 +21,11 @@ download() {
 }
 download https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz \
   9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6 /var/lib/workspace/uv.tar.gz
-tar -xzf /var/lib/workspace/uv.tar.gz -C /var/lib/workspace
+python3.13 - <<'PY'
+import tarfile
+with tarfile.open('/var/lib/workspace/uv.tar.gz') as archive:
+    archive.extractall('/var/lib/workspace', filter='data')
+PY
 install -m 0755 /var/lib/workspace/uv-x86_64-unknown-linux-gnu/uv /usr/local/bin/uv
 download https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.36.14.zip \
   43b34875482244039716cc3725d1f60e7d47ef3cfb2a19e114759a46db24dc30 /var/lib/workspace/awscli.zip
@@ -30,7 +34,7 @@ unzip -q -o /var/lib/workspace/awscli.zip -d /var/lib/workspace/awscli
 uv venv --python /usr/bin/python3.13 /opt/workspace/sdk
 uv pip sync --python /opt/workspace/sdk/bin/python --only-binary :all: --require-hashes /opt/workspace/sdk-requirements.lock
 id workspace >/dev/null 2>&1 || useradd --create-home --shell /bin/bash workspace
-passwd --lock workspace >/dev/null
+usermod --lock workspace
 install -d -o workspace -g workspace -m 0750 "/workspaces/$workspace_id"
 # The platform image may have provisioned this rule; it must not survive.
 rm -f /etc/sudoers.d/ssm-agent-users
@@ -51,7 +55,8 @@ for name,pin in pins.items():
 PY
 test "$(python --version)" = 'Python 3.13.15'
 test "$(git --version)" = 'git version 2.50.1'
-test "$(uv --version)" = 'uv 0.12.23'
+read -r uv_tool uv_version uv_build < <(uv --version)
+test "$uv_tool $uv_version" = 'uv 0.12.23'
 aws --version | /usr/bin/grep -q '^aws-cli/2.36.14 '
 python -c 'import boto3,botocore; assert boto3.__version__ == botocore.__version__ == "1.43.109"'
 runuser -u workspace -- env PATH="$PATH" PYTHONDONTWRITEBYTECODE=1 \
