@@ -5,18 +5,21 @@ repository, and work with a persistent native object-store dataset. This repo
 owns the machine, bucket, toolbox, access and safe lifetime. The external repo
 owns project dependencies, data content, ML scripts and results.
 
-Shared foundation 2.0.0 is implemented and checked offline. Provider workspace
-launch commands remain pending; historical image-first dummy workflows are
-preserved until each reviewed migration.
+Shared foundation 2.0.0 is implemented and checked offline. AWS workspace code
+is implemented on the task branch and the fresh persistent foundation is deployed,
+but end-to-end acceptance is incomplete. Native launches and automatic expiry
+were verified; terminal, clone and S3 result acceptance remain pending. Google Cloud and Azure workspace
+implementation remain pending. Historical batch workflows are retained as
+reference and compatibility evidence.
 
 ## Current goals
 
 | Goal | Outcome | Status |
 | --- | --- | --- |
-| [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete; review gate |
-| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Exact inventory proposed; no cleanup executed |
+| [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete |
+| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Reviewed prior AWS test resources removed; IAM, alerts and evidence retained |
 | [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
-| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Planned |
+| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Source implemented; persistent foundation deployed; live acceptance incomplete |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |
 
