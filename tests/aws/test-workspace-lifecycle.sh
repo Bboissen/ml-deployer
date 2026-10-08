@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 exec "${WORKSPACE_PYTHON:-python3}" - <<'PY'
+import base64
 import copy
 import datetime as dt
 import hashlib
@@ -94,6 +95,134 @@ class Watchdog(unittest.TestCase):
         with patch.dict(os.environ,env),patch('sys.stdout',new_callable=io.StringIO):
             result=GUARD['handler'](dict(EVENT,kind='lease',lease_id='b'*32,workspace_id=TAGS['WorkspaceId']),ctx)
         self.assertEqual(result['kind'],'lease_result')
+
+class HeartbeatObservation(unittest.TestCase):
+    def setUp(self):
+        account='000000000000'; prefix='ml-infra'
+        self.config={'aws_account_id':account,'aws_region':'us-east-1','resource_prefix':prefix,'project_name':prefix,
+                     'workspace_identity':{'ml_project_name':'demo','request':{'workspace_id':'demo-dev-01'},
+                     'permissions_boundary_arn':f'arn:aws:iam::{account}:policy/{prefix}-ws-demo-boundary',
+                     'session_policy_arn':f'arn:aws:iam::{account}:policy/{prefix}-session-manager-minimal'},
+                     'lease':{'id':'b'*32,'starts_at':LIFE['stamp'](T),'expires_at':LIFE['stamp'](T+dt.timedelta(hours=1))},
+                     'guard':{'guard_id':'a'*32,'code_sha256':'d'*64,
+                     'function_arn':f'arn:aws:lambda:us-east-1:{account}:function:{prefix}-workspace-watchdog:1',
+                     'invoker_role_arn':f'arn:aws:iam::{account}:role/{prefix}-workspace-watchdog-invoke',
+                     'recurring_schedule_name':prefix+'-workspace-watchdog-sweep','log_group':'/aws/lambda/'+prefix+'-workspace-watchdog',
+                     'failure_queue_arn':f'arn:aws:sqs:us-east-1:{account}:{prefix}-workspace-watchdog-failures','alarm_names':['offline-alarm']}}
+        config=self.config; guard=config['guard']; role=LIFE['role_name'](config)
+        names=[guard['invoker_role_arn'].rsplit('/',1)[1],prefix+'-workspace-watchdog',role,role+'-launch']
+        execution,invoker=LIFE['guard_policies'](config)
+        trusts={names[0]:{'Version':'2012-10-17','Statement':[{'Effect':'Allow','Action':'sts:AssumeRole','Principal':{'Service':'scheduler.amazonaws.com'},
+                 'Condition':{'StringEquals':{'aws:SourceAccount':account},'ArnEquals':{'aws:SourceArn':f'arn:aws:scheduler:us-east-1:{account}:schedule-group/default'}}}]},
+                names[1]:{'Version':'2012-10-17','Statement':[{'Effect':'Allow','Action':'sts:AssumeRole','Principal':{'Service':'lambda.amazonaws.com'}}]},
+                names[2]:{},names[3]:{}}
+        boundaries={names[2]:config['workspace_identity']['permissions_boundary_arn'],names[3]:f'arn:aws:iam::{account}:policy/{prefix}-workspace-launch-boundary'}
+        policies={names[0]:{'invoke-pinned-watchdog':invoker},names[1]:{'guard-owned-termination-only':execution},
+                  names[2]:{'workspace-storage':{}},names[3]:{'immutable-lease-launch':{}}}
+        def get_role(RoleName):
+            value={'AssumeRolePolicyDocument':trusts[RoleName]}
+            if RoleName in boundaries: value['PermissionsBoundary']={'PermissionsBoundaryArn':boundaries[RoleName]}
+            return {'Role':value}
+        def schedule(Name,**kwargs):
+            sweep=Name==guard['recurring_schedule_name']
+            event={'kind':'sweep','guard_id':guard['guard_id']} if sweep else {
+                'kind':'lease','guard_id':guard['guard_id'],'workspace_id':'demo-dev-01','lease_id':config['lease']['id']}
+            expression='rate(1 minute)' if sweep else 'at('+LIFE['stamp'](T+dt.timedelta(minutes=55)).removesuffix('Z')+')'
+            return {'State':'ENABLED','ScheduleExpression':expression,'ScheduleExpressionTimezone':'UTC','ActionAfterCompletion':'NONE',
+                    'FlexibleTimeWindow':{'Mode':'OFF'},'CreationDate':T-dt.timedelta(minutes=1),
+                    'Target':{'Arn':guard['function_arn'],'RoleArn':guard['invoker_role_arn'],'Input':json.dumps(event),
+                    'RetryPolicy':{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':3},'DeadLetterConfig':{'Arn':guard['failure_queue_arn']}}}
+        # Every service is injected. No boto3 Session, CLI or account API fallback.
+        self.clients={
+            'iam':types.SimpleNamespace(get_role=get_role,
+                list_role_policies=lambda RoleName:{'PolicyNames':list(policies[RoleName])},
+                list_attached_role_policies=lambda RoleName:{'AttachedPolicies':[{'PolicyArn':config['workspace_identity']['session_policy_arn']}] if RoleName==role else []},
+                get_role_policy=lambda RoleName,PolicyName:{'PolicyDocument':policies[RoleName][PolicyName]},
+                get_policy=lambda **k:{'Policy':{'DefaultVersionId':'v1'}},get_policy_version=lambda **k:{'PolicyVersion':{'Document':{}}},
+                get_instance_profile=lambda **k:{'InstanceProfile':{'Roles':[{'RoleName':role,'Arn':'offline-role-arn'}]}},list_user_tags=lambda **k:{'Tags':[]}),
+            'lambda':types.SimpleNamespace(get_function_configuration=lambda **k:{'State':'Active','LastUpdateStatus':'Successful',
+                'CodeSha256':base64.b64encode(bytes.fromhex(guard['code_sha256'])).decode(),'Runtime':'python3.13','Timeout':30,'Handler':'watchdog.handler',
+                'Environment':{'Variables':{'GUARD_ID':guard['guard_id'],'OWNER_PROJECT':prefix,'ACCOUNT_ID':account,'CODE_SHA256':guard['code_sha256']}},
+                'Role':f'arn:aws:iam::{account}:role/'+names[1]},get_function_concurrency=lambda **k:{},
+                get_account_settings=lambda:{'AccountLimit':{'ConcurrentExecutions':5,'UnreservedConcurrentExecutions':5}},
+                get_function_event_invoke_config=lambda **k:{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':2,'DestinationConfig':{'OnFailure':{'Destination':guard['failure_queue_arn']}}}),
+            'scheduler':types.SimpleNamespace(get_schedule=schedule),
+            'ssm':types.SimpleNamespace(get_document=lambda **k:{'Content':json.dumps({'inputs':{'runAsEnabled':True,'runAsDefaultUser':'workspace'}})}),
+            'cloudwatch':types.SimpleNamespace(describe_alarms=lambda **k:{'MetricAlarms':[{'AlarmName':'offline-alarm','StateValue':'OK','ActionsEnabled':True,'AlarmActions':['offline-topic']}]}),
+        }
+    def event(self,**changes):
+        guard=self.config['guard']
+        return {'message':json.dumps({'kind':'heartbeat','guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],
+                'account':self.config['aws_account_id'],'region':self.config['aws_region'],'observed_at':LIFE['stamp'](T),**changes})}
+    def observe(self,pages,admission=T,ticks=None):
+        self.calls=[]; responses=iter(pages); instants=iter([T,admission])
+        class Clock(dt.datetime):
+            @classmethod
+            def now(cls,tz=None): return next(instants)
+        def logs(**kwargs):
+            self.calls.append(kwargs); value=next(responses)
+            if isinstance(value,Exception): raise value
+            return value
+        self.clients['logs']=types.SimpleNamespace(filter_log_events=logs)
+        with patch.dict(LIFE,{'dt':types.SimpleNamespace(datetime=Clock,timedelta=dt.timedelta,timezone=dt.timezone)}):
+            if ticks is None: return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config)
+            with patch.object(LIFE['time'],'monotonic',side_effect=ticks):
+                return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config)
+    def test_single_page_complete_heartbeat(self):
+        observation,_=self.observe([{'events':[self.event()]}])
+        self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),1)
+    def test_empty_or_partial_page_continues_with_fixed_query(self):
+        for first in ([],[self.event(region='foreign')]):
+            with self.subTest(first=first):
+                observation,_=self.observe([{'events':first,'nextToken':'page-two'},{'events':[self.event()]}])
+                self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),2)
+                expected={'logGroupName':self.config['guard']['log_group'],'startTime':int((T-dt.timedelta(seconds=120)).timestamp()*1000),
+                          'filterPattern':'{ $.kind = "heartbeat" }','limit':100}
+                self.assertEqual(self.calls,[expected,{**expected,'nextToken':'page-two'}])
+    def test_stale_future_wrong_scope_and_lease_results_cannot_admit(self):
+        for change in ({'observed_at':LIFE['stamp'](T-dt.timedelta(seconds=121))},{'observed_at':LIFE['stamp'](T+dt.timedelta(seconds=1))},
+                       {'guard_id':'foreign'},{'code_sha256':'e'*64},{'account':'111111111111'},{'region':'us-west-2'},{'kind':'lease_result'}):
+            with self.subTest(change=change),self.assertRaisesRegex(LIFE['Failure'],'no matching fresh'):
+                self.observe([{'events':[],'nextToken':'page-two'},{'events':[self.event(**change)]}])
+    def test_heartbeat_age_is_checked_after_pagination(self):
+        with self.assertRaisesRegex(LIFE['Failure'],'no matching fresh'):
+            self.observe([{'events':[],'nextToken':'page-two'},{'events':[self.event(observed_at=LIFE['stamp'](T-dt.timedelta(seconds=110)))]}],
+                         admission=T+dt.timedelta(seconds=11))
+    def test_repeated_or_cyclic_tokens_fail_even_after_a_match(self):
+        for tokens in (['a','a'],['a','b','a']):
+            with self.subTest(tokens=tokens),self.assertRaisesRegex(LIFE['Failure'],'repeated heartbeat continuation'):
+                self.observe([{'events':[self.event()],'nextToken':token} for token in tokens])
+            self.assertEqual(len(self.calls),len(tokens))
+    def test_page_budget_exhaustion_stops_before_later_heartbeat(self):
+        with self.assertRaisesRegex(LIFE['Failure'],'page bound exhausted'):
+            self.observe([{'events':[],'nextToken':str(i)} for i in range(10)]+[{'events':[self.event()]}])
+        self.assertEqual(len(self.calls),10)
+    def test_complete_results_at_page_and_event_limits_are_accepted(self):
+        cases=[[{'events':[],'nextToken':str(i)} for i in range(9)]+[{'events':[self.event()]}],
+               [{'events':[self.event()]*100,'nextToken':str(i)} for i in range(4)]+[{'events':[self.event()]*100}]]
+        for pages in cases:
+            with self.subTest(pages=len(pages)):
+                observation,_=self.observe(pages)
+                self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),len(pages))
+    def test_event_budget_exhaustion_fails_even_after_a_match(self):
+        with self.assertRaisesRegex(LIFE['Failure'],'event bound exhausted'):
+            self.observe([{'events':[self.event()]*100,'nextToken':str(i)} for i in range(5)]+[{'events':[self.event()]}])
+        self.assertEqual(len(self.calls),6)
+    def test_elapsed_collection_budget_rejects_response(self):
+        with self.assertRaisesRegex(LIFE['Failure'],'time bound exhausted'):
+            self.observe([{'events':[self.event()]}],ticks=[0,0,31])
+        self.assertEqual(len(self.calls),1)
+    def test_malformed_pages_records_and_tokens_fail_closed(self):
+        cases=[{}, {'events':None}, {'events':[self.event()]*101}, {'events':[None]}, {'events':[{'message':'[]'}]},
+               {'events':[{'message':'not-json'}]}, {'events':[self.event(observed_at='invalid')]},
+               *[{'events':[],'nextToken':token} for token in ('',None,7,[])]]
+        for value in cases:
+            with self.subTest(value=value),self.assertRaises((LIFE['Failure'],ValueError)):
+                self.observe([value])
+    def test_inaccessible_logs_cannot_admit(self):
+        with self.assertRaisesRegex(RuntimeError,'offline access denied'):
+            self.observe([RuntimeError('offline access denied')])
+        self.assertEqual(len(self.calls),1)
 
 class Boundary(unittest.TestCase):
     def test_changed_schedule_timezone_or_end_closes_guard(self):

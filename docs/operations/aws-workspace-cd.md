@@ -78,6 +78,12 @@ policy template without repointing a historical runner state. It has three phase
    metrics and destinations must match the reviewed platform plan. Six attempts share a
    90-second bound. Evidence older than 120 seconds closes launch. The source plan
    may create only the prepared EC2 instance and its disposable root volume.
+   Heartbeat log collection follows empty/partial pages with continuation tokens,
+   keeping the same log group, filter and query start time. It allows at most ten
+   pages and 500 events, with a 30-second collection budget checked before/after
+   requests and before admission; SDK request timeouts and the overall 90-second
+   observation bound still apply. Repeated/invalid tokens, exhausted bounds and
+   malformed responses close admission. Freshness is checked after collection.
 3. `retire` revokes launch and terminates owned compute while retaining deadline
    and identity. A subsequent `cleanup` destroy plan requires the successful
    retirement receipt and native absence of the recorded instance, root volumes

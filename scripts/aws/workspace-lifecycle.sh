@@ -452,15 +452,36 @@ def observe_guard(base, client, config):
     require(not alarms.get('NextToken') and {a['AlarmName'] for a in alarms['MetricAlarms']}==set(guard['alarm_names'])
             and all(a['StateValue']=='OK' and a['ActionsEnabled'] and a['AlarmActions'] for a in alarms['MetricAlarms']), 'guard alarms not healthy')
     now=dt.datetime.now(dt.timezone.utc)
-    events=client(base,'logs').filter_log_events(logGroupName=guard['log_group'],startTime=int((now-dt.timedelta(seconds=120)).timestamp()*1000),
-        filterPattern='{ $.kind = "heartbeat" }',limit=100)
-    require(not events.get('nextToken'),'heartbeat listing incomplete')
-    matches=[]
-    for event in events['events']:
-        item=json.loads(event['message'])
-        if item.get('kind')=='heartbeat' and all(item.get(k)==v for k,v in {
-            'guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],'account':config['aws_account_id'],'region':config['aws_region']}.items()):
-            if 0 <= (now-utc(item['observed_at'])).total_seconds() <= 120: matches.append(item['observed_at'])
+    query={'logGroupName':guard['log_group'],'startTime':int((now-dt.timedelta(seconds=120)).timestamp()*1000),
+           'filterPattern':'{ $.kind = "heartbeat" }','limit':100}
+    logs=client(base,'logs'); deadline=time.monotonic()+30
+    matches=[]; tokens=set(); event_count=0
+    # Empty/partial pages can carry a continuation token. Bound the complete
+    # traversal without resetting the caller's overall observation timeout.
+    for page in range(10):
+        require(time.monotonic()<deadline,'heartbeat pagination time bound exhausted')
+        events=logs.filter_log_events(**query)
+        require(time.monotonic()<deadline,'heartbeat pagination time bound exhausted')
+        require(isinstance(events,dict) and isinstance(events.get('events'),list)
+                and len(events['events'])<=100,'malformed heartbeat page')
+        event_count+=len(events['events'])
+        require(event_count<=500,'heartbeat pagination event bound exhausted')
+        for event in events['events']:
+            require(isinstance(event,dict) and isinstance(event.get('message'),str),'malformed heartbeat event')
+            item=json.loads(event['message'])
+            require(isinstance(item,dict),'malformed heartbeat record')
+            if item.get('kind')=='heartbeat' and all(item.get(k)==v for k,v in {
+                'guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],'account':config['aws_account_id'],'region':config['aws_region']}.items()):
+                utc(item['observed_at']); matches.append(item['observed_at'])
+        if 'nextToken' not in events: break
+        token=events['nextToken']
+        require(isinstance(token,str) and token and token not in tokens,'invalid or repeated heartbeat continuation token')
+        tokens.add(token); query['nextToken']=token
+    else:
+        raise Failure('heartbeat pagination page bound exhausted')
+    require(time.monotonic()<deadline,'heartbeat pagination time bound exhausted')
+    now=dt.datetime.now(dt.timezone.utc)
+    matches=[value for value in matches if 0 <= (now-utc(value)).total_seconds() <= 120]
     require(matches,'no matching fresh completed sweep heartbeat')
     details={'roles':role_records,'alarms':{a['AlarmName']:alarm_record(a) for a in alarms['MetricAlarms']},'lambda_account_limits':quota,'guard_active_at':stamp(armed_at),'profile_roles':[r['Arn'] for r in profile['Roles']],
              'document_sha256':sha(canon(json.loads(doc['Content'])))}
