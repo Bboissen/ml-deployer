@@ -319,7 +319,7 @@ def foundation_extension():
             'permissions_boundary_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-ws-demo-boundary",
             'session_policy_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-session-manager-minimal"},
             'toolbox_zip_path':artifacts['toolbox_zip_path'], 'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],
-            'instance_type':'r8i.2xlarge', 'ami_id':'ami-03c3da4cfa8e8943a', 'guard':guard, 'lease':L['read'](lease_path)}
+            'instance_type':'r8i.2xlarge', 'ami_id':TOOLBOX['ami_id'], 'guard':guard, 'lease':L['read'](lease_path)}
         L['validate_config'](value, selected, 'prepare')
         L['write'](L['checked_path'](output), value)
         return {'runner_config':str(output), 'compute_enabled':False, 'native_workspace_ready':False}
@@ -327,6 +327,7 @@ def foundation_extension():
     return locals()
 
 foundation = foundation_extension()
+TOOLBOX = json.loads((REPO/'infra/aws/runner/workspace/toolbox/versions.json').read_text())
 
 def is_platform(stage): return stage in ('platform','fresh-platform')
 
@@ -345,7 +346,9 @@ def utc(value):
     return parsed
 
 def stamp(value=None):
-    return (value or dt.datetime.now(dt.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    value = value if value is not None else dt.datetime.now(dt.timezone.utc)
+    require(value.tzinfo is not None and value.utcoffset() is not None, 'timestamp must be timezone-aware')
+    return value.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def prior_source(value):
     """Receipts survive source upgrades; a pending saved apply remains exact."""
@@ -476,7 +479,7 @@ def packet(target_name,storage_directory,artifacts_path,platform_config_path,ala
               'project_name':platform['project_name'],'backend_bucket_name':target['backend']['bucket'],'state_bucket_arn':platform['state_bucket_arn'],
               'deployer_role_arn':target['deployment_role_arn'],'subnet_id':'subnet-00000000000000000','security_group_id':'sg-00000000000000000',
               'phase':'prepare','workspace_identity':identity,'toolbox_zip_path':artifacts['toolbox_zip_path'],
-              'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],'instance_type':'r8i.2xlarge','ami_id':'ami-03c3da4cfa8e8943a'}
+              'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],'instance_type':'r8i.2xlarge','ami_id':TOOLBOX['ami_id']}
     require(target['account_id']=='000000000000' and target['region']=='us-east-1','packet network pins require accepted target')
     write(directory/'runner-skeleton.json',skeleton)
     return {'packet':str(directory.relative_to(REPO)),'compute_enabled':False,'native_readiness':'unverified','missing_runner_inputs':['guard output','future absolute lease']}
@@ -495,7 +498,7 @@ def outputs(target_name,plan_directory,output):
 def sessions(target):
     import boto3, botocore
     from botocore.config import Config
-    require(boto3.__version__ == botocore.__version__ == '1.43.109', 'install reviewed SDK lock for native commands')
+    require(boto3.__version__ == botocore.__version__ == TOOLBOX['sdk_version'], 'install reviewed SDK lock for native commands')
     cfg = Config(connect_timeout=3,read_timeout=5,retries={'total_max_attempts':2})
     base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
     def client(session, service):
@@ -555,9 +558,9 @@ def prepared_addresses(config):
 
 def capacity(base,client,config):
     ec2=client(base,'ec2')
-    images=ec2.describe_images(ImageIds=[config.get('ami_id','ami-03c3da4cfa8e8943a')],Owners=['137112412989'])['Images']
+    images=ec2.describe_images(ImageIds=[config.get('ami_id',TOOLBOX['ami_id'])],Owners=['137112412989'])['Images']
     require(len(images)==1 and images[0]['State']=='available' and images[0]['Architecture']=='x86_64'
-            and images[0]['Name']=='al2023-ami-2023.12.20260930.0-kernel-6.1-x86_64'
+            and images[0]['Name']==TOOLBOX['ami_name']
             and images[0]['EnaSupport'],'reviewed AMI provenance/capability mismatch')
     info=ec2.describe_instance_types(InstanceTypes=['r8i.2xlarge'])['InstanceTypes'][0]
     require(info['VCpuInfo']['DefaultVCpus']==8 and info['MemoryInfo']['SizeInMiB']==65536,'capacity metadata mismatch')
@@ -592,7 +595,7 @@ def bound_instance(base,client,config,instance_id):
               'LeaseId':config['lease']['id'],'ExpiresAt':config['lease']['expires_at'],'LeaseStart':config['lease']['starts_at'],
               'LaunchBefore':config['lease']['launch_before'],'ManagedBy':'opentofu','Project':config['project_name'],'Root':'runner'}
     require(all(tags.get(k)==v for k,v in expected.items()),'instance ownership/lease mismatch')
-    require(item['ImageId']==config.get('ami_id','ami-03c3da4cfa8e8943a') and item['InstanceType']=='r8i.2xlarge'
+    require(item['ImageId']==config.get('ami_id',TOOLBOX['ami_id']) and item['InstanceType']=='r8i.2xlarge'
             and item['SubnetId']==config['subnet_id'] and {s['GroupId'] for s in item['SecurityGroups']}=={config['security_group_id']}
             and item['IamInstanceProfile']['Arn']==f"arn:aws:iam::{config['aws_account_id']}:instance-profile/{role_name(config)}",'instance image/network/profile mismatch')
     require(item['State']['Name']=='running' and utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['expires_at'])-dt.timedelta(minutes=5),'instance is not connectable within usable lease')
@@ -610,9 +613,9 @@ def connect(target_name,config_path,instance_id):
     bounded(90,lambda:observe_guard(base,client,config))
     server=client(base,'ssm').describe_instance_information(Filters=[{'Key':'InstanceIds','Values':[instance_id]}])
     require(len(server['InstanceInformationList'])==1 and server['InstanceInformationList'][0]['PingStatus']=='Online'
-            and server['InstanceInformationList'][0]['AgentVersion']=='3.3.5226.0','SSM agent not online at reviewed version')
-    require(run(['session-manager-plugin','--version'],env,10).strip()=='1.2.835.0','install pinned operator Session Manager plugin')
-    require(run(['aws','--version'],env,10).startswith('aws-cli/2.36.14 '),'operator AWS CLI pin differs')
+            and server['InstanceInformationList'][0]['AgentVersion']==TOOLBOX['rpms']['amazon-ssm-agent']['ver'],'SSM agent not online at reviewed version')
+    require(run(['session-manager-plugin','--version'],env,10).strip()==TOOLBOX['session_plugin_version'],'install pinned operator Session Manager plugin')
+    require(run(['aws','--version'],env,10).startswith('aws-cli/'+TOOLBOX['aws_cli']['version']+' '),'operator AWS CLI pin differs')
     argv=terminal_argv(target,config,instance_id)
     os.dup2(3,0); os.close(3)
     os.execvpe(argv[0],argv,env)
@@ -625,18 +628,22 @@ def handoff(target_name,plan_directory,instance_id,output):
     target,env,base,client,identities,state=context(target_name,'launch',config)
     bound_instance(base,client,config,instance_id)
     observation,_=bounded(90,lambda:observe_guard(base,client,config))
+    item=render_handoff(target,config,m,read(directory/'plan.json'),instance_id)
+    write(checked_path(output),item)
+    run([sys.executable,'scripts/workspace/validate.py',str(directory/'request.json'),'--handoff',str(checked_path(output))],env,15)
+    return {'handoff':str(checked_path(output).relative_to(REPO)),'native_workspace_ready':False}
+
+def render_handoff(target,config,review,plan,instance_id):
+    """Production record renderer, also exercised in full without AWS calls."""
     request=config['workspace_identity']['request']; common={k:request[k] for k in ('schema_version','provider','account_scope','region','workspace_id')}
-    item={**common,'kind':'handoff','request_sha256':sha(canon(request)),'toolbox_profile':request['toolbox_profile'],
-          'image_reference':config.get('ami_id','ami-03c3da4cfa8e8943a'),
-          'bootstrap_sha256':sha(base64.b64decode(next(r['values']['user_data_base64'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r['address']=='aws_instance.workspace[0]'))),
+    return {**common,'kind':'handoff','request_sha256':sha(canon(request)),'toolbox_profile':request['toolbox_profile'],
+          'image_reference':config.get('ami_id',TOOLBOX['ami_id']),
+          'bootstrap_sha256':sha(base64.b64decode(next(r['values']['user_data_base64'] for r in plan['planned_values']['root_module']['resources'] if r['address']=='aws_instance.workspace[0]'))),
           'machine_id':instance_id,'user':'workspace','project_directory':'/workspaces/'+request['workspace_id'],
           'storage':request['storage'],'identity':{'mode':'instance_role','selector':f"arn:aws:iam::{target['account_id']}:role/{role_name(config)}"},
           'terminal':{'method':'ssm','argv':terminal_argv(target,config,instance_id)},
           'lifetime':{'started_at':config['lease']['starts_at'],'expires_at':config['lease']['expires_at'],
-                      'guard_active_at':m['guard_iam']['guard_active_at'],'guard_id':config['guard']['guard_id'],'expiry_action':'terminate'}}
-    write(checked_path(output),item)
-    run([sys.executable,'scripts/workspace/validate.py',str(directory/'request.json'),'--handoff',str(checked_path(output))],env,15)
-    return {'handoff':str(checked_path(output).relative_to(REPO)),'native_workspace_ready':False}
+                      'guard_active_at':review['guard_iam']['guard_active_at'],'guard_id':config['guard']['guard_id'],'expiry_action':'terminate'}}
 
 def collect(target_name,plan_directory,handoff_path,guest_path,output):
     directory=checked_path(plan_directory); m=read(directory/'review.json'); config=read(directory/'config.tfvars.json')
@@ -652,7 +659,7 @@ def collect(target_name,plan_directory,handoff_path,guest_path,output):
     machine=bound_instance(base,client,config,hand['machine_id']); observation,details=bounded(90,lambda:observe_guard(base,client,config))
     require(details==m['guard_iam'],'native IAM/profile/document changed')
     ssm=client(base,'ssm'); server=ssm.describe_instance_information(Filters=[{'Key':'InstanceIds','Values':[hand['machine_id']]}])['InstanceInformationList']
-    require(len(server)==1 and server[0]['PingStatus']=='Online' and server[0]['AgentVersion']=='3.3.5226.0','server agent pin/offline')
+    require(len(server)==1 and server[0]['PingStatus']=='Online' and server[0]['AgentVersion']==TOOLBOX['rpms']['amazon-ssm-agent']['ver'],'server agent pin/offline')
     sessions=ssm.describe_sessions(State='Active',Filters=[{'key':'SessionId','value':guest['session_id']}])
     require(not sessions.get('NextToken') and len(sessions['Sessions'])==1,'terminal session observation incomplete')
     terminal=sessions['Sessions'][0]
@@ -660,9 +667,9 @@ def collect(target_name,plan_directory,handoff_path,guest_path,output):
             and terminal['DocumentName']==role_name(config)+'-terminal','terminal operator/document/instance mismatch')
     facts=guest['facts']; require(facts['non_root'] and facts['project_directory_writable'] and not facts['missing_tools'],'guest toolbox failed')
     require(guest['instance_role_arn']==f"arn:aws:sts::{target['account_id']}:assumed-role/{role_name(config)}/{hand['machine_id']}",'guest native identity mismatch')
-    require(facts['versions']['python']=='3.13.15' and facts['versions']['git']=='git version 2.50.1'
-            and facts['versions']['uv'].split()[:2]==['uv','0.12.23'] and facts['versions']['storage_cli'].startswith('aws-cli/2.36.14 ')
-            and facts['sdk_versions']['boto3']=='1.43.109','observed toolbox pins mismatch')
+    require(facts['versions']['python']==TOOLBOX['rpms']['python3.13']['ver'] and facts['versions']['git']=='git version '+TOOLBOX['rpms']['git']['ver']
+            and facts['versions']['uv'].split()[:2]==['uv',TOOLBOX['uv']['version']] and facts['versions']['storage_cli'].startswith('aws-cli/'+TOOLBOX['aws_cli']['version']+' ')
+            and facts['sdk_versions']['boto3']==TOOLBOX['sdk_version'],'observed toolbox pins mismatch')
     require(guest['state_denied'] is True and guest['unrelated_denied'] is True and guest['output_read_observed'] is True,'native storage evidence incomplete')
     versions=dict(facts['versions'],storage_sdk='boto3 '+facts['sdk_versions']['boto3'])
     evidence=str(checked_path(guest_path).relative_to(REPO)); native=str(checked_path(output).with_suffix('.native.json').relative_to(REPO))
@@ -851,7 +858,7 @@ def validate_config(config, target, stage):
     request=config['workspace_identity']['request']
     require(request['account_scope']==target['account_id'] and request['region']==target['region'] and
             request['operators']==[target['operator_arn']],'request operator/target mismatch')
-    require(config.get('instance_type','r8i.2xlarge')=='r8i.2xlarge' and config.get('ami_id','ami-03c3da4cfa8e8943a')=='ami-03c3da4cfa8e8943a','reviewed capacity/image mismatch')
+    require(config.get('instance_type','r8i.2xlarge')=='r8i.2xlarge' and config.get('ami_id',TOOLBOX['ami_id'])==TOOLBOX['ami_id'],'reviewed capacity/image mismatch')
     require(request['storage']['state_uri']==f"s3://{target['backend']['bucket']}/{target['backend']['runner_prefix']}{request['workspace_id']}.tfstate",'workspace state key mismatch')
     for key in ('starts_at','launch_before','expires_at'): utc(config['lease'][key])
     require(utc(config['lease']['starts_at']) < utc(config['lease']['launch_before']) <= utc(config['lease']['starts_at'])+dt.timedelta(minutes=5),'invalid launch window')
@@ -876,7 +883,7 @@ def plan_scope(plan, stage, recovery=None):
         elif stage=='launch':
             require(address=='aws_instance.workspace[0]' and actions==['create'],'launch must create only its prepared EC2/root volume')
             after=item['change']['after']
-            require(after['instance_type']=='r8i.2xlarge' and after['ami']=='ami-03c3da4cfa8e8943a' and not after.get('key_name') and not after.get('disable_api_termination'),'unsafe launch values')
+            require(after['instance_type']=='r8i.2xlarge' and after['ami']==TOOLBOX['ami_id'] and not after.get('key_name') and not after.get('disable_api_termination'),'unsafe launch values')
             require(len(base64.b64decode(after['user_data_base64'])) <= 16384,'EC2 user-data exceeds limit')
             root=after['root_block_device'][0]; metadata=after['metadata_options'][0]
             require(root['encrypted'] and root['delete_on_termination'] and root['volume_size']==30 and

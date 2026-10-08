@@ -32,6 +32,7 @@ fake_boto=types.ModuleType('boto3'); fake_cfg=types.ModuleType('botocore.config'
 with patch.dict(sys.modules,{'boto3':fake_boto,'botocore.config':fake_cfg}):
     GUARD=module('infra/aws/runner/workspace/watchdog.py.tftpl')
 LIFE=module('scripts/aws/workspace-lifecycle.sh')
+WORKSPACE=module('scripts/aws/workspace.sh')
 T=dt.datetime(2026,10,8,12,tzinfo=dt.timezone.utc)
 OWN={'GuardId':'a'*32,'Project':'ml-infra','Root':'runner','ManagedBy':'opentofu'}
 TAGS={**OWN,'WorkspaceId':'fraud-detection-dev-01','LeaseId':'b'*32,'LeaseStart':'2026-10-08T11:00:00Z','LaunchBefore':'2026-10-08T11:05:00Z','ExpiresAt':'2026-10-08T12:00:00Z'}
@@ -224,6 +225,16 @@ class HeartbeatObservation(unittest.TestCase):
     def test_single_page_complete_heartbeat(self):
         observation,_=self.observe([{'events':[self.event()]}])
         self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),1)
+    def test_sdk_schedule_dates_in_local_time_are_serialized_as_utc(self):
+        original=self.clients['scheduler'].get_schedule
+        for offset in (2,-6,14):
+            def local_schedule(**kwargs):
+                result=original(**kwargs)
+                result['CreationDate']=result['CreationDate'].astimezone(dt.timezone(dt.timedelta(hours=offset)))
+                return result
+            self.clients['scheduler'].get_schedule=local_schedule
+            _,details=self.observe([{'events':[self.event()]}])
+            self.assertEqual(details['guard_active_at'],LIFE['stamp'](T-dt.timedelta(minutes=1)))
     def test_empty_or_partial_page_continues_with_fixed_query(self):
         for first in ([],[self.event(region='foreign')]):
             with self.subTest(first=first):
@@ -277,7 +288,87 @@ class HeartbeatObservation(unittest.TestCase):
             self.observe([RuntimeError('offline access denied')])
         self.assertEqual(len(self.calls),1)
 
+class ProjectConfiguration(unittest.TestCase):
+    def setUp(self):
+        self.environment=patch.dict(os.environ); self.environment.start()
+        self.directory=OUT/self._testMethodName; self.directory.mkdir()
+        self.value=json.loads((ROOT/'infra/aws/workspace.example.json').read_text())
+        self.target=self.value['target']
+        foundation=self.directory/'foundation'; foundation.mkdir()
+        outputs={'workspace_platform':{'value':{'aws_account_id':self.target['account_id'],'aws_region':self.target['region'],
+                 'deployer_role_arn':self.target['deployment_role_arn'],'state_bucket_arn':'arn:aws:s3:::'+self.target['backend']['bucket'],
+                 'subnet_id':'subnet-00000000000000001','security_group_id':'sg-00000000000000001'}},
+                 'workspace_guard':{'value':{'guard_id':'a'*32,'code_sha256':'d'*64}}}
+        LIFE['write'](foundation/'outputs.json',outputs)
+        LIFE['write'](foundation/'review.json',{'stage':'fresh-platform','source':LIFE['source'](),'target_name':self.value['target_name'],'target':self.target})
+        LIFE['write'](foundation/'apply-result.json',{'status':'success'})
+        LIFE['write'](foundation/'config.tfvars.json',{'ml_projects':{'demo':{}},'workspace_guard':{'zip_sha256':'d'*64}})
+        self.value['foundation']={'plan_directory':str(foundation),'outputs_file':str(foundation/'outputs.json'),
+                                 'outputs_sha256':LIFE['sha']((foundation/'outputs.json').read_bytes())}
+        members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
+        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh'):
+            members[name]=(ROOT/name).read_bytes()
+        zip_path=self.directory/'toolbox.zip'; hash=LIFE['archive'](zip_path,members)
+        LIFE['write'](self.directory/'artifacts.json',{'source':LIFE['source'](),'toolbox_zip_path':str(zip_path),'toolbox_zip_sha256':hash})
+        self.value['artifacts']=str(self.directory/'artifacts.json')
+        self.path=self.directory/'project.json'; LIFE['write'](self.path,self.value)
+    def tearDown(self): self.environment.stop()
+    def render(self):
+        value,target=WORKSPACE['configuration'](str(self.path))
+        with patch.dict(WORKSPACE['L'],{'sessions':lambda *_:self.fail('offline render called AWS')}):
+            WORKSPACE['render'](value,target,str(self.directory/'run'),'2026-10-08T23:55:00Z')
+        return LIFE['read'](self.directory/'run/runner.json')
+    def test_complete_production_handoff_from_single_configuration(self):
+        config=self.render(); request=config['workspace_identity']['request']
+        plan={'planned_values':{'root_module':{'resources':[{'address':'aws_instance.workspace[0]',
+              'values':{'user_data_base64':base64.b64encode(b'production-shaped bootstrap').decode()}}]}}}
+        instant=dt.datetime(2026,10,8,23,54,tzinfo=dt.timezone.utc)
+        for offset in (2,-6,14):
+            review={'guard_iam':{'guard_active_at':LIFE['stamp'](instant.astimezone(dt.timezone(dt.timedelta(hours=offset))))}}
+            hand=LIFE['render_handoff'](self.target,config,review,plan,'i-00000000000000001')
+            path=self.directory/('handoff-'+str(offset)+'.json'); LIFE['write'](path,hand)
+            subprocess.run([sys.executable,'scripts/workspace/validate.py',str(self.directory/'run/request.json'),
+                            '--handoff',str(path)],check=True,capture_output=True)
+            self.assertEqual(hand['lifetime']['guard_active_at'],'2026-10-08T23:54:00Z')
+            self.assertEqual(hand['bootstrap_sha256'],LIFE['sha'](b'production-shaped bootstrap'))
+        commands=WORKSPACE['guest_commands'](self.value,config)
+        self.assertIn(self.value['repository']['revision'],commands['clone'])
+        self.assertEqual(commands['storage'],request['storage'])
+        self.assertEqual(hand['lifetime']['expires_at'],'2026-10-09T00:55:00Z')
+    def test_config_target_replaces_old_registry_without_changing_it(self):
+        registry=ROOT/'evidence/aws/targets.json'
+        before=registry.read_bytes() if registry.exists() else None
+        value,target=WORKSPACE['configuration'](str(self.path))
+        self.assertEqual(WORKSPACE['L']['boundary']['targets'](),{value['target_name']:target})
+        self.assertEqual(registry.read_bytes() if registry.exists() else None,before)
+    def test_changed_outputs_are_rejected_without_native_calls(self):
+        path=Path(self.value['foundation']['outputs_file']); path.write_text('{}\n')
+        with self.assertRaisesRegex(WORKSPACE['L']['Failure'],'outputs changed'): self.render()
+        self.assertFalse((self.directory/'run').exists())
+    def test_config_drift_and_repeat_render_preserve_run(self):
+        self.render()
+        with self.assertRaises(WORKSPACE['L']['Failure']): self.render()
+        changed=copy.deepcopy(self.value); changed['maximum_runtime_minutes']=30
+        with self.assertRaisesRegex(WORKSPACE['L']['Failure'],'configuration changed'):
+            WORKSPACE['run_configuration'](changed,str(self.directory/'run'))
+    def test_generated_runner_cannot_bypass_single_configuration(self):
+        config=self.render(); config['lease']['expires_at']='2026-10-10T00:55:00Z'
+        (self.directory/'run/runner.json').write_bytes(LIFE['canon'](config))
+        with self.assertRaisesRegex(WORKSPACE['L']['Failure'],'rendered inputs changed'):
+            WORKSPACE['run_configuration'](self.value,str(self.directory/'run'))
+    def test_unknown_configuration_and_unsupported_sizing_are_rejected(self):
+        for change in ({'extra':True},{'sizing':{**self.value['sizing'],'instance_type':'r8i.4xlarge'}}):
+            path=self.directory/('changed-'+str(len(change))+str(len(json.dumps(change)))+'.json')
+            LIFE['write'](path,{**self.value,**change})
+            with self.assertRaises(WORKSPACE['L']['Failure']): WORKSPACE['configuration'](str(path))
+    def test_toolbox_manifest_matches_compiled_sdk_lock(self):
+        lock=(ROOT/'infra/aws/runner/workspace/toolbox/sdk-requirements.lock').read_text()
+        for package in ('boto3','botocore'):
+            self.assertIn(package+'=='+LIFE['TOOLBOX']['sdk_version']+' ',lock)
+
 class Boundary(unittest.TestCase):
+    def test_naive_dates_cannot_be_labeled_utc(self):
+        with self.assertRaisesRegex(LIFE['Failure'],'timezone-aware'): LIFE['stamp'](dt.datetime(2026,10,8))
     def test_native_terminal_command_passes_shared_handoff_contract(self):
         request=json.loads((ROOT/'shared/workspace/fixtures/aws-request.json').read_text())
         handoff=json.loads((ROOT/'shared/workspace/fixtures/aws-handoff.json').read_text())
@@ -662,6 +753,16 @@ def tofu_tests():
     fresh_addresses={r['address'] for r in fresh['planned_values']['root_module']['resources'] if r['mode']=='managed'}
     if fresh_addresses!=LIFE['foundation']['FRESH_ADDRESSES']:raise AssertionError('fresh root creates unexpected/missing resources')
     runner=plans['runner']['guarded_launch_is_encrypted_disposable_and_tagged']
+    # Validate the entire production handoff against rendered OpenTofu user-data,
+    # rather than splicing one command into a prevalidated handoff fixture.
+    request=config['workspace_identity']['request']
+    activation=start-dt.timedelta(minutes=1)
+    activation=activation.astimezone(dt.timezone(dt.timedelta(hours=2)))
+    handoff=LIFE['render_handoff']({'account_id':config['aws_account_id'],'region':config['aws_region'],'profile':'reviewed-operator'},
+                                 config,{'guard_iam':{'guard_active_at':LIFE['stamp'](activation)}},runner,'i-00000000000000001')
+    LIFE['write'](OUT/'production-request.json',request); LIFE['write'](OUT/'production-handoff.json',handoff)
+    subprocess.run([sys.executable,'scripts/workspace/validate.py',str(OUT/'production-request.json'),
+                    '--handoff',str(OUT/'production-handoff.json')],check=True,capture_output=True,timeout=15)
     resources={r['address']:r for r in runner['configuration']['root_module']['resources']}
     if 'instance_initiated_shutdown_behavior' in resources['aws_instance.workspace'].get('expressions',{}):
         raise AssertionError('guest-shutdown setting triggers forbidden ModifyInstanceAttribute after RunInstances')
@@ -670,6 +771,7 @@ def tofu_tests():
         if name not in depends: raise AssertionError('missing guard/identity/terminal ordering: '+name)
     LIFE['plan_scope']({'resource_changes':[r for r in runner['resource_changes'] if r['address']=='aws_instance.workspace[0]']},'launch')
     return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),'fresh_foundation_mocked_plans':len(plans['fresh-platform'])+len(plans['fresh-bootstrap']),
+            'production_handoff_validated':True,
             'iam_cases':iam_cases(runner,plans['platform']['persistent_sweep_failure_path_and_runtime_ceiling'],config)}
 
 result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))

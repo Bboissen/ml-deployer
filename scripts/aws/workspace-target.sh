@@ -57,9 +57,12 @@ def write(path, value):
 
 
 def targets():
-    path = inside(BASE / "targets.json")
+    config_path = os.environ.get("WORKSPACE_CONFIG")
+    path = inside(Path(config_path).absolute()) if config_path else inside(BASE / "targets.json")
     require(path.is_file(), "missing evidence/aws/targets.json; copy and review infra/aws/targets.example.json")
     data = json.loads(path.read_text())
+    if config_path:
+        data = {"version": 1, "targets": {data["target_name"]: data["target"]}}
     require(set(data) == {"version", "targets"} and data["version"] == 1, "invalid target config version/fields")
     require(isinstance(data["targets"], dict) and data["targets"], "targets must be a nonempty object")
     for name, t in data["targets"].items():

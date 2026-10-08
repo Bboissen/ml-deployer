@@ -4,6 +4,11 @@ Status: C/D source design approved and source implementation delivered for revie
 [scope](00_SCOPE_AND_CLEANUP.md) and [toolbox contract](01_TOOLBOX_CONTRACT.md).
 AWS works independently of GCP, Azure and the homelab.
 
+Use the [single-configuration AWS workflow](../../docs/operations/aws-workspace.md).
+The persistent foundation is deployed and retained after compute teardown.
+The UTC handoff serialization fix and configuration refactor are source changes;
+terminal, clone and S3 result acceptance remain pending.
+
 ## Shared foundation inputs and integration boundary
 
 Consume [workspace interface 2.0.0](../../docs/workspace.md),

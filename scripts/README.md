@@ -2,6 +2,11 @@
 
 Scripts in this repository must be small infrastructure lifecycle entrypoints. They must not implement training, scheduling, data transformation or result analysis.
 
+`aws/workspace.sh` is the AWS operator entrypoint: one ignored project config
+derives request/runner inputs, exact plan stages, terminal, clone and S3 commands.
+It uses the existing `aws/workspace-lifecycle.sh` saved-plan and evidence boundary.
+See the [AWS workflow](../docs/operations/aws-workspace.md).
+
 `check-repository.sh` checks static repository structure, documents, JSON and
 shell syntax. The Makefile composes it with contract, conformance, provider
 scaffold, and format tests under `make check`.
