@@ -278,6 +278,18 @@ class HeartbeatObservation(unittest.TestCase):
         self.assertEqual(len(self.calls),1)
 
 class Boundary(unittest.TestCase):
+    def test_native_terminal_command_passes_shared_handoff_contract(self):
+        request=json.loads((ROOT/'shared/workspace/fixtures/aws-request.json').read_text())
+        handoff=json.loads((ROOT/'shared/workspace/fixtures/aws-handoff.json').read_text())
+        target={'profile':'reviewed-operator','region':request['region']}
+        config={'resource_prefix':'ml-infra','aws_account_id':request['account_scope'],'aws_region':request['region'],
+                'workspace_identity':{'ml_project_name':'demo','request':request}}
+        handoff['terminal']['argv']=LIFE['terminal_argv'](target,config,handoff['machine_id'])
+        path=OUT/'native-terminal-handoff.json';LIFE['write'](path,handoff)
+        subprocess.run([sys.executable,'scripts/workspace/validate.py',str(ROOT/'shared/workspace/fixtures/aws-request.json'),
+                        '--handoff',str(path)],check=True,capture_output=True)
+        self.assertEqual(handoff['terminal']['argv'][handoff['terminal']['argv'].index('--profile')+1],target['profile'])
+        self.assertEqual(handoff['terminal']['argv'][handoff['terminal']['argv'].index('--target')+1],handoff['machine_id'])
     def test_changed_schedule_timezone_or_end_closes_guard(self):
         config={'guard':{'guard_id':'a'*32,'function_arn':'function','invoker_role_arn':'role','failure_queue_arn':'queue'},
                 'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra',

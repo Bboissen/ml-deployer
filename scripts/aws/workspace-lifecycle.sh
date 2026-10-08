@@ -598,6 +598,10 @@ def bound_instance(base,client,config,instance_id):
     require(item['State']['Name']=='running' and utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['expires_at'])-dt.timedelta(minutes=5),'instance is not connectable within usable lease')
     return item
 
+def terminal_argv(target,config,instance_id):
+    return ['aws','ssm','start-session','--profile',target['profile'],'--region',target['region'],
+            '--target',instance_id,'--document-name',role_name(config)+'-terminal']
+
 def connect(target_name,config_path,instance_id):
     config=read(config_path); ts=boundary['targets'](); require(target_name in ts,'unknown target')
     target=ts[target_name]; env=boundary['environment'](target); boundary['identity'](target,env)
@@ -609,7 +613,7 @@ def connect(target_name,config_path,instance_id):
             and server['InstanceInformationList'][0]['AgentVersion']=='3.3.5226.0','SSM agent not online at reviewed version')
     require(run(['session-manager-plugin','--version'],env,10).strip()=='1.2.835.0','install pinned operator Session Manager plugin')
     require(run(['aws','--version'],env,10).startswith('aws-cli/2.36.14 '),'operator AWS CLI pin differs')
-    argv=['aws','--profile',target['profile'],'--region',target['region'],'ssm','start-session','--target',instance_id,'--document-name',role_name(config)+'-terminal']
+    argv=terminal_argv(target,config,instance_id)
     os.dup2(3,0); os.close(3)
     os.execvpe(argv[0],argv,env)
 
@@ -627,7 +631,7 @@ def handoff(target_name,plan_directory,instance_id,output):
           'bootstrap_sha256':sha(base64.b64decode(next(r['values']['user_data_base64'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r['address']=='aws_instance.workspace[0]'))),
           'machine_id':instance_id,'user':'workspace','project_directory':'/workspaces/'+request['workspace_id'],
           'storage':request['storage'],'identity':{'mode':'instance_role','selector':f"arn:aws:iam::{target['account_id']}:role/{role_name(config)}"},
-          'terminal':{'method':'ssm','argv':['aws','--profile',target['profile'],'--region',target['region'],'ssm','start-session','--target',instance_id,'--document-name',role_name(config)+'-terminal']},
+          'terminal':{'method':'ssm','argv':terminal_argv(target,config,instance_id)},
           'lifetime':{'started_at':config['lease']['starts_at'],'expires_at':config['lease']['expires_at'],
                       'guard_active_at':m['guard_iam']['guard_active_at'],'guard_id':config['guard']['guard_id'],'expiry_action':'terminate'}}
     write(checked_path(output),item)
