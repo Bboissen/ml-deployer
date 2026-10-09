@@ -5,18 +5,21 @@ repository, and work with a persistent native object-store dataset. This repo
 owns the machine, bucket, toolbox, access and safe lifetime. The external repo
 owns project dependencies, data content, ML scripts and results.
 
-Shared foundation 2.0.0 is implemented and checked offline. Provider workspace
-launch commands remain pending; historical image-first dummy workflows are
-preserved until each reviewed migration.
+Shared foundation 2.0.0 is implemented and checked offline. AWS workspace code
+is implemented on the task branch and the fresh persistent foundation is deployed,
+but end-to-end acceptance is incomplete. Native launches and automatic expiry
+were verified; terminal, clone and S3 result acceptance remain pending. Google Cloud and Azure workspace
+implementation remain pending. Historical batch workflows are retained as
+reference and compatibility evidence.
 
 ## Current goals
 
 | Goal | Outcome | Status |
 | --- | --- | --- |
-| [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete; review gate |
-| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Exact inventory proposed; no cleanup executed |
+| [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete |
+| [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Reviewed prior AWS test resources removed; IAM, alerts and evidence retained |
 | [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
-| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Planned |
+| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Source implemented; persistent foundation deployed; live acceptance incomplete |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |
 
@@ -30,6 +33,14 @@ and storage path. Stop expanding the previous model/HPO/tracking demonstration.
 
 ## Execution rules
 
+- Default workspace sizing is RAM-first within the selected account's remaining
+  regional and machine-family quotas. Among supported CPU machines, maximize RAM,
+  then vCPUs as the tie-breaker. Require enough CPUs for the accepted request,
+  image/toolbox compatibility and an offered size in the reviewed zone. Pin the
+  selected SKU/capacity in the plan; do not request quota increases, change billing,
+  fall back silently or select the largest advertised SKU regardless of eligibility.
+  Refresh quota and usage before native planning/launch and report costs separately:
+  an account quota is a capacity limit, not a financial spending cap.
 - Start with baseline and ownership reconciliation, then review each bounded task.
 - Preserve existing working changes and review useful main/PR18/PR19 fixes before
   integration; do not import the old demo architecture wholesale.
@@ -39,8 +50,9 @@ and storage path. Stop expanding the previous model/HPO/tracking demonstration.
   datasets and infrastructure evidence; explicit resource disposition comes first.
 - Use temporary/native identities, exact operators and a provider-side maximum
   lifetime that also covers partial deployment and failed guest startup.
-- A saved plan, IAM change, data upload, apply, destroy or local pruning step each
-  retains its own exact reviewed authorization. A goal is not an apply approval.
+- Inspect and retain the exact scope and receipts for cloud mutations. The user's
+  task authorization covers routine steps within that scope; ask again only for
+  a material expansion. Preserve state and evidence unless deletion is authorized.
 - Routine tests remain offline. Passing them does not establish live acceptance.
 - CPU workspaces are the first target. GPU/distributed frameworks and persistent
   ML services require separately scoped compatibility and lifecycle work.

@@ -6,14 +6,22 @@ or Azure. Each provider operates independently. The user connects, clones an
 external ML repository and installs its project dependencies; that repository
 owns scripts, datasets, transformations, training and results.
 
-Shared foundation **2.0.0** is implemented offline. Provider workspace launch,
-interactive access and native storage/deadline acceptance are pending. Existing
+Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
+is deployed; EC2 provisioning/bootstrap and automatic expiry were verified.
+Interactive access, clone and S3 result acceptance remain incomplete. Follow the
+[single-configuration AWS workflow](docs/operations/aws-workspace.md).
+Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
 
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
 and [cleanup inventory for review](goal/workspace/06_CLEANUP_INVENTORY.md).
+
+All providers default to the supported CPU machine with the most RAM within the
+selected account's remaining regional/family quotas, then prefer more vCPUs.
+Review the exact size, image/zone compatibility and costs; do not increase quotas
+or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
 
 Install the small hash-locked Python 3.13 test environment, then validate:
 

@@ -4,7 +4,6 @@ Status: target accepted; implementation/live acceptance pending. Follow the
 [scope](00_SCOPE_AND_CLEANUP.md) and [toolbox contract](01_TOOLBOX_CONTRACT.md).
 GCP works independently of AWS, Azure and the homelab.
 
-
 ## Shared foundation inputs and integration boundary
 
 Consume [workspace interface 2.0.0](../../docs/workspace.md),
@@ -145,6 +144,13 @@ Acceptance: authorized native reads/writes work, state/unrelated storage and oth
 workspace outputs are denied, and workspace teardown retains workload storage.
 
 ## C. Interactive Compute Engine toolbox
+
+Use the [global RAM-first quota-bounded default](../README.md#execution-rules):
+maximize RAM, then vCPUs, within this account's remaining regional/family quotas
+and the reviewed image/zone constraints. Observe GCP quotas and current usage
+before selecting an exact default SKU; do not transplant AWS's 8-vCPU limit,
+request quota increases or silently reduce capacity. No GCP default SKU or native
+capacity acceptance is established by the AWS C/D task.
 
 Use a supported Linux image that can provide writable project environments and
 the agreed tools; review whether the existing container-oriented COS bootstrap

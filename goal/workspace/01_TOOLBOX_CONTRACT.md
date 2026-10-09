@@ -25,6 +25,13 @@ must never silently clone or execute an arbitrary ML project as root.
 
 ## Toolbox
 
+Default sizing maximizes RAM within the selected account's remaining regional and
+family quotas, using vCPU count as the tie-breaker. Honor requested CPU minimums
+and the reviewed Linux x86_64 image/toolbox and zone compatibility. Each provider
+records fresh quota/usage evidence, the exact SKU/capacity and its cost before a
+native plan; unknown eligibility closes selection. Do not increase quotas or silently
+downsize. See the [global sizing rule](../README.md#execution-rules).
+
 Provide a reproducible Linux CPU environment with Git, a documented supported
 Python runtime, virtual environments, a locked dependency installer, build tools
 needed by the supported Python profile, and that provider's storage CLI/SDK.

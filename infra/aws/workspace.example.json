@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "target_name": "aws-personal",
+  "target": {
+    "profile": "reviewed-temporary",
+    "account_id": "000000000000",
+    "region": "us-east-1",
+    "operator_arn": "arn:aws:iam::000000000000:user/operator",
+    "deployment_role_arn": "arn:aws:iam::000000000000:role/demo-workspace-deployer",
+    "backend": {
+      "bucket": "demo-tofu-state-000000000000-us-east-1-ws-v1",
+      "region": "us-east-1",
+      "platform_key": "aws/000000000000/us-east-1/platform/platform.tfstate",
+      "runner_prefix": "aws/000000000000/us-east-1/runner/"
+    },
+    "inventory": {
+      "resource_prefix": "demo",
+      "buckets": [
+        "example-demo-workload"
+      ],
+      "repositories": [],
+      "roles": [
+        "demo-workspace-deployer",
+        "demo-workspace-watchdog",
+        "demo-workspace-watchdog-invoke"
+      ],
+      "policies": [
+        "demo-ws-demo-boundary",
+        "demo-workspace-launch-boundary",
+        "demo-session-manager-minimal"
+      ],
+      "schedule_groups": [
+        "default"
+      ]
+    }
+  },
+  "project": "demo",
+  "workspace_id": "demo-dev-01",
+  "repository": {
+    "url": "git@github.com:Bboissen/aws-workspace-e2e.git",
+    "revision": "b457c38ac80f5e86e314d83dc1335fc123ab05e0",
+    "credential": {
+      "secret_arn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef",
+      "version_id": "00000000-0000-0000-0000-000000000000",
+      "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "sizing": {
+    "policy": "ram-first",
+    "instance_type": "r8i.2xlarge",
+    "cpus": 8,
+    "memory_mb": 60000,
+    "disk_gb": 25,
+    "availability_zone": "us-east-1a"
+  },
+  "maximum_runtime_minutes": 60,
+  "foundation": {
+    "plan_directory": "evidence/aws/foundation/platform-plan",
+    "outputs_file": "evidence/aws/foundation/outputs.json",
+    "outputs_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "artifacts": "evidence/aws/artifacts/artifacts.json",
+  "job": {
+    "make_target": null,
+    "timeout_seconds": 900,
+    "dataset": {
+      "uri": "s3://example-demo-workload/projects/demo/data/acceptance/fixture.csv",
+      "version_id": "REPLACE_WITH_IMMUTABLE_VERSION_ID",
+      "sha256": "876c1313400238ba1b78cc54fab94411c28b74d2c592c69422eb89800f634d4b"
+    },
+    "result": {
+      "file": "result.json",
+      "sha256": "e3af4380e384dfd71698bd14e8a4250b6fa72cb620f194359fa96eda5738e641"
+    },
+    "provenance": {
+      "file": "provenance.json",
+      "dependency_lock_sha256": "742b14d4dc065db182772235524a7954536fa5dfd4750d0b7d3c38bb766e782b"
+    }
+  }
+}

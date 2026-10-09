@@ -2,8 +2,11 @@
 
 For the independent workspace migration, use the
 [AWS workspace quickstart](../../docs/operations/aws-workspace.md). Milestone B
-prepares optional project storage and scoped workspace identity offline. Historical
-compute remains closed until toolbox/access and the pre-compute guard are accepted.
+prepares optional project storage and scoped workspace identity offline. C/D add a workspace runner configuration under `runner/workspace`, documented
+in the [C/D runbook](../../docs/operations/aws-workspace-cd.md). It uses a fresh
+workspace key in the existing runner namespace and preserves the historical
+runner configuration and state. Launch requires exact plan authorization and
+fresh native guard/identity observations. Native acceptance remains pending.
 The batch descriptions below are retained historical interfaces.
 
 - `bootstrap`: protected S3 remote-state bucket; local bootstrap state.
@@ -34,3 +37,5 @@ The AWS dummy lifecycle adapter and its required durable evidence inputs are
 documented in
 [the AWS dummy runbook](../../docs/operations/aws-dummy-lifecycle.md).
 No command here authorizes plan application or cloud mutation.
+
+The independent workspace roots are `bootstrap/workspace/` (explicit local state bootstrap), `platform/workspace/` (persistent workspace-only platform) and `runner/workspace/` (disposable guarded toolbox). See [fresh workspace operations](../../docs/operations/aws-workspace-fresh.md). Historical roots remain preserved at their existing addresses.
