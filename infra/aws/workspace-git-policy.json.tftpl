@@ -1,0 +1,21 @@
+${jsonencode(merge(jsondecode(storage_policy), {
+  Statement = concat([
+    for statement in jsondecode(storage_policy).Statement :
+    statement.Sid == "DenyOtherActionsIncludingDeletionAndAdministration" ? merge(statement, {
+      NotAction = concat(statement.NotAction, ["secretsmanager:GetSecretValue"])
+    }) : statement
+    ], [
+    {
+      Sid = "ReadReviewedGitCredentials"
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = secret_arns
+    },
+    {
+      Sid = "DenyOtherGitCredentials"
+      Effect = "Deny"
+      Action = ["secretsmanager:GetSecretValue"]
+      NotResource = secret_arns
+    }
+  ])
+}))}

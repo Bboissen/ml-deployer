@@ -93,6 +93,14 @@
       "rel": "68.amzn2023.0.2",
       "sha256": "62ed7ebfb7a6bae33ce9f36832844954fddf0bd1765a26df220190c43454db64",
       "location": "../../../../blobstore/62ed7ebfb7a6bae33ce9f36832844954fddf0bd1765a26df220190c43454db64/unzip-6.0-68.amzn2023.0.2.x86_64.rpm"
+    },
+    "openssh-clients": {
+      "name": "openssh-clients",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "9.9p1",
+      "rel": "10.amzn2023.0.2",
+      "sha256": "1f455955d28b306e9ce0c20d9d412778a590efa588f2935a7f30c82651e6eca8"
     }
   },
   "uv": {

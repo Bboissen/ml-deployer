@@ -1,9 +1,10 @@
 # AWS workspace workflow
 
 AWS acceptance is incomplete. The last native teardown verified zero live EC2
-instances; persistent S3, IAM, watchdog and alerts remain. This configuration
-refactor is validated locally before any further cloud test. Passing these checks
-does not prove an interactive session, repository clone or S3 result round-trip.
+instances; persistent S3, IAM, watchdog and alerts remain. Repository SSH access
+is configured and checked offline. Unattended Make orchestration and independent
+S3 result verification before/after compute deletion remain to be implemented.
+Passing offline checks does not prove a native repository clone or result round-trip.
 
 The happy path is: configure once, provision, connect and clone, use S3, tear down.
 Run commands from the repository root. The accepted workspace uses `r8i.2xlarge`
@@ -33,9 +34,30 @@ lock is its compiled, hashed dependency list. Rebuild changed toolbox artifacts
 with `workspace-lifecycle.sh build NEW_DIRECTORY`. Retain earlier archives and
 the deployed watchdog; rebuilding local artifacts does not deploy a guard.
 
-The Demo repository URL/revision remain unknown. The configured public
-`octocat/Hello-World` revision is the reviewed clone acceptance surrogate.
-The locked NumPy/pandas fixture proves toolbox/storage behavior only.
+The separate acceptance workload is `git@github.com:Bboissen/aws-workspace-e2e.git`,
+with a full reviewed commit in the project configuration. Production Demo
+code remains outside this repository. SSH uses a repository-scoped read-only
+deploy key held in an existing regional Secrets Manager secret. Configuration
+stores only its exact ARN, immutable version ID and public-key fingerprint.
+The runtime helper fetches the raw OpenSSH private key through instance-role
+credentials, uses a private RAM-backed directory and strict GitHub host trust,
+checks the fingerprint and commit, then removes the credential on completion
+or failure. Repository dependencies and Make execution remain external.
+
+Before preparing an SSH runner, inspect and apply the separate `access` saved
+plan using the same exact-review authorization interface below. Its scope is
+only the selected persistent project boundary's credential permission update.
+Existing storage restrictions and every other platform input must remain intact.
+The runtime role gets the same exact-secret grant during normal preparation;
+unrelated secrets remain denied. This is necessary because an attached allow
+alone cannot override the old closed deny statements in either policy.
+No secret value or new credential resource appears in an OpenTofu plan/state.
+
+Access preparation is separate from the fresh launch lease. After applying it,
+the configuration's foundation plan reference can point to that successful
+`workspace-access` receipt; retain the previous configuration and all receipts.
+Captured platform/guard output values remain unchanged by a boundary-only update.
+Render a new run with a fresh lease before compute preparation/launch.
 
 ## Validate before cloud execution
 
@@ -81,6 +103,12 @@ Review each saved plan before its apply. `prepare` creates only scoped identity,
 terminal and deadline controls. `launch` creates compute only after the watchdog,
 deadline, IAM and fresh heartbeat pass. The launch window is at most five minutes.
 Apply never replans or extends the lease. Material changes to scope require review.
+
+For initial SSH access preparation, use `plan RUN access` and `apply RUN access`
+with the exact review hash and task authorization. An SSH `prepare` plan refuses
+to proceed without a matching successful credential-boundary receipt. Access
+plans cannot create compute, change storage or update watchdogs. The secret itself
+is separately owned and retained; runner cleanup does not revoke the deploy key.
 
 ## Connect, clone and use S3
 

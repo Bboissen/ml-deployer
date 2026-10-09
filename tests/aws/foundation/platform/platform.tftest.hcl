@@ -14,7 +14,7 @@ variables {
   resource_prefix         = "ml-infra"
   state_bucket_arn        = "arn:aws:s3:::ml-infra-tofu-state-000000000000-us-east-1-ws-v1"
   deployer_principal_arns = ["arn:aws:iam::000000000000:user/sposhfi-admin"]
-  ml_projects            = { demo = { ml_project_name = "demo", storage_mode = "auto" } }
+  ml_projects             = { demo = { ml_project_name = "demo", storage_mode = "auto" } }
 }
 run "independent_workspace_platform" {
   command = plan
@@ -30,4 +30,36 @@ run "independent_workspace_platform" {
     condition     = length(aws_s3_bucket.project) == 1 && !aws_s3_bucket.project["demo"].force_destroy && length(aws_security_group.runner.ingress) == 0 && aws_scheduler_schedule.workspace_guard["active"].state == "ENABLED" && aws_lambda_function.workspace_guard["active"].reserved_concurrent_executions == -1
     error_message = "Independent platform needs persistent project storage, no ingress and the accepted watchdog."
   }
+}
+
+run "git_boundary_reads_only_reviewed_secret" {
+  command = plan
+  variables {
+    workspace_git_secret_arns = {
+      demo = ["arn:aws:secretsmanager:us-east-1:000000000000:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef"]
+    }
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_policy.project_workspace_boundary["demo"].policy).Statement :
+      statement.Sid == "ReadReviewedGitCredentials" ? tolist(statement.Resource) == tolist(var.workspace_git_secret_arns.demo) :
+      statement.Sid == "DenyOtherGitCredentials" ? tolist(statement.NotResource) == tolist(var.workspace_git_secret_arns.demo) :
+      statement.Sid == "DenyOtherActionsIncludingDeletionAndAdministration" ? contains(statement.NotAction, "secretsmanager:GetSecretValue") : true
+    ])
+    error_message = "Git access must permit only the exact reviewed secret and exclude it from the closed deny list."
+  }
+  assert {
+    condition     = length([for statement in jsondecode(aws_iam_policy.project_workspace_boundary["demo"].policy).Statement : statement if statement.Sid == "DenyStateStorage" || statement.Sid == "DenyWritesOutsideOwnOutput"]) == 2
+    error_message = "Credential access must retain state and unrelated storage denial."
+  }
+}
+
+run "git_boundary_rejects_another_account" {
+  command = plan
+  variables {
+    workspace_git_secret_arns = {
+      demo = ["arn:aws:secretsmanager:us-east-1:999999999999:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef"]
+    }
+  }
+  expect_failures = [var.workspace_git_secret_arns]
 }

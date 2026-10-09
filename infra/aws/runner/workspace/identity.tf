@@ -1,4 +1,18 @@
 # AWS workspace runner configuration; preserves B identity addresses and envelope.
+variable "workspace_git_credential" {
+  description = "Non-secret pinned runtime reference for repository-scoped SSH authentication."
+  type        = object({ secret_arn = string, version_id = string, public_key_fingerprint = string })
+  default     = null
+  validation {
+    condition = var.workspace_git_credential == null ? true : (
+      can(regex("^arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:${var.workspace_identity.ml_project_name}/workspaces/${var.workspace_identity.request.workspace_id}/git/[A-Za-z0-9_-]+-[A-Za-z0-9]{6}$", var.workspace_git_credential.secret_arn)) &&
+      can(regex("^[A-Za-z0-9-]{32,64}$", var.workspace_git_credential.version_id)) &&
+      can(regex("^SHA256:[A-Za-z0-9+/]{43}$", var.workspace_git_credential.public_key_fingerprint))
+    )
+    error_message = "Git credential must bind this workspace/account/region, an immutable version and an SSH public fingerprint."
+  }
+}
+
 variable "workspace_identity" {
   description = "AWS workspace 2.0.0 request and exact project storage binding, validated by the provider launcher."
   type = object({
@@ -81,7 +95,10 @@ resource "aws_iam_role_policy" "workspace_storage" {
   for_each = local.workspace_identities
   name     = "workspace-storage"
   role     = aws_iam_role.workspace[each.key].id
-  policy   = local.workspace_policy_documents[each.key]
+  policy = var.workspace_git_credential == null ? local.workspace_policy_documents[each.key] : templatefile("${path.module}/../../workspace-git-policy.json.tftpl", {
+    storage_policy = local.workspace_policy_documents[each.key]
+    secret_arns    = [var.workspace_git_credential.secret_arn]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "workspace_ssm" {

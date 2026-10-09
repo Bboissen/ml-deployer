@@ -306,7 +306,7 @@ class ProjectConfiguration(unittest.TestCase):
         self.value['foundation']={'plan_directory':str(foundation),'outputs_file':str(foundation/'outputs.json'),
                                  'outputs_sha256':LIFE['sha']((foundation/'outputs.json').read_bytes())}
         members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh'):
+        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'):
             members[name]=(ROOT/name).read_bytes()
         zip_path=self.directory/'toolbox.zip'; hash=LIFE['archive'](zip_path,members)
         LIFE['write'](self.directory/'artifacts.json',{'source':LIFE['source'](),'toolbox_zip_path':str(zip_path),'toolbox_zip_sha256':hash})
@@ -361,12 +361,42 @@ class ProjectConfiguration(unittest.TestCase):
             path=self.directory/('changed-'+str(len(change))+str(len(json.dumps(change)))+'.json')
             LIFE['write'](path,{**self.value,**change})
             with self.assertRaises(WORKSPACE['L']['Failure']): WORKSPACE['configuration'](str(path))
+    def test_ssh_configuration_requires_exact_regional_credential_reference(self):
+        for field,value in (('secret_arn',self.value['repository']['credential']['secret_arn'].replace('us-east-1','us-west-2')),
+                            ('version_id','AWSCURRENT'),('public_key_fingerprint','unreviewed')):
+            changed=copy.deepcopy(self.value); changed['repository']['credential'][field]=value
+            path=self.directory/('invalid-'+field+'.json'); LIFE['write'](path,changed)
+            with self.assertRaises(WORKSPACE['L']['Failure']): WORKSPACE['configuration'](str(path))
+    def test_ssh_commands_contain_only_public_credential_metadata(self):
+        config=self.render(); commands=WORKSPACE['guest_commands'](self.value,config)
+        self.assertIn('workspace-ssh.sh',commands['clone'])
+        self.assertIn(self.value['repository']['credential']['version_id'],commands['clone'])
+        self.assertNotIn('PRIVATE KEY',commands['clone'])
+        self.assertEqual(config['workspace_git_credential'],self.value['repository']['credential'])
     def test_toolbox_manifest_matches_compiled_sdk_lock(self):
         lock=(ROOT/'infra/aws/runner/workspace/toolbox/sdk-requirements.lock').read_text()
         for package in ('boto3','botocore'):
             self.assertIn(package+'=='+LIFE['TOOLBOX']['sdk_version']+' ',lock)
 
 class Boundary(unittest.TestCase):
+    def test_credential_access_scope_preserves_every_other_permission(self):
+        arn='arn:aws:secretsmanager:us-east-1:000000000000:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef'
+        before={'Version':'2012-10-17','Statement':[
+            {'Sid':'DenyOtherActionsIncludingDeletionAndAdministration','Effect':'Deny','NotAction':['s3:GetObject'],'Resource':['*']},
+            {'Sid':'DenyStateStorage','Effect':'Deny','Action':['s3:*'],'Resource':['arn:aws:s3:::state']}]}
+        after=copy.deepcopy(before); after['Statement'][0]['NotAction'].append('secretsmanager:GetSecretValue')
+        after['Statement'] += [
+            {'Sid':'ReadReviewedGitCredentials','Effect':'Allow','Action':['secretsmanager:GetSecretValue'],'Resource':[arn]},
+            {'Sid':'DenyOtherGitCredentials','Effect':'Deny','Action':['secretsmanager:GetSecretValue'],'NotResource':[arn]}]
+        plan={'variables':{'workspace_git_secret_arns':{'value':{'demo':[arn]}}},'resource_changes':[
+            {'address':'aws_iam_policy.project_workspace_boundary["demo"]','mode':'managed','change':{
+                'actions':['update'],'before':{'policy':json.dumps(before),'name':'same'},'after':{'policy':json.dumps(after),'name':'same'}}}]}
+        self.assertEqual(len(LIFE['plan_scope'](plan,'workspace-access')),1)
+        after['Statement'][1]['Effect']='Allow'
+        plan['resource_changes'][0]['change']['after']['policy']=json.dumps(after)
+        with self.assertRaisesRegex(LIFE['Failure'],'unrelated permissions'): LIFE['plan_scope'](plan,'workspace-access')
+        plan['resource_changes'][0]['address']='aws_lambda_function.workspace_guard["active"]'
+        with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'): LIFE['plan_scope'](plan,'workspace-access')
     def test_naive_dates_cannot_be_labeled_utc(self):
         with self.assertRaisesRegex(LIFE['Failure'],'timezone-aware'): LIFE['stamp'](dt.datetime(2026,10,8))
     def test_native_terminal_command_passes_shared_handoff_contract(self):
@@ -655,7 +685,9 @@ def evaluate(document,action,resource,context):
         key='Action' if 'Action' in statement else 'NotAction'
         matched=any(fnmatch.fnmatchcase(action.lower(),p.lower()) for p in values(statement[key]))
         if matched==(key=='NotAction'): continue
-        if not any(fnmatch.fnmatchcase(resource,p) for p in values(statement['Resource'])): continue
+        resource_key='Resource' if 'Resource' in statement else 'NotResource'
+        resource_matched=any(fnmatch.fnmatchcase(resource,p) for p in values(statement[resource_key]))
+        if resource_matched==(resource_key=='NotResource'): continue
         matched=True
         for op,items in statement.get('Condition',{}).items():
             for name,expected in items.items():
@@ -672,7 +704,7 @@ def evaluate(document,action,resource,context):
             allowed=True
     return allowed
 
-def iam_cases(runner,platform,config):
+def iam_cases(runner,platform,config,git_runner,git_platform,fresh_platform):
     def resource(plan,address): return next(r['values'] for r in plan['planned_values']['root_module']['resources'] if r['address']==address)
     launch=json.loads(resource(runner,'aws_iam_role_policy.launch')['policy'])
     ceiling=json.loads(resource(platform,'aws_iam_policy.workspace_launch_boundary["active"]')['policy'])
@@ -709,6 +741,18 @@ def iam_cases(runner,platform,config):
     check(guard,'ec2:TerminateInstances',arn,guardctx,True)
     for key in guardctx: check(guard,'ec2:TerminateInstances',arn,{**guardctx,key:'foreign'},False)
     check(guard,'iam:PutRolePolicy','*',{},False)
+    for plan,address in [(git_runner,'aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"]'),
+                         (git_platform,'aws_iam_policy.project_workspace_boundary["demo"]')]:
+        policy=json.loads(resource(plan,address)['policy'])
+        secret=next(s['Resource'][0] for s in policy['Statement'] if s['Sid']=='ReadReviewedGitCredentials')
+        check(policy,'secretsmanager:GetSecretValue',secret,{},True)
+        for other in (secret+'other',secret.replace(':us-east-1:',':us-west-2:'),secret.replace(':000000000000:',':999999999999:')):
+            check(policy,'secretsmanager:GetSecretValue',other,{},False)
+        for action in ('secretsmanager:PutSecretValue','secretsmanager:UpdateSecret','secretsmanager:DeleteSecret','iam:PutRolePolicy'):
+            check(policy,action,secret,{},False)
+    for plan,address in [(runner,'aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"]'),
+                         (fresh_platform,'aws_iam_policy.project_workspace_boundary["demo"]')]:
+        check(json.loads(resource(plan,address)['policy']),'secretsmanager:GetSecretValue',secret,{},False)
     (OUT/'iam-offline.json').write_text(json.dumps({'cases':count,'passed':True,'native_rights':'unverified'},indent=2))
     return count
 
@@ -724,7 +768,7 @@ def tofu_tests():
            'recurring_schedule_name':'ml-infra-workspace-watchdog-sweep','log_group':'/aws/lambda/ml-infra-workspace-watchdog',
            'failure_queue_arn':'arn:aws:sqs:us-east-1:000000000000:ml-infra-workspace-watchdog-failures','alarm_names':['offline-alarm']}
     members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh'): members[name]=(ROOT/name).read_bytes()
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'): members[name]=(ROOT/name).read_bytes()
     toolbox_sha=LIFE['archive'](OUT/'toolbox.zip',members)
     config={'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra','project_name':'ml-infra',
             'backend_bucket_name':'replace-ml-infra-aws-state-unique','state_bucket_arn':'arn:aws:s3:::replace-ml-infra-aws-state-unique',
@@ -772,7 +816,9 @@ def tofu_tests():
     LIFE['plan_scope']({'resource_changes':[r for r in runner['resource_changes'] if r['address']=='aws_instance.workspace[0]']},'launch')
     return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),'fresh_foundation_mocked_plans':len(plans['fresh-platform'])+len(plans['fresh-bootstrap']),
             'production_handoff_validated':True,
-            'iam_cases':iam_cases(runner,plans['platform']['persistent_sweep_failure_path_and_runtime_ceiling'],config)}
+            'iam_cases':iam_cases(runner,plans['platform']['persistent_sweep_failure_path_and_runtime_ceiling'],config,
+                                  plans['runner']['git_runtime_reads_only_workspace_secret'],
+                                  plans['fresh-platform']['git_boundary_reads_only_reviewed_secret'],fresh)}
 
 result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__]))
 require_success=result.wasSuccessful()

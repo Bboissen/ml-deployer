@@ -27,9 +27,20 @@ def configuration(path):
     os.environ['WORKSPACE_CONFIG'] = str(path)
     target = L['boundary']['targets']()[value['target_name']]
     require(re.fullmatch(r'[a-z][a-z0-9-]{2,23}', value['project']), 'invalid project name')
-    require(set(value['repository']) == {'url', 'revision'}, 'repository requires URL and full revision')
-    require(re.fullmatch(r'https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+', value['repository']['url'])
-            and re.fullmatch(r'[0-9a-f]{40}', value['repository']['revision']), 'reviewed HTTPS repository/full revision required')
+    repository = value['repository']
+    require(set(repository) in ({'url', 'revision'}, {'url', 'revision', 'credential'}), 'repository requires URL and full revision; optional runtime credential reference only')
+    ssh = re.fullmatch(r'git@github\.com:[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+\.git', repository['url'])
+    require((ssh or re.fullmatch(r'https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+', repository['url']))
+            and re.fullmatch(r'[0-9a-f]{40}', repository['revision']), 'reviewed repository endpoint/full revision required')
+    if ssh:
+        credential = repository.get('credential', {})
+        require(set(credential) == {'secret_arn', 'version_id', 'public_key_fingerprint'}, 'SSH requires a pinned runtime credential reference')
+        prefix = f"arn:aws:secretsmanager:{target['region']}:{target['account_id']}:secret:{value['project']}/workspaces/{value['workspace_id']}/git/"
+        require(re.fullmatch(re.escape(prefix) + r'[A-Za-z0-9_-]+-[A-Za-z0-9]{6}', credential['secret_arn'])
+                and re.fullmatch(r'[A-Za-z0-9-]{32,64}', credential['version_id'])
+                and re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', credential['public_key_fingerprint']), 'invalid regional credential ARN/version/public fingerprint')
+    else:
+        require('credential' not in repository, 'runtime SSH credential requires a GitHub SSH endpoint')
     # The source profile remains the reviewed RAM-first choice; no automatic fallback.
     require(value['sizing'] == {'policy': 'ram-first', 'instance_type': 'r8i.2xlarge', 'cpus': 8,
                               'memory_mb': 60000, 'disk_gb': 25, 'availability_zone': 'us-east-1a'}, 'unsupported sizing profile; review another profile first')
@@ -46,7 +57,7 @@ def render(value, target, directory, starts_at):
     foundation = value['foundation']
     plan_dir = checked(foundation['plan_directory'])
     review, receipt = read(plan_dir/'review.json'), read(plan_dir/'apply-result.json')
-    require(review['stage'] == 'fresh-platform' and review['target_name'] == value['target_name']
+    require(review['stage'] in ('fresh-platform', 'workspace-access') and review['target_name'] == value['target_name']
             and review['target'] == target and receipt['status'] == 'success'
             and L['prior_source'](review['source']), 'successful matching foundation receipt required')
     captured = checked(foundation['outputs_file'])
@@ -88,6 +99,8 @@ def render(value, target, directory, starts_at):
               'toolbox_zip_path': artifacts['toolbox_zip_path'], 'toolbox_zip_sha256': artifacts['toolbox_zip_sha256'],
               'instance_type': value['sizing']['instance_type'], 'ami_id': L['TOOLBOX']['ami_id'],
               'guard': guard, 'lease': L['lease'](request, starts_at)}
+    if 'credential' in value['repository']:
+        config['workspace_git_credential'] = value['repository']['credential']
     L['validate_config'](config, target, 'prepare')
     directory.mkdir(parents=True, mode=0o700)
     write(directory/'project.json', value)
@@ -110,8 +123,13 @@ def run_configuration(value, directory):
 def guest_commands(value, config):
     request = config['workspace_identity']['request']
     repository = value['repository']
-    return {'clone': shlex.join(['bash', '/opt/workspace/scripts/aws/clone-project.sh', repository['url'],
-                                repository['revision'], '/workspaces/'+value['workspace_id']+'/project']),
+    clone = ['bash', '/opt/workspace/scripts/aws/clone-project.sh', repository['url'],
+             repository['revision'], '/workspaces/'+value['workspace_id']+'/project']
+    if 'credential' in repository:
+        credential = repository['credential']
+        clone = ['bash', '/opt/workspace/scripts/aws/workspace-ssh.sh', *clone[2:], credential['secret_arn'],
+                 credential['version_id'], credential['public_key_fingerprint'], config['aws_region'], config['aws_account_id']]
+    return {'clone': shlex.join(clone),
             'list_data': shlex.join(['aws', 's3', 'ls', request['storage']['data_uri']]),
             'list_output': shlex.join(['aws', 's3', 'ls', request['storage']['output_uri']]),
             'storage': request['storage'], 'user': 'workspace'}
@@ -124,8 +142,8 @@ def main():
     sub = parser.add_subparsers(dest='verb', required=True)
     p = sub.add_parser('render', help='offline: derive request and runner inputs for a new absolute lease')
     p.add_argument('run'); p.add_argument('--starts-at', required=True)
-    p = sub.add_parser('plan'); p.add_argument('run'); p.add_argument('stage', choices=['prepare', 'launch', 'retire', 'cleanup'])
-    p = sub.add_parser('apply'); p.add_argument('run'); p.add_argument('stage', choices=['prepare', 'launch', 'retire', 'cleanup'])
+    p = sub.add_parser('plan'); p.add_argument('run'); p.add_argument('stage', choices=['access', 'prepare', 'launch', 'retire', 'cleanup'])
+    p = sub.add_parser('apply'); p.add_argument('run'); p.add_argument('stage', choices=['access', 'prepare', 'launch', 'retire', 'cleanup'])
     p.add_argument('--review-sha256', required=True); p.add_argument('--authorization', required=True)
     for verb in ('connect', 'commands'):
         p = sub.add_parser(verb); p.add_argument('run')
@@ -137,9 +155,18 @@ def main():
         if args.verb == 'commands': result = guest_commands(value, config)
         elif args.verb == 'plan':
             stage = args.stage
+            if stage == 'access':
+                require('credential' in value['repository'], 'access planning requires a reviewed runtime SSH credential')
+                platform = read(checked(value['foundation']['plan_directory'])/'config.tfvars.json')
+                platform['workspace_git_secret_arns'] = {value['project']: [value['repository']['credential']['secret_arn']]}
+                inputs = directory/'access.tfvars.json'; write(inputs, platform)
+                result = L['native_plan'](value['target_name'], 'workspace-access', str(inputs), str(directory/'access'), value['foundation']['plan_directory'])
+                print(json.dumps(result, indent=2, sort_keys=True))
+                return
             config['phase'] = 'retire' if stage == 'cleanup' else stage
             inputs = directory/(stage+'.tfvars.json'); write(inputs, config)
-            dependency = value['foundation']['plan_directory'] if stage == 'prepare' else directory/{'launch': 'prepare', 'retire': 'launch', 'cleanup': 'retire'}[stage]
+            dependency = ((directory/'access' if (directory/'access/apply-result.json').exists() else value['foundation']['plan_directory'])
+                          if stage == 'prepare' else directory/{'launch': 'prepare', 'retire': 'launch', 'cleanup': 'retire'}[stage])
             result = L['native_plan'](value['target_name'], stage, str(inputs), str(directory/stage), str(dependency))
         elif args.verb == 'apply':
             plan_dir = directory/args.stage

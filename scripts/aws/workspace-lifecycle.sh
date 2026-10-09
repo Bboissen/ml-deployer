@@ -329,10 +329,10 @@ def foundation_extension():
 foundation = foundation_extension()
 TOOLBOX = json.loads((REPO/'infra/aws/runner/workspace/toolbox/versions.json').read_text())
 
-def is_platform(stage): return stage in ('platform','fresh-platform')
+def is_platform(stage): return stage in ('platform','fresh-platform','workspace-access')
 
 def stage_root(stage):
-    return REPO/('infra/aws/platform/workspace' if stage=='fresh-platform' else 'infra/aws/platform' if stage=='platform' else 'infra/aws/runner/workspace')
+    return REPO/('infra/aws/platform/workspace' if stage in ('fresh-platform','workspace-access') else 'infra/aws/platform' if stage=='platform' else 'infra/aws/runner/workspace')
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -412,7 +412,7 @@ def build(directory):
     directory.mkdir(parents=True, mode=0o700)
     toolbox = REPO/'infra/aws/runner/workspace/toolbox'
     members = {p.name:p.read_bytes() for p in toolbox.iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh'):
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'):
         members[name] = (REPO/name).read_bytes()
     toolbox_hash = archive(directory/'toolbox.zip', members)
     sdk = directory/'sdk'
@@ -449,7 +449,7 @@ def verify_artifact(path,expected,kind):
             require(zipped.read('watchdog.py')==(REPO/'infra/aws/runner/workspace/watchdog.py.tftpl').read_bytes(),'guard archive source mismatch')
         else:
             members={p.name:p.read_bytes() for p in (REPO/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh'): members[name]=(REPO/name).read_bytes()
+            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'): members[name]=(REPO/name).read_bytes()
             require(set(zipped.namelist())==set(members) and all(zipped.read(k)==v for k,v in members.items()),'toolbox archive differs from current source')
 
 def packet(target_name,storage_directory,artifacts_path,platform_config_path,alarm_topic,output):
@@ -844,6 +844,18 @@ def compare_prepared_iam(plan, details, config):
         require(json.loads(planned['assume_role_policy'])==observed['trust'],'prepared trust differs from source plan')
         require(list(observed['inline'].values())==[json.loads(resources[policy_address]['policy'])],'prepared permissions differ from source plan')
     require(sha(canon(json.loads(resources['aws_ssm_document.terminal']['content'])))==details['document_sha256'],'prepared terminal differs from source plan')
+    credential=config.get('workspace_git_credential')
+    if credential:
+        boundary_policy=details['roles'][role]['boundary_policy']
+        read_grant=next((s for s in boundary_policy['Statement'] if s.get('Sid')=='ReadReviewedGitCredentials'),{})
+        other_deny=next((s for s in boundary_policy['Statement'] if s.get('Sid')=='DenyOtherGitCredentials'),{})
+        closed_deny=next(s for s in boundary_policy['Statement'] if s.get('Sid')=='DenyOtherActionsIncludingDeletionAndAdministration')
+        require(read_grant.get('Effect')=='Allow' and read_grant.get('Action')==['secretsmanager:GetSecretValue']
+                and credential['secret_arn'] in read_grant.get('Resource',[])
+                and other_deny.get('Effect')=='Deny' and other_deny.get('Action')==['secretsmanager:GetSecretValue']
+                and other_deny.get('NotResource')==read_grant.get('Resource')
+                and 'secretsmanager:GetSecretValue' in closed_deny['NotAction'],
+                'live runtime boundary does not permit the reviewed Git credential')
 
 def validate_config(config, target, stage):
     require(config['aws_account_id']==target['account_id'] and config['aws_region']==target['region'],'config target mismatch')
@@ -870,7 +882,24 @@ def plan_scope(plan, stage, recovery=None):
         actions=item['change']['actions']; address=item['address']
         if actions in (['no-op'],['read']): continue
         require(item.get('mode')=='managed','unexpected mutation')
-        if stage=='fresh-platform':
+        if stage=='workspace-access':
+            projects=plan['variables']['workspace_git_secret_arns']['value']
+            matches=[project for project in projects if address=='aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']']
+            require(len(matches)==1 and actions==['update'], 'credential access can update only its exact project boundary')
+            before=json.loads(item['change']['before']['policy']); after=json.loads(item['change']['after']['policy'])
+            require(not any(s['Sid'] in ('ReadReviewedGitCredentials','DenyOtherGitCredentials') for s in before['Statement']),
+                    'existing Git grants require a separately reviewed rotation/migration')
+            old_deny=next(s for s in before['Statement'] if s['Sid']=='DenyOtherActionsIncludingDeletionAndAdministration')
+            require('secretsmanager:GetSecretValue' not in old_deny['NotAction'], 'existing credential exception requires review')
+            statements=[({**s,'NotAction':s['NotAction']+['secretsmanager:GetSecretValue']}
+                         if s['Sid']==old_deny['Sid'] else s) for s in before['Statement']]
+            arns=projects[matches[0]]
+            statements += [{'Sid':'ReadReviewedGitCredentials','Effect':'Allow','Action':['secretsmanager:GetSecretValue'],'Resource':arns},
+                           {'Sid':'DenyOtherGitCredentials','Effect':'Deny','Action':['secretsmanager:GetSecretValue'],'NotResource':arns}]
+            require(after=={**before,'Statement':statements}, 'credential update changes unrelated permissions')
+            require(all(item['change']['before'].get(k)==v for k,v in item['change']['after'].items() if k!='policy'),
+                    'credential update changes unrelated boundary attributes')
+        elif stage=='fresh-platform':
             if recovery:
                 require(address in recovery['owned'] and address in ('aws_iam_role_policy.deployer','aws_iam_role_policy.workspace_guard["active"]') and actions==['update'],
                         'foundation recovery permits only its two owned inline policy updates')
@@ -1015,19 +1044,28 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     config=read(config_path)
     if stage=='fresh-platform':foundation['config'](config,foundation['target'](boundary['targets']()[target_name]))
     dependencies=[]
-    if stage in ('fresh-platform','prepare','launch') or (stage=='cleanup' and not recover_from) or (stage=='retire' and dependency):
+    if stage in ('fresh-platform','workspace-access','prepare','launch') or (stage=='cleanup' and not recover_from) or (stage=='retire' and dependency):
         require(dependency is not None,'this stage requires its exact successful prior apply receipt')
         dep=checked_path(dependency); prior=read(dep/'review.json'); receipt=read(dep/'apply-result.json')
-        require(prior['target_name']==target_name and prior['stage'] in ({'platform','fresh-platform'} if stage=='prepare' else { {'fresh-platform':'bootstrap','launch':'prepare','retire':'launch','cleanup':'retire'}[stage] })
+        require(prior['target_name']==target_name and prior['stage'] in ({'platform','fresh-platform','workspace-access'} if stage in ('prepare','workspace-access') else { {'fresh-platform':'bootstrap','launch':'prepare','retire':'launch','cleanup':'retire'}[stage] })
                 and receipt['status']=='success' and prior_source(prior['source']),'dependency target/stage/source/apply mismatch')
         if stage=='fresh-platform':
             require(prior['target']==foundation['target'](boundary['targets']()[target_name]),'bootstrap target mismatch')
-        elif stage!='prepare':
+        elif stage not in ('prepare','workspace-access'):
             old=read(dep/'config.tfvars.json')
             require(old['lease']==config['lease'] and old['workspace_identity']==config['workspace_identity'] and old['guard']==config['guard'],'dependency workspace/lease/guard mismatch')
         else:
             platform_config=read(dep/'config.tfvars.json')
-            require(config['guard']['code_sha256']==platform_config['workspace_guard']['zip_sha256'],'runner guard code differs from exact platform artifact')
+            if stage=='prepare':
+                require(config['guard']['code_sha256']==platform_config['workspace_guard']['zip_sha256'],'runner guard code differs from exact platform artifact')
+                credential=config.get('workspace_git_credential')
+                if credential:
+                    require(credential['secret_arn'] in platform_config.get('workspace_git_secret_arns',{}).get(config['workspace_identity']['ml_project_name'],[]),
+                            'runtime SSH requires a successful exact credential-boundary apply receipt')
+            else:
+                require({k:v for k,v in config.items() if k!='workspace_git_secret_arns'}==
+                        {k:v for k,v in platform_config.items() if k!='workspace_git_secret_arns'},
+                        'credential plan must preserve every existing foundation input')
         dependencies=[{'directory':str(dep),'review_sha256':sha(canon(prior)),'receipt_sha256':sha(canon(receipt))}]
     target,env,base,client,identities,state=context(target_name,stage,config)
     recovery=recovery_context(recover_from,target_name,stage,config,target,state,base,client) if recover_from else None
@@ -1178,7 +1216,7 @@ def main():
     p=sub.add_parser('lease'); p.add_argument('request'); p.add_argument('starts_at'); p.add_argument('output')
     p=sub.add_parser('packet'); p.add_argument('target'); p.add_argument('--storage-directory',required=True); p.add_argument('--artifacts',required=True); p.add_argument('--platform-config',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('outputs'); p.add_argument('target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
-    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency'); p.add_argument('--recover-from',help='prior saved plan with a consumed apply receipt; reconcile only its owned controls without live compute')
+    p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','workspace-access','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency'); p.add_argument('--recover-from',help='prior saved plan with a consumed apply receipt; reconcile only its owned controls without live compute')
     p=sub.add_parser('foundation-packet'); p.add_argument('target'); p.add_argument('--artifacts',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('bootstrap-plan'); p.add_argument('target'); p.add_argument('config'); p.add_argument('directory')
     p=sub.add_parser('activate-target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)

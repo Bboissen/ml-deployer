@@ -37,8 +37,13 @@
   "project": "demo",
   "workspace_id": "demo-dev-01",
   "repository": {
-    "url": "https://github.com/octocat/Hello-World.git",
-    "revision": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+    "url": "git@github.com:Bboissen/aws-workspace-e2e.git",
+    "revision": "b457c38ac80f5e86e314d83dc1335fc123ab05e0",
+    "credential": {
+      "secret_arn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef",
+      "version_id": "00000000-0000-0000-0000-000000000000",
+      "public_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
   },
   "sizing": {
     "policy": "ram-first",

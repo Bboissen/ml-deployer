@@ -18,6 +18,28 @@ run "preparation_arms_deadline_without_compute" {
   }
 }
 
+run "git_runtime_reads_only_workspace_secret" {
+  command = plan
+  variables {
+    workspace_git_credential = {
+      secret_arn             = "arn:aws:secretsmanager:us-east-1:000000000000:secret:fraud-detection/workspaces/fraud-detection-dev-01/git/aws-workspace-e2e-ABCdef"
+      version_id             = "00000000-0000-0000-0000-000000000000"
+      public_key_fingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  }
+  assert {
+    condition = length(aws_instance.workspace) == 0 && length([
+      for statement in jsondecode(aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"].policy).Statement : statement
+      if statement.Sid == "ReadReviewedGitCredentials" || statement.Sid == "DenyOtherGitCredentials"
+      ]) == 2 && alltrue([
+      for statement in jsondecode(aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"].policy).Statement :
+      statement.Sid == "ReadReviewedGitCredentials" ? statement.Resource == [var.workspace_git_credential.secret_arn] :
+      statement.Sid == "DenyOtherGitCredentials" ? statement.NotResource == [var.workspace_git_credential.secret_arn] : true
+    ])
+    error_message = "Non-compute preparation must allow only its exact runtime Git secret."
+  }
+}
+
 run "guarded_launch_is_encrypted_disposable_and_tagged" {
   command = plan
   variables { phase = "launch" }

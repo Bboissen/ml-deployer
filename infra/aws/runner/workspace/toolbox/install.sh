@@ -58,6 +58,7 @@ for name,pin in pins['rpms'].items():
     if actual != pin['ver']+'-'+pin['rel']: raise ValueError('RPM pin mismatch: '+name)
 assert subprocess.check_output(['python','--version'],text=True).strip() == 'Python '+pins['rpms']['python3.13']['ver']
 assert subprocess.check_output(['git','--version'],text=True).strip() == 'git version '+pins['rpms']['git']['ver']
+assert subprocess.check_output(['ssh','-V'],stderr=subprocess.STDOUT,text=True).startswith('OpenSSH_'+pins['rpms']['openssh-clients']['ver'])
 assert subprocess.check_output(['uv','--version'],text=True).split()[:2] == ['uv',pins['uv']['version']]
 assert subprocess.check_output(['aws','--version'],text=True).startswith('aws-cli/'+pins['aws_cli']['version']+' ')
 import boto3,botocore
