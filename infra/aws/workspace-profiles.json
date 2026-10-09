@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "profiles": {
+    "cpu-python-v1": {
+      "region": "us-east-1",
+      "sizing": {
+        "policy": "ram-first",
+        "instance_type": "r8i.2xlarge",
+        "cpus": 8,
+        "memory_mb": 60000,
+        "disk_gb": 25,
+        "availability_zone": "us-east-1a"
+      }
+    }
+  }
+}

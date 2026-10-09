@@ -373,7 +373,10 @@ def checked_path(value):
     return inside(Path(value).resolve())
 
 def read(value):
-    path=checked_path(value)
+    return load_json(checked_path(value))
+
+def load_json(value):
+    path=Path(value)
     require(path.stat().st_size<=16*1024*1024,'input exceeds bound')
     def pairs(items):
         result={}

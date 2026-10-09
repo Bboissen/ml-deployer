@@ -45,7 +45,7 @@ class Preparation(unittest.TestCase):
     def setUp(self):
         self.root = ARTIFACTS / self.id().rsplit(".", 1)[-1]
         self.root.mkdir()
-        for name in ("infra/aws/platform/provider.tf", "scripts/aws/workspace-target.sh", "scripts/aws/workspace-storage.sh", "scripts/workspace/validate.py", "shared/workspace/schema.json", "shared/workspace/toolbox.json"):
+        for name in ("infra/aws/platform/provider.tf", "scripts/aws/workspace-target.sh", "scripts/aws/workspace-storage.sh", "scripts/aws/workspace-config.py", "scripts/workspace/validate.py", "shared/workspace/schema.json", "shared/workspace/toolbox.json"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, path)

@@ -5,7 +5,7 @@ WORKSPACE_PYTHON ?= $(CURDIR)/.tools/workspace-venv/bin/python
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check workspace-test workspace-test-setup historical-check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
+.PHONY: help check workspace-test workspace-test-setup aws-project-config-test historical-check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
@@ -20,6 +20,9 @@ workspace-test-setup: ## Install the locked Python 3.13 validation/example envir
 workspace-test: ## Run workspace records, readiness and deterministic NumPy/pandas checks offline.
 	@test -x "$(WORKSPACE_PYTHON)" || { echo 'ERROR: run make workspace-test-setup first or set WORKSPACE_PYTHON.' >&2; exit 2; }
 	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -m unittest discover -s tests/workspace -v
+
+aws-project-config-test: ## Check short AWS project configuration and operation records offline.
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/test-workspace-config.py
 
 historical-check: contract-test conformance-test dummy-operator-test ## Check preserved batch/demo compatibility explicitly; no cloud APIs.
 

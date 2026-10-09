@@ -90,7 +90,7 @@ def targets():
     return data["targets"]
 
 
-def environment(t):
+def profile_environment(profile_name, region):
     # Detect rather than silently discard credentials, alternate endpoints or
     # OpenTofu arguments that could invalidate the reviewed target.
     allowed = {"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_LOGIN_CACHE_DIRECTORY", "AWS_CA_BUNDLE"}
@@ -128,12 +128,17 @@ def environment(t):
             profile(p["source_profile"])
         else:
             require(not p.get("role_arn"), "role profile requires explicit source_profile")
-    profile(t["profile"])
+    profile(profile_name)
     e = os.environ.copy()
-    e.update(AWS_PROFILE=t["profile"], AWS_DEFAULT_PROFILE=t["profile"],
-             AWS_REGION=t["region"], AWS_DEFAULT_REGION=t["region"], AWS_SDK_LOAD_CONFIG="1",
-             AWS_EC2_METADATA_DISABLED="true", AWS_PAGER="", AWS_MAX_ATTEMPTS="1",
-             TF_VAR_aws_account_id=t["account_id"], TF_VAR_aws_region=t["region"],
+    e.update(AWS_PROFILE=profile_name, AWS_DEFAULT_PROFILE=profile_name,
+             AWS_REGION=region, AWS_DEFAULT_REGION=region, AWS_SDK_LOAD_CONFIG="1",
+             AWS_EC2_METADATA_DISABLED="true", AWS_PAGER="", AWS_MAX_ATTEMPTS="1")
+    return e
+
+
+def environment(t):
+    e = profile_environment(t["profile"], t["region"])
+    e.update(TF_VAR_aws_account_id=t["account_id"], TF_VAR_aws_region=t["region"],
              TF_VAR_deployer_role_arn=t["deployment_role_arn"], TF_WORKSPACE="default")
     return e
 

@@ -82,6 +82,9 @@ if find . -xdev -mindepth 1 \
   -not -path './scripts/workspace/validate.py' \
   -not -path './scripts/workspace/probe-toolbox.py' \
   -not -path './scripts/aws/workspace-e2e.py' \
+  -not -path './scripts/aws/workspace.py' \
+  -not -path './scripts/aws/workspace-config.py' \
+  -not -path './tests/aws/test-workspace-config.py' \
   -not -path './tests/workspace/test_workspace.py' \
   -not -path './shared/workspace/example/example.py' \
   -not -path './shared/conformance/oci-ml-smoke/conformance.py' \

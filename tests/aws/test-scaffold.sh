@@ -11,6 +11,7 @@ bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-target.sh" >/dev/null
 bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-ssh.sh"
 bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-lifecycle.sh"
 bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-e2e.sh"
+"${WORKSPACE_PYTHON:-python3}" "${REPOSITORY_ROOT}/tests/aws/test-workspace-config.py"
 
 test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
 mkdir -p "$test_cache_root"

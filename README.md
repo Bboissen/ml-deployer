@@ -11,6 +11,9 @@ is deployed; a bounded private SSH/Make job, versioned S3 verification and compu
 teardown passed native acceptance in [PR24](https://github.com/Bboissen/Ray_terraform/pull/24).
 Generic onboarding, dataset ingestion and interactive access remain pending. Follow the
 [single-configuration AWS workflow](docs/operations/aws-workspace.md).
+The [short project configuration](docs/operations/aws-project-configuration.md)
+prepares account/repository facts and immutable local operation records; generic
+deployment from those records remains pending.
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.

@@ -32,7 +32,7 @@ fake_boto=types.ModuleType('boto3'); fake_cfg=types.ModuleType('botocore.config'
 with patch.dict(sys.modules,{'boto3':fake_boto,'botocore.config':fake_cfg}):
     GUARD=module('infra/aws/runner/workspace/watchdog.py.tftpl')
 LIFE=module('scripts/aws/workspace-lifecycle.sh')
-WORKSPACE=module('scripts/aws/workspace.sh')
+WORKSPACE=module('scripts/aws/workspace.py')
 T=dt.datetime(2026,10,8,12,tzinfo=dt.timezone.utc)
 OWN={'GuardId':'a'*32,'Project':'ml-infra','Root':'runner','ManagedBy':'opentofu'}
 TAGS={**OWN,'WorkspaceId':'fraud-detection-dev-01','LeaseId':'b'*32,'LeaseStart':'2026-10-08T11:00:00Z','LaunchBefore':'2026-10-08T11:05:00Z','ExpiresAt':'2026-10-08T12:00:00Z'}
