@@ -7,12 +7,18 @@ external ML repository and installs its project dependencies; that repository
 owns scripts, datasets, transformations, training and results.
 
 Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
-is deployed; EC2 provisioning/bootstrap and automatic expiry were verified.
-Interactive access, clone and S3 result acceptance remain incomplete. Follow the
+is deployed; a bounded private-repository SSH/Make run, S3 result verification
+and compute teardown passed native acceptance on 9 October 2026. Generic setup,
+dataset ingestion and interactive terminal acceptance remain separate work. Follow the
 [single-configuration AWS workflow](docs/operations/aws-workspace.md).
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
+
+For the AWS-first one-click target, read the
+[automation feasibility audit](docs/aws-automation-feasibility.md),
+[HTML setup guide](docs/aws-setup-guide.html) and
+[migration goals and handoff](goal/workspace/07_AWS_AUTOMATION.md).
 
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
