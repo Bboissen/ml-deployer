@@ -90,7 +90,7 @@ def targets():
     return data["targets"]
 
 
-def profile_environment(profile_name, region):
+def check_environment():
     # Detect rather than silently discard credentials, alternate endpoints or
     # OpenTofu arguments that could invalidate the reviewed target.
     allowed = {"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_LOGIN_CACHE_DIRECTORY", "AWS_CA_BUNDLE"}
@@ -98,11 +98,20 @@ def profile_environment(profile_name, region):
                  or k.startswith("TF_VAR_") or k.startswith("TF_CLI_ARGS")
                  or k in {"TF_DATA_DIR", "TF_WORKSPACE", "TF_CLI_CONFIG_FILE", "BOTO_CONFIG"}]
     require(not conflicts, "conflicting environment sources: " + ", ".join(sorted(conflicts)))
+
+
+def profile_documents():
     config = configparser.RawConfigParser()
     config.read(os.environ.get("AWS_CONFIG_FILE", str(Path.home() / ".aws/config")))
     credentials = configparser.RawConfigParser()
     credentials.read(os.environ.get("AWS_SHARED_CREDENTIALS_FILE", str(Path.home() / ".aws/credentials")))
     require(not config.defaults() and not credentials.defaults(), "implicit INI defaults rejected")
+    return config, credentials
+
+
+def profile_environment(profile_name, region):
+    check_environment()
+    config, credentials = profile_documents()
     seen = set()
 
     def profile(name):

@@ -79,7 +79,7 @@ def source_binding():
     revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10)
     require(revision.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", revision.stdout.strip()), "source revision unavailable")
     paths = [path for directory in (ROOT / "infra/aws", ROOT / "scripts/aws")
-             for path in directory.rglob("*") if path.is_file() and path.suffix in (".tf", ".tftpl", ".hcl", ".sh", ".py", ".json")]
+             for path in directory.rglob("*") if path.is_file() and path.suffix in (".tf", ".tftpl", ".hcl", ".sh", ".py", ".json", ".lock", ".tsv", ".in")]
     paths += [ROOT / name for name in ("scripts/workspace/validate.py", "shared/workspace/schema.json", "shared/workspace/toolbox.json")]
     require(not any(path.is_symlink() for path in paths), "source symlink rejected")
     manifest = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(paths)}

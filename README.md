@@ -14,6 +14,10 @@ Generic onboarding, dataset ingestion and interactive access remain pending. Fol
 The [short project configuration](docs/operations/aws-project-configuration.md)
 prepares account/repository facts and immutable local operation records; generic
 deployment from those records remains pending.
+The [AWS workstation installer](docs/operations/aws-workstation-setup.md) now
+provides pinned operator tools, a managed Python runtime and assisted native
+login on Linux/macOS. Native installer acceptance is recorded for Linux x86_64;
+macOS/arm64 and the full generic deployment journey remain acceptance work.
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
@@ -27,7 +31,9 @@ selected account's remaining regional/family quotas, then prefer more vCPUs.
 Review the exact size, image/zone compatibility and costs; do not increase quotas
 or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
 
-Install the small hash-locked Python 3.13 test environment, then validate:
+For AWS operator use, start with `bash scripts/aws/workspace.sh setup`; subsequent
+CLI commands select the managed tools automatically. For repository development,
+install the separate hash-locked Python 3.13 test environment, then validate:
 
 ```bash
 make workspace-test-setup  # package downloads; no cloud account operation

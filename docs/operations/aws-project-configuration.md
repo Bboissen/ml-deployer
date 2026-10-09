@@ -47,11 +47,11 @@ credential stores for assisted login.
 
 ## Prepare and inspect
 
-Run from the repository root with the locked controller validation environment:
+Run from the repository root. The [workstation installer](aws-workstation-setup.md)
+provides the locked controller runtime and selected operator tools:
 
 ```bash
-make workspace-test-setup
-export WORKSPACE_PYTHON="$PWD/.tools/workspace-venv/bin/python"
+bash scripts/aws/workspace.sh setup
 mkdir -p evidence/aws/configuration
 cp infra/aws/project.example.json evidence/aws/configuration/project.json
 # Edit the profile, dataset source, repository/ref and project commands.

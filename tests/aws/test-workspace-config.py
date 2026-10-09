@@ -51,6 +51,7 @@ class Configuration(unittest.TestCase):
 
     def cli(self, *args):
         return subprocess.run(['bash', 'scripts/aws/workspace.sh', str(self.config), *args],
+                              env={**os.environ, 'WORKSPACE_PYTHON': sys.executable},
                               capture_output=True, text=True, timeout=20)
 
     def test_two_accounts_and_projects_generate_distinct_scopes(self):
