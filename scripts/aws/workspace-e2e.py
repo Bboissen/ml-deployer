@@ -144,6 +144,29 @@ def payload(value, target, run_id):
             'output_uri': f"s3://{bucket}/projects/{value['project']}/workspaces/{value['workspace_id']}/output/{run_id}/"}
 
 
+def verify_credential_access(L, base, client, value, target, config, directory):
+    secret=value['repository']['credential']['secret_arn']
+    metadata=client(base,'secretsmanager').describe_secret(SecretId=secret)
+    L['require'](metadata['ARN']==secret,'Git-secret encryption metadata mismatch')
+    key=client(base,'kms').describe_key(KeyId=metadata.get('KmsKeyId','alias/aws/secretsmanager'))['KeyMetadata']
+    L['require'](key['KeyState']=='Enabled' and key['Arn'].startswith(f"arn:aws:kms:{target['region']}:{target['account_id']}:key/"),
+                 'Git-secret encryption key must be enabled in the reviewed account/region')
+    role=f"arn:aws:iam::{target['account_id']}:role/{L['role_name'](config)}"
+    context=[{'ContextKeyName':name,'ContextKeyValues':[content],'ContextKeyType':'string'} for name,content in {
+        'kms:ViaService':f"secretsmanager.{target['region']}.amazonaws.com",'kms:CallerAccount':target['account_id'],
+        'kms:EncryptionContext:SecretARN':secret}.items()]
+    iam=client(base,'iam'); decisions=[]
+    for action,resource in (('secretsmanager:GetSecretValue',secret),('kms:Decrypt',key['Arn'])):
+        response=iam.simulate_principal_policy(PolicySourceArn=role,ActionNames=[action],ResourceArns=[resource],ContextEntries=context)
+        items=response['EvaluationResults']
+        L['require'](not response.get('IsTruncated') and len(items)==1 and items[0]['EvalDecision']=='allowed'
+                     and items[0]['EvalActionName']==action and items[0]['EvalResourceName']==resource,
+                     'Prepared runtime identity cannot retrieve/decrypt the reviewed Git secret')
+        decisions.append({'action':action,'resource':resource,'decision':items[0]['EvalDecision']})
+    L['write'](directory/'credential-access.json',{'role_arn':role,'decisions':decisions,
+              'scope':'IAM policy simulation; real role retrieval is independently required during the SSH job'})
+
+
 def verify_result(L, value, target, job, config, instance, s3, directory, first=None):
     bucket = target['inventory']['buckets'][0]; prefix = job['output_uri'].removeprefix('s3://'+bucket+'/')
     result, observed = object_bytes(L, s3, target['account_id'], bucket, prefix+value['job']['result']['file'],
@@ -265,7 +288,10 @@ def execute(W, configuration_path, value, target, directory, authorization):
         phase('access')
         foundation = L['checked_path'](value['foundation']['plan_directory'])
         platform = L['read'](foundation/'config.tfvars.json')
-        if platform.get('workspace_git_secret_arns', {}).get(value['project']) != [value['repository']['credential']['secret_arn']]:
+        policy_arn=f"arn:aws:iam::{target['account_id']}:policy/{target['inventory']['resource_prefix']}-ws-{value['project']}-boundary"
+        iam=client(base,'iam'); version=iam.get_policy(PolicyArn=policy_arn)['Policy']['DefaultVersionId']
+        policy=iam.get_policy_version(PolicyArn=policy_arn,VersionId=version)['PolicyVersion']['Document']
+        if platform.get('workspace_git_secret_arns', {}).get(value['project']) != [value['repository']['credential']['secret_arn']] or not any(s.get('Sid')=='DecryptReviewedGitCredential' for s in policy['Statement']):
             platform['workspace_git_secret_arns'] = {value['project']: [value['repository']['credential']['secret_arn']]}
             inputs = directory/'access.tfvars.json'; L['write'](inputs, platform)
             access = applied('workspace-access', inputs, str(foundation), folder=directory/'access')
@@ -280,6 +306,7 @@ def execute(W, configuration_path, value, target, directory, authorization):
         config = L['read'](control/'runner.json')
         inputs = control/'prepare.tfvars.json'; L['write'](inputs, config)
         applied('prepare', inputs, value['foundation']['plan_directory'])
+        verify_credential_access(L, base, client, value, target, config, directory)
         phase('launch_window')
         while dt.datetime.now(dt.timezone.utc) < starts:
             time.sleep(min(5, (starts-dt.datetime.now(dt.timezone.utc)).total_seconds()))

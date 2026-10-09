@@ -105,7 +105,8 @@ class Controller(unittest.TestCase):
         L['write'](foundation/'config.tfvars.json', {})
         L['write'](configuration, value)
         calls = []; config = {'phase':'prepare','lease':{'id':'lease'},'workspace_identity':{'request':{'workspace_id':VALUE['workspace_id']}}}
-        s3 = types.SimpleNamespace(list_object_versions=lambda **_: {}, get_bucket_versioning=lambda **_: {'Status':'Enabled'})
+        s3 = types.SimpleNamespace(list_object_versions=lambda **_: {}, get_bucket_versioning=lambda **_: {'Status':'Enabled'},
+            get_policy=lambda **_: {'Policy':{'DefaultVersionId':'v1'}},get_policy_version=lambda **_: {'PolicyVersion':{'Document':{'Statement':[]}}})
         def render(_value, _target, location, _starts):
             p = Path(location); p.mkdir(); L['write'](p/'runner.json', config)
         def plan(_target, stage, _inputs, location, dependency=None, recover=None):
@@ -125,6 +126,8 @@ class Controller(unittest.TestCase):
             calls.append(('command',))
             if failure == 'command': raise ValueError('offline Make failure')
             return {'status':'success'}
+        def credentials(*_):
+            if failure=='credentials': raise ValueError('offline KMS deny')
         def verify(*args):
             calls.append(('verify','after' if args[-1] is not None and isinstance(args[-1],dict) else 'before'))
             if failure == 'verify': raise ValueError('offline result mismatch')
@@ -139,11 +142,11 @@ class Controller(unittest.TestCase):
             'source':lambda:{'revision':'f'*40,'working_tree_sha256':L['sha'](b'')},
             'sessions':lambda _:(None,lambda *_:s3,None), 'inventory':lambda *_:{'live_compute':0}, 'remaining_owned':lambda *_:None}
         with patch.dict(L,overrides), patch.dict(E,{'preflight':lambda *_:{'status':'success'},'run_command':command,
-            'verify_result':verify,'object_bytes':lambda *_:(b'',{'sha256':VALUE['job']['dataset']['sha256']}),
+            'verify_result':verify,'verify_credential_access':credentials,'object_bytes':lambda *_:(b'',{'sha256':VALUE['job']['dataset']['sha256']}),
             'dt':types.SimpleNamespace(datetime=Clock,timedelta=dt.timedelta,timezone=dt.timezone)}):
             result = E['execute']({'L':L,'render':render},configuration,value,TARGET,directory,'User authorized one bounded E2E and cleanup')
         self.assertEqual(E['status'](L,directory)['status'],result['status'])
-        self.assertEqual(sum(c[:2]==('apply','launch') for c in calls),0 if failure in ('prepare','plan-launch') else 1)
+        self.assertEqual(sum(c[:2]==('apply','launch') for c in calls),0 if failure in ('prepare','plan-launch','credentials') else 1)
         return result,calls
     def test_success_requires_both_verifications_and_cleanup(self):
         result,calls = self.exercise('success')
@@ -156,7 +159,7 @@ class Controller(unittest.TestCase):
             self.assertEqual(result['status'],'failure'); self.assertTrue(result['cleanup_success'])
             self.assertIn(('apply','retire'),calls); self.assertIn(('apply','cleanup'),calls)
     def test_partial_prepare_and_unapplied_launch_cleanup_without_compute(self):
-        for failure in ('prepare','plan-launch'):
+        for failure in ('prepare','plan-launch','credentials'):
             result,calls = self.exercise(failure,failure)
             self.assertEqual(result['status'],'failure'); self.assertTrue(result['cleanup_success'])
             self.assertFalse(any(c[:2]==('apply','retire') for c in calls))
@@ -192,6 +195,21 @@ class GuestBoundary(unittest.TestCase):
         with self.assertRaises(L['Failure']): E['status'](L,p,61)
 
 class CommandBoundary(unittest.TestCase):
+    def test_denied_secret_decryption_stops_before_compute(self):
+        secret=VALUE['repository']['credential']['secret_arn']; key='arn:aws:kms:us-east-1:000000000000:key/managed-key'
+        calls=[]
+        def simulate(**kwargs):
+            calls.append(kwargs)
+            action=kwargs['ActionNames'][0]
+            return {'EvaluationResults':[{'EvalActionName':action,'EvalResourceName':kwargs['ResourceArns'][0],
+                'EvalDecision':'explicitDeny' if action=='kms:Decrypt' else 'allowed'}]}
+        clients={'secretsmanager':types.SimpleNamespace(describe_secret=lambda **_: {'ARN':secret}),
+                 'kms':types.SimpleNamespace(describe_key=lambda **_: {'KeyMetadata':{'Arn':key,'KeyState':'Enabled'}}),
+                 'iam':types.SimpleNamespace(simulate_principal_policy=simulate)}
+        with patch.dict(L,{'role_name':lambda _: 'offline'}),self.assertRaises(L['Failure']):
+            E['verify_credential_access'](L,None,lambda _,service:clients[service],VALUE,TARGET,{},OUT/'denied-credentials')
+        self.assertEqual(len(calls),2)
+        self.assertFalse((OUT/'denied-credentials/credential-access.json').exists())
     def test_command_pins_document_hash_version_instance_and_uses_separate_description_api(self):
         directory=OUT/'command-boundary'; directory.mkdir(); launch=directory/'launch'; launch.mkdir()
         content={'schemaVersion':'2.2'}; policy={'Statement':[]}

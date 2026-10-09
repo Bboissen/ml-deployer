@@ -56,6 +56,15 @@ unrelated secrets remain denied. This is necessary because an attached allow
 alone cannot override the old closed deny statements in either policy.
 No secret value or new credential resource appears in an OpenTofu plan/state.
 
+The secret permission also permits `kms:Decrypt` only through Secrets Manager
+with the exact reviewed `SecretARN` encryption context and keys in the same
+account/region. Direct KMS calls, unrelated contexts/keys and other cryptographic
+actions remain denied. This removes the explicit deny that would otherwise block
+even the AWS managed Secrets Manager key. Existing unchanged secret grants can
+receive this narrowly reviewed decryption correction. Before compute, the
+controller verifies both retrieval and decryption through native IAM simulation;
+the real instance-role key retrieval is still required for job acceptance.
+
 Access preparation is separate from the fresh launch lease. After applying it,
 the configuration's foundation plan reference can point to that successful
 `workspace-access` receipt; retain the previous configuration and all receipts.

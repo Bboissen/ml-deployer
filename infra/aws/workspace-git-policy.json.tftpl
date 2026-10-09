@@ -2,7 +2,7 @@ ${jsonencode(merge(jsondecode(storage_policy), {
   Statement = concat([
     for statement in jsondecode(storage_policy).Statement :
     statement.Sid == "DenyOtherActionsIncludingDeletionAndAdministration" ? merge(statement, {
-      NotAction = concat(statement.NotAction, ["secretsmanager:GetSecretValue"])
+      NotAction = concat(statement.NotAction, ["secretsmanager:GetSecretValue", "kms:Decrypt"])
     }) : statement
     ], [
     {
@@ -16,6 +16,36 @@ ${jsonencode(merge(jsondecode(storage_policy), {
       Effect = "Deny"
       Action = ["secretsmanager:GetSecretValue"]
       NotResource = secret_arns
+    },
+    {
+      Sid = "DecryptReviewedGitCredential"
+      Effect = "Allow"
+      Action = ["kms:Decrypt"]
+      Resource = ["arn:aws:kms:${split(":", secret_arns[0])[3]}:${split(":", secret_arns[0])[4]}:key/*"]
+      Condition = { StringEquals = {
+        "kms:ViaService" = "secretsmanager.${split(":", secret_arns[0])[3]}.amazonaws.com"
+        "kms:EncryptionContext:SecretARN" = secret_arns
+      } }
+    },
+    {
+      Sid = "DenyOtherGitEncryptionKeys"
+      Effect = "Deny"
+      Action = ["kms:Decrypt"]
+      NotResource = ["arn:aws:kms:${split(":", secret_arns[0])[3]}:${split(":", secret_arns[0])[4]}:key/*"]
+    },
+    {
+      Sid = "DenyOtherGitEncryptionContexts"
+      Effect = "Deny"
+      Action = ["kms:Decrypt"]
+      Resource = ["*"]
+      Condition = { StringNotEquals = { "kms:EncryptionContext:SecretARN" = secret_arns } }
+    },
+    {
+      Sid = "DenyDirectGitCredentialDecryption"
+      Effect = "Deny"
+      Action = ["kms:Decrypt"]
+      Resource = ["*"]
+      Condition = { StringNotEquals = { "kms:ViaService" = "secretsmanager.${split(":", secret_arns[0])[3]}.amazonaws.com" } }
     }
   ])
 }))}

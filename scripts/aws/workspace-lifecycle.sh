@@ -857,6 +857,22 @@ def compare_prepared_iam(plan, details, config):
                 and other_deny.get('NotResource')==read_grant.get('Resource')
                 and 'secretsmanager:GetSecretValue' in closed_deny['NotAction'],
                 'live runtime boundary does not permit the reviewed Git credential')
+        for expected in git_decryption_statements(read_grant['Resource']):
+            require(next((s for s in boundary_policy['Statement'] if s.get('Sid')==expected['Sid']),None)==expected,
+                    'live runtime boundary does not restrict decryption to the reviewed Git secret')
+        require('kms:Decrypt' in closed_deny['NotAction'],'runtime boundary blocks Git-secret decryption')
+
+def git_decryption_statements(arns):
+    region,account=arns[0].split(':')[3:5]
+    keys=[f'arn:aws:kms:{region}:{account}:key/*']; service=f'secretsmanager.{region}.amazonaws.com'
+    return [
+        {'Sid':'DecryptReviewedGitCredential','Effect':'Allow','Action':['kms:Decrypt'],'Resource':keys,
+         'Condition':{'StringEquals':{'kms:ViaService':service,'kms:EncryptionContext:SecretARN':arns}}},
+        {'Sid':'DenyOtherGitEncryptionKeys','Effect':'Deny','Action':['kms:Decrypt'],'NotResource':keys},
+        {'Sid':'DenyOtherGitEncryptionContexts','Effect':'Deny','Action':['kms:Decrypt'],'Resource':['*'],
+         'Condition':{'StringNotEquals':{'kms:EncryptionContext:SecretARN':arns}}},
+        {'Sid':'DenyDirectGitCredentialDecryption','Effect':'Deny','Action':['kms:Decrypt'],'Resource':['*'],
+         'Condition':{'StringNotEquals':{'kms:ViaService':service}}}]
 
 def validate_config(config, target, stage):
     require(config['aws_account_id']==target['account_id'] and config['aws_region']==target['region'],'config target mismatch')
@@ -909,15 +925,20 @@ def plan_scope(plan, stage, recovery=None):
             matches=[project for project in projects if address=='aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']']
             require(len(matches)==1 and actions==['update'], 'credential access can update only its exact project boundary')
             before=json.loads(item['change']['before']['policy']); after=json.loads(item['change']['after']['policy'])
-            require(not any(s['Sid'] in ('ReadReviewedGitCredentials','DenyOtherGitCredentials') for s in before['Statement']),
-                    'existing Git grants require a separately reviewed rotation/migration')
             old_deny=next(s for s in before['Statement'] if s['Sid']=='DenyOtherActionsIncludingDeletionAndAdministration')
-            require('secretsmanager:GetSecretValue' not in old_deny['NotAction'], 'existing credential exception requires review')
-            statements=[({**s,'NotAction':s['NotAction']+['secretsmanager:GetSecretValue']}
-                         if s['Sid']==old_deny['Sid'] else s) for s in before['Statement']]
             arns=projects[matches[0]]
-            statements += [{'Sid':'ReadReviewedGitCredentials','Effect':'Allow','Action':['secretsmanager:GetSecretValue'],'Resource':arns},
-                           {'Sid':'DenyOtherGitCredentials','Effect':'Deny','Action':['secretsmanager:GetSecretValue'],'NotResource':arns}]
+            git=[{'Sid':'ReadReviewedGitCredentials','Effect':'Allow','Action':['secretsmanager:GetSecretValue'],'Resource':arns},
+                 {'Sid':'DenyOtherGitCredentials','Effect':'Deny','Action':['secretsmanager:GetSecretValue'],'NotResource':arns}]
+            existing=[s for s in before['Statement'] if s['Sid'] in ('ReadReviewedGitCredentials','DenyOtherGitCredentials')]
+            require(not existing or existing==git,'existing Git grant rotation requires a separate review')
+            require(not any(s['Sid'].startswith(('DecryptReviewedGit','DenyOtherGitEncryption','DenyDirectGit')) for s in before['Statement'])
+                    and 'kms:Decrypt' not in old_deny['NotAction'],'existing decryption grants require a separate review')
+            require(('secretsmanager:GetSecretValue' in old_deny['NotAction'])==bool(existing),'inconsistent existing Git access')
+            exceptions=([] if existing else ['secretsmanager:GetSecretValue'])+['kms:Decrypt']
+            statements=[({**s,'NotAction':s['NotAction']+exceptions}
+                         if s['Sid']==old_deny['Sid'] else s) for s in before['Statement']]
+            if not existing: statements+=git
+            statements+=git_decryption_statements(arns)
             require(after=={**before,'Statement':statements}, 'credential update changes unrelated permissions')
             require(all(item['change']['before'].get(k)==v for k,v in item['change']['after'].items() if k!='policy'),
                     'credential update changes unrelated boundary attributes')

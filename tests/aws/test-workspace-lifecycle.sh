@@ -390,14 +390,20 @@ class Boundary(unittest.TestCase):
         before={'Version':'2012-10-17','Statement':[
             {'Sid':'DenyOtherActionsIncludingDeletionAndAdministration','Effect':'Deny','NotAction':['s3:GetObject'],'Resource':['*']},
             {'Sid':'DenyStateStorage','Effect':'Deny','Action':['s3:*'],'Resource':['arn:aws:s3:::state']}]}
-        after=copy.deepcopy(before); after['Statement'][0]['NotAction'].append('secretsmanager:GetSecretValue')
+        after=copy.deepcopy(before); after['Statement'][0]['NotAction']+=['secretsmanager:GetSecretValue','kms:Decrypt']
         after['Statement'] += [
             {'Sid':'ReadReviewedGitCredentials','Effect':'Allow','Action':['secretsmanager:GetSecretValue'],'Resource':[arn]},
             {'Sid':'DenyOtherGitCredentials','Effect':'Deny','Action':['secretsmanager:GetSecretValue'],'NotResource':[arn]}]
+        after['Statement']+=LIFE['git_decryption_statements']([arn])
         plan={'variables':{'workspace_git_secret_arns':{'value':{'demo':[arn]}}},'resource_changes':[
             {'address':'aws_iam_policy.project_workspace_boundary["demo"]','mode':'managed','change':{
                 'actions':['update'],'before':{'policy':json.dumps(before),'name':'same'},'after':{'policy':json.dumps(after),'name':'same'}}}]}
         self.assertEqual(len(LIFE['plan_scope'](plan,'workspace-access')),1)
+        legacy=copy.deepcopy(after);legacy['Statement']=legacy['Statement'][:-4]
+        legacy['Statement'][0]['NotAction'].remove('kms:Decrypt')
+        plan['resource_changes'][0]['change']['before']['policy']=json.dumps(legacy)
+        self.assertEqual(len(LIFE['plan_scope'](plan,'workspace-access')),1)
+        plan['resource_changes'][0]['change']['before']['policy']=json.dumps(before)
         after['Statement'][1]['Effect']='Allow'
         plan['resource_changes'][0]['change']['after']['policy']=json.dumps(after)
         with self.assertRaisesRegex(LIFE['Failure'],'unrelated permissions'): LIFE['plan_scope'](plan,'workspace-access')
@@ -778,6 +784,16 @@ def iam_cases(runner,platform,config,git_runner,git_platform,fresh_platform):
             check(policy,'secretsmanager:GetSecretValue',other,{},False)
         for action in ('secretsmanager:PutSecretValue','secretsmanager:UpdateSecret','secretsmanager:DeleteSecret','iam:PutRolePolicy'):
             check(policy,action,secret,{},False)
+        key='arn:aws:kms:us-east-1:000000000000:key/reviewed-secret-key'
+        decryption={'kms:ViaService':'secretsmanager.us-east-1.amazonaws.com','kms:EncryptionContext:SecretARN':secret}
+        check(policy,'kms:Decrypt',key,decryption,True)
+        for bad in ({},dict(decryption,**{'kms:ViaService':'ec2.us-east-1.amazonaws.com'}),
+                    dict(decryption,**{'kms:EncryptionContext:SecretARN':secret+'foreign'})):
+            check(policy,'kms:Decrypt',key,bad,False)
+        for other in (key.replace(':us-east-1:',':us-west-2:'),key.replace(':000000000000:',':999999999999:')):
+            check(policy,'kms:Decrypt',other,decryption,False)
+        for action in ('kms:Encrypt','kms:GenerateDataKey'):
+            check(policy,action,key,decryption,False)
     for plan,address in [(runner,'aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"]'),
                          (fresh_platform,'aws_iam_policy.project_workspace_boundary["demo"]')]:
         check(json.loads(resource(plan,address)['policy']),'secretsmanager:GetSecretValue',secret,{},False)
