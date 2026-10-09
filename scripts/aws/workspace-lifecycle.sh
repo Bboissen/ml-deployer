@@ -729,6 +729,43 @@ def compare_platform_alarms(plan,details):
               if r['address'].startswith('aws_cloudwatch_metric_alarm.workspace_guard')}
     require(len(expected)==4 and details['alarms']==expected,'guard alarm settings differ from exact reviewed platform plan')
 
+def reviewed_platform_plan(preparation):
+    """Targeted credential plans retain the full platform through bound receipts."""
+    edge=preparation['dependencies']; seen=set(); bindings=[]; newer=None
+    for _ in range(32):
+        require(len(edge)==1,'platform evidence requires one exact dependency')
+        binding=edge[0]; directory=checked_path(binding['directory'])
+        require(directory not in seen,'platform evidence dependency cycle')
+        seen.add(directory)
+        review=read(directory/'review.json'); receipt=read(directory/'apply-result.json')
+        require(sha(canon(review))==binding['review_sha256'] and sha(canon(receipt))==binding['receipt_sha256'],
+                'platform dependency receipt changed')
+        require(receipt['status']=='success' and prior_source(review['source']) and
+                review['target_name']==preparation['target_name'] and review['target']==preparation['target'],
+                'platform dependency target/source/apply mismatch')
+        config=read(directory/'config.tfvars.json'); plan=read(directory/'plan.json')
+        require(sha(canon(config))==review['config_sha256'] and
+                sha((directory/'plan.json').read_bytes())==review['plan_json_sha256'] and
+                sha((directory/'saved.tfplan').read_bytes())==review['plan_sha256'],'platform evidence drift')
+        if newer is not None:
+            require({k:v for k,v in newer.items() if k!='workspace_git_secret_arns'}==
+                    {k:v for k,v in config.items() if k!='workspace_git_secret_arns'},
+                    'credential dependency changed retained platform inputs')
+        bindings.append(binding)
+        if review['stage'] in ('platform','fresh-platform'): return plan,bindings
+        # Applied ancestors retain their original reviewed policy semantics;
+        # newer source may intentionally tighten the credential policy.
+        access_scope=[{'address':r['address'],'actions':r['change']['actions']} for r in plan['resource_changes']
+                      if r['mode']=='managed' and r['change']['actions']!=['no-op']]
+        require(len(config.get('workspace_git_secret_arns',{}))==1,'credential dependency must select one project')
+        allowed={'aws_iam_role_policy.deployer',
+                 'aws_iam_policy.project_workspace_boundary['+json.dumps(next(iter(config['workspace_git_secret_arns'])))+']'}
+        require(review['stage']=='workspace-access' and access_scope==review['scope'] and access_scope and
+                all(s['address'] in allowed and s['actions']==['update'] for s in access_scope),
+                'platform dependency is not a closed credential access plan')
+        newer=config; edge=review['dependencies']
+    raise Failure('platform evidence dependency bound exhausted')
+
 def shared_lambda_pool(base, client):
     limits=client(base,'lambda').get_account_settings()['AccountLimit']
     require(limits['ConcurrentExecutions']>=5 and limits['UnreservedConcurrentExecutions']>=5,
@@ -1171,7 +1208,8 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     if stage=='launch':
         compare_prepared_iam(plan,details,config)
         preparation=read(checked_path(dependency)/'review.json')
-        platform_plan=read(Path(preparation['dependencies'][0]['directory'])/'plan.json')
+        platform_plan,platform_dependencies=reviewed_platform_plan(preparation)
+        dependencies.extend(platform_dependencies)
         compare_platform_alarms(platform_plan,details)
         boundary_resource=next(r for r in platform_plan['planned_values']['root_module']['resources'] if r['address']=='aws_iam_policy.workspace_launch_boundary["active"]')
         require(json.loads(boundary_resource['values']['policy'])==details['roles'][role_name(config)+'-launch']['boundary_policy'],
@@ -1228,7 +1266,11 @@ def apply(directory):
     if is_platform(m['stage']):
         platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
     if m['stage']=='launch':
+        preparation=read(Path(m['dependencies'][0]['directory'])/'review.json')
+        platform_plan,platform_dependencies=reviewed_platform_plan(preparation)
+        require(platform_dependencies==m['dependencies'][1:],'reviewed platform dependency chain changed')
         observation,details=bounded(90,lambda:observe_guard(base,client,config))
+        compare_platform_alarms(platform_plan,details)
         require(details==m['guard_iam'],'guard/IAM/document drift')
         require(0 <= (dt.datetime.now(dt.timezone.utc)-utc(m['guard_observation']['observed_at'])).total_seconds()<=120,'saved launch observation stale; fresh exact plan/review required')
         require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease closed')

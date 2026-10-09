@@ -461,6 +461,51 @@ class Boundary(unittest.TestCase):
         LIFE['compare_platform_alarms'](plan,details)
         details['alarms']['alarm0']['alarm_actions']=['different-topic']
         with self.assertRaises(LIFE['Failure']): LIFE['compare_platform_alarms'](plan,details)
+    def platform_chain(self,change=None):
+        folder=OUT/('platform-chain-'+str(len(list(OUT.glob('platform-chain-*')))))
+        folder.mkdir()
+        target={'account_id':'000000000000','region':'us-east-1'}
+        source=LIFE['source'](); edge=[]
+        config={'workspace_guard':{'zip_sha256':'a'*64},'workspace_git_secret_arns':{}}
+        for name in ('foundation','access-one','access-two'):
+            directory=folder/name;directory.mkdir()
+            current=copy.deepcopy(config)
+            if name!='foundation': current['workspace_git_secret_arns']={'demo':['reviewed']}
+            if change: change(name,current)
+            plan={'resource_changes':[],'planned_values':{'root_module':{'resources':[
+                {'address':'retained-platform'}] if name=='foundation' else []}}}
+            scope=[]
+            if name!='foundation':
+                scope=[{'address':'aws_iam_role_policy.deployer','actions':['update']}]
+                plan['resource_changes']=[{'address':scope[0]['address'],'mode':'managed','change':{'actions':['update']}}]
+            LIFE['write'](directory/'config.tfvars.json',current);LIFE['write'](directory/'plan.json',plan)
+            (directory/'saved.tfplan').write_bytes(b'offline immutable plan')
+            review={'target_name':'offline','target':target,'source':source,
+                'stage':'fresh-platform' if name=='foundation' else 'workspace-access','dependencies':edge,
+                'config_sha256':LIFE['sha'](LIFE['canon'](current)),
+                'plan_json_sha256':LIFE['sha']((directory/'plan.json').read_bytes()),
+                'plan_sha256':LIFE['sha']((directory/'saved.tfplan').read_bytes()),'scope':scope}
+            receipt={'status':'success'}
+            LIFE['write'](directory/'review.json',review);LIFE['write'](directory/'apply-result.json',receipt)
+            edge=[{'directory':str(directory),'review_sha256':LIFE['sha'](LIFE['canon'](review)),
+                   'receipt_sha256':LIFE['sha'](LIFE['canon'](receipt))}]
+        return {'target_name':'offline','target':target,'dependencies':edge},folder
+    def test_targeted_access_chain_recovers_exact_full_platform(self):
+        preparation,_=self.platform_chain()
+        plan,bindings=LIFE['reviewed_platform_plan'](preparation)
+        self.assertEqual(plan['planned_values']['root_module']['resources'],[{'address':'retained-platform'}])
+        self.assertEqual(len(bindings),3)
+    def test_platform_chain_rejects_changed_receipts_plans_and_inputs(self):
+        for filename in ('review.json','apply-result.json','plan.json','saved.tfplan','config.tfvars.json'):
+            with self.subTest(filename=filename):
+                preparation,folder=self.platform_chain()
+                path=folder/'foundation'/filename;path.write_bytes(path.read_bytes()+b' ')
+                # Canonical receipt hashes ignore harmless whitespace; alter semantics.
+                if filename in ('review.json','apply-result.json','config.tfvars.json'):
+                    value=json.loads(path.read_text());value['status']='failure';path.write_text(json.dumps(value))
+                with self.assertRaises(LIFE['Failure']):LIFE['reviewed_platform_plan'](preparation)
+        preparation,_=self.platform_chain(lambda name,c:c.update(workspace_guard={'zip_sha256':'b'*64}) if name=='access-two' else None)
+        with self.assertRaisesRegex(LIFE['Failure'],'retained platform inputs'):LIFE['reviewed_platform_plan'](preparation)
     def test_shared_lambda_limit_blocks_insufficient_pool(self):
         for total,unreserved in ((4,4),(5,4),(0,0)):
             api=types.SimpleNamespace(get_account_settings=lambda:{'AccountLimit':{'ConcurrentExecutions':total,'UnreservedConcurrentExecutions':unreserved}})

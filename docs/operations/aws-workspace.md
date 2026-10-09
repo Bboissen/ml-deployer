@@ -113,6 +113,9 @@ runner cleanup, then retrieves the same S3 result and provenance versions again.
 The applied access receipt is saved in the operator configuration; its previous
 configuration remains beside the run's evidence. Persistent buckets and the
 existing watchdog are retained. No native launch retry occurs.
+Scoped access plans retain a hash-bound dependency chain to the full platform
+plan. Launch checks use that full plan for watchdog alarms and the launch
+boundary, and reject changes to retained platform inputs or evidence.
 
 The reviewed SSM command document clears the environment and uses `runuser`
 before fetching the key or invoking the repository. Its grant scopes commands
