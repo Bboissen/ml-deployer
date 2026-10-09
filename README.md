@@ -7,8 +7,9 @@ external ML repository and installs its project dependencies; that repository
 owns scripts, datasets, transformations, training and results.
 
 Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
-is deployed; EC2 provisioning/bootstrap and automatic expiry were verified.
-Interactive access, clone and S3 result acceptance remain incomplete. Follow the
+is deployed; a bounded private SSH/Make job, versioned S3 verification and compute
+teardown passed native acceptance in [PR24](https://github.com/Bboissen/Ray_terraform/pull/24).
+Generic onboarding, dataset ingestion and interactive access remain pending. Follow the
 [single-configuration AWS workflow](docs/operations/aws-workspace.md).
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
