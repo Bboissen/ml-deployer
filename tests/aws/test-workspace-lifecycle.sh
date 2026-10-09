@@ -397,6 +397,9 @@ class Boundary(unittest.TestCase):
         with self.assertRaisesRegex(LIFE['Failure'],'unrelated permissions'): LIFE['plan_scope'](plan,'workspace-access')
         plan['resource_changes'][0]['address']='aws_lambda_function.workspace_guard["active"]'
         with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'): LIFE['plan_scope'](plan,'workspace-access')
+        plan['resource_changes'][0]['address']='aws_iam_role_policy.deployer'
+        plan['resource_changes'][0]['change']['after']['policy']=None
+        with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'): LIFE['plan_scope'](plan,'workspace-access')
     def test_naive_dates_cannot_be_labeled_utc(self):
         with self.assertRaisesRegex(LIFE['Failure'],'timezone-aware'): LIFE['stamp'](dt.datetime(2026,10,8))
     def test_native_terminal_command_passes_shared_handoff_contract(self):

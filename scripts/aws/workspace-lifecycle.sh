@@ -1102,6 +1102,15 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     run(['tofu',f'-chdir={root}','init','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f'-chdir={root}','validate','-no-color'],env)
     command=['tofu',f'-chdir={root}','plan','-input=false','-lock-timeout=30s','-no-color',f'-var-file={directory}/config.tfvars.json',f'-out={directory}/saved.tfplan']
+    # Updating this boundary defers the dependent deployer policy document,
+    # producing an unrelated, unknown policy update in a full platform plan.
+    # Plan only the selected boundary; the saved-plan scope check stays closed.
+    if stage=='workspace-access':
+        projects=config['workspace_git_secret_arns']
+        require(len(projects)==1,'credential access planning requires one project')
+        project=next(iter(projects))
+        require(re.fullmatch(r'[a-z][a-z0-9-]{2,23}',project),'invalid credential project')
+        command.append('-target=aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']')
     # Native readbacks above and below verify preparation independently. Avoid
     # asking the restricted launch identity to refresh unrelated control-plane
     # resources; it only needs to create its exact prepared instance.

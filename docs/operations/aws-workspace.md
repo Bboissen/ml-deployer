@@ -48,6 +48,8 @@ Before preparing an SSH runner, inspect and apply the separate `access` saved
 plan using the same exact-review authorization interface below. Its scope is
 only the selected persistent project boundary's credential permission update.
 Existing storage restrictions and every other platform input must remain intact.
+This phase targets the selected boundary so its change cannot schedule a deferred
+deployer-policy rewrite; the saved-plan review still rejects every other mutation.
 The runtime role gets the same exact-secret grant during normal preparation;
 unrelated secrets remain denied. This is necessary because an attached allow
 alone cannot override the old closed deny statements in either policy.
