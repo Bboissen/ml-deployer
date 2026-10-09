@@ -379,6 +379,12 @@ class ProjectConfiguration(unittest.TestCase):
             self.assertIn(package+'=='+LIFE['TOOLBOX']['sdk_version']+' ',lock)
 
 class Boundary(unittest.TestCase):
+    def test_credential_planning_targets_one_existing_project(self):
+        config={'ml_projects':{'demo':{}},'workspace_git_secret_arns':{'demo':['reviewed-arn']}}
+        self.assertEqual(LIFE['credential_plan_target'](config),'-target=aws_iam_policy.project_workspace_boundary["demo"]')
+        for projects in ({},{'demo':[],'foreign':[]},{'foreign':[]}):
+            with self.subTest(projects=projects),self.assertRaises(LIFE['Failure']):
+                LIFE['credential_plan_target']({**config,'workspace_git_secret_arns':projects})
     def test_credential_access_scope_preserves_every_other_permission(self):
         arn='arn:aws:secretsmanager:us-east-1:000000000000:secret:demo/workspaces/demo-dev-01/git/aws-workspace-e2e-ABCdef'
         before={'Version':'2012-10-17','Statement':[

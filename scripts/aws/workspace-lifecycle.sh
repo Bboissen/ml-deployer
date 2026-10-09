@@ -1039,6 +1039,13 @@ def alarm_destination(base,client,config):
     require(attributes.get('TopicArn')==topic and attributes.get('Owner')==config['aws_account_id']
             and int(attributes.get('SubscriptionsConfirmed','0'))>0,'alarm destination must exist with a confirmed subscription in reviewed account')
 
+def credential_plan_target(config):
+    projects=config.get('workspace_git_secret_arns',{})
+    require(len(projects)==1,'credential access planning requires one project')
+    project=next(iter(projects))
+    require(project in config['ml_projects'],'credential project must exist in the retained foundation')
+    return '-target=aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']'
+
 def native_plan(target_name,stage,config_path,directory,dependency=None,recover_from=None):
     directory=checked_path(directory); require(not directory.exists(),'plan directory already exists')
     config=read(config_path)
@@ -1106,11 +1113,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     # producing an unrelated, unknown policy update in a full platform plan.
     # Plan only the selected boundary; the saved-plan scope check stays closed.
     if stage=='workspace-access':
-        projects=config['workspace_git_secret_arns']
-        require(len(projects)==1,'credential access planning requires one project')
-        project=next(iter(projects))
-        require(re.fullmatch(r'[a-z][a-z0-9-]{2,23}',project),'invalid credential project')
-        command.append('-target=aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']')
+        command.append(credential_plan_target(config))
     # Native readbacks above and below verify preparation independently. Avoid
     # asking the restricted launch identity to refresh unrelated control-plane
     # resources; it only needs to create its exact prepared instance.
