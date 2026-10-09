@@ -122,6 +122,7 @@ def foundation_extension():
             (f'aws_iam_instance_profile.workspace["{wid}"]', lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'}),
             ('aws_iam_user_policy.operator', lambda: iam.get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal'), {'NoSuchEntity'}),
             ('aws_ssm_document.terminal', lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'}),
+            ('aws_ssm_document.job', lambda: client(base, 'ssm').get_document(Name=name+'-job'), {'InvalidDocument'}),
             ('aws_scheduler_schedule.workspace_deadline', lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'}),
         ]
         for address, callback, codes in checks:
@@ -412,7 +413,7 @@ def build(directory):
     directory.mkdir(parents=True, mode=0o700)
     toolbox = REPO/'infra/aws/runner/workspace/toolbox'
     members = {p.name:p.read_bytes() for p in toolbox.iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'):
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'):
         members[name] = (REPO/name).read_bytes()
     toolbox_hash = archive(directory/'toolbox.zip', members)
     sdk = directory/'sdk'
@@ -449,7 +450,7 @@ def verify_artifact(path,expected,kind):
             require(zipped.read('watchdog.py')==(REPO/'infra/aws/runner/workspace/watchdog.py.tftpl').read_bytes(),'guard archive source mismatch')
         else:
             members={p.name:p.read_bytes() for p in (REPO/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'): members[name]=(REPO/name).read_bytes()
+            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'): members[name]=(REPO/name).read_bytes()
             require(set(zipped.namelist())==set(members) and all(zipped.read(k)==v for k,v in members.items()),'toolbox archive differs from current source')
 
 def packet(target_name,storage_directory,artifacts_path,platform_config_path,alarm_topic,output):
@@ -552,7 +553,7 @@ def role_name(config):
 def prepared_addresses(config):
     wid=config['workspace_identity']['request']['workspace_id']
     return {'terraform_data.lease','aws_iam_role.launch','aws_iam_role_policy.launch','aws_iam_user_policy.operator',
-            'aws_ssm_document.terminal','aws_scheduler_schedule.workspace_deadline',
+            'aws_ssm_document.terminal','aws_ssm_document.job','aws_scheduler_schedule.workspace_deadline',
             *{name+'['+json.dumps(wid)+']' for name in ('aws_iam_role.workspace','aws_iam_role_policy.workspace_storage',
                 'aws_iam_role_policy_attachment.workspace_ssm','aws_iam_instance_profile.workspace')}}
 
@@ -884,6 +885,24 @@ def plan_scope(plan, stage, recovery=None):
         require(item.get('mode')=='managed','unexpected mutation')
         if stage=='workspace-access':
             projects=plan['variables']['workspace_git_secret_arns']['value']
+            if address=='aws_iam_role_policy.deployer':
+                require(actions==['update'],'job access cannot replace the deployer grant')
+                require(all(isinstance(item['change'][side].get('policy'),str) for side in ('before','after')),
+                        'job access requires known exact deployer policy values')
+                before=json.loads(item['change']['before']['policy']); after=json.loads(item['change']['after']['policy'])
+                old={s['Sid']:s for s in before['Statement']}; new={s['Sid']:s for s in after['Statement']}
+                sid='ManageReviewedNonRootTerminalDocuments'
+                original=old.pop(sid); updated=new.pop(sid)
+                resources=original['Resource'] if isinstance(original['Resource'],list) else [original['Resource']]
+                extra=[arn.removesuffix('-terminal')+'-job' for arn in resources if arn.endswith('-terminal')]
+                changed=updated['Resource'] if isinstance(updated['Resource'],list) else [updated['Resource']]
+                require(len(extra)==1 and set(changed)==set(resources+extra) and
+                        {k:v for k,v in original.items() if k!='Resource'}=={k:v for k,v in updated.items() if k!='Resource'}
+                        and old==new and before['Version']==after['Version'], 'job access changes unrelated deployer permissions')
+                require(all(item['change']['before'].get(k)==v for k,v in item['change']['after'].items() if k!='policy'),
+                        'job access changes unrelated deployer attributes')
+                mutations.append({'address':address,'actions':actions})
+                continue
             matches=[project for project in projects if address=='aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']']
             require(len(matches)==1 and actions==['update'], 'credential access can update only its exact project boundary')
             before=json.loads(item['change']['before']['policy']); after=json.loads(item['change']['after']['policy'])
@@ -935,7 +954,7 @@ def plan_scope(plan, stage, recovery=None):
 def recovery_context(directory, target_name, stage, config, target, state, base, client):
     directory=checked_path(directory)
     m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); started=read(directory/'apply-started.json')
-    require(stage in ('fresh-platform','prepare','cleanup') and m['stage'] in ({'launch'} if stage=='cleanup' else {stage}) and m['target_name']==target_name and m['target']==target,
+    require(stage in ('fresh-platform','prepare','cleanup') and m['stage'] in ({'launch','prepare'} if stage=='cleanup' else {stage}) and m['target_name']==target_name and m['target']==target,
             'recovery target/root/stage differs')
     require(m['root']==str(stage_root(stage)) and prior_source(m['source']) and
             authorization['review_sha256']==started['review_sha256']==sha(canon(m)) and
@@ -954,7 +973,7 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
         require({k:v for k,v in previous.items() if k not in excluded}==
                 {k:v for k,v in config.items() if k not in excluded}, 'recovery changes workspace configuration')
         expected=prepared_addresses(config)
-        if stage=='cleanup': expected.add('aws_instance.workspace[0]')
+        if stage=='cleanup' and m['stage']=='launch': expected.add('aws_instance.workspace[0]')
         require({r['address'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}==expected,
                 'recovery reference contains unexpected controls/compute')
     require(state['version'] and state['key']==m['backend']['key'] and
@@ -1104,16 +1123,19 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     root=stage_root(stage)
     require(not any(root.glob('*.auto.tfvars*')) and not (root/'terraform.tfvars').exists(),'implicit root configuration rejected')
     env.update(TF_DATA_DIR=str(directory/'tofu-data'))
+    cache=REPO/'evidence/aws/provider-cache'
+    cache.mkdir(parents=True,mode=0o700,exist_ok=True)
+    env['TF_PLUGIN_CACHE_DIR']=str(cache)
     for key in list(env):
         if key.startswith('TF_VAR_'): del env[key]
     run(['tofu',f'-chdir={root}','init','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f'-chdir={root}','validate','-no-color'],env)
     command=['tofu',f'-chdir={root}','plan','-input=false','-lock-timeout=30s','-no-color',f'-var-file={directory}/config.tfvars.json',f'-out={directory}/saved.tfplan']
-    # Updating this boundary defers the dependent deployer policy document,
-    # producing an unrelated, unknown policy update in a full platform plan.
-    # Plan only the selected boundary; the saved-plan scope check stays closed.
+    # Limit access changes to the selected boundary and the exact additional
+    # job-document resource in the deployer grant. The policy scope stays closed.
     if stage=='workspace-access':
         command.append(credential_plan_target(config))
+        command.append('-target=aws_iam_role_policy.deployer')
     # Native readbacks above and below verify preparation independently. Avoid
     # asking the restricted launch identity to refresh unrelated control-plane
     # resources; it only needs to create its exact prepared instance.

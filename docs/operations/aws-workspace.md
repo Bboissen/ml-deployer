@@ -1,12 +1,11 @@
 # AWS workspace workflow
 
-AWS acceptance is incomplete. The last native teardown verified zero live EC2
-instances; persistent S3, IAM, watchdog and alerts remain. Repository SSH access
-is configured and checked offline. Unattended Make orchestration and independent
-S3 result verification before/after compute deletion remain to be implemented.
-Passing offline checks does not prove a native repository clone or result round-trip.
+The unattended workflow provisions one workspace, clones a pinned external
+repository over SSH, invokes Make, verifies its uploaded result independently,
+deletes compute and retrieves the same persistent S3 version again. Each run's
+`result.json` records its native outcome; offline checks alone do not establish
+AWS acceptance.
 
-The happy path is: configure once, provision, connect and clone, use S3, tear down.
 Run commands from the repository root. The accepted workspace uses `r8i.2xlarge`
 (8 vCPUs, 64 GiB), a 60-minute absolute lease and termination five minutes early.
 Native planning refreshes quota, network, image, identity and guard observations.
@@ -46,10 +45,12 @@ or failure. Repository dependencies and Make execution remain external.
 
 Before preparing an SSH runner, inspect and apply the separate `access` saved
 plan using the same exact-review authorization interface below. Its scope is
-only the selected persistent project boundary's credential permission update.
+the selected persistent project boundary's credential permission and the matching
+job-document resource in the deployer grant.
 Existing storage restrictions and every other platform input must remain intact.
-This phase targets the selected boundary so its change cannot schedule a deferred
-deployer-policy rewrite; the saved-plan review still rejects every other mutation.
+This phase targets the selected boundary and the deployer policy. The deployer
+change adds only the matching non-root job-document resource; its other grants
+remain identical. The saved-plan review rejects every other mutation.
 The runtime role gets the same exact-secret grant during normal preparation;
 unrelated secrets remain denied. This is necessary because an attached allow
 alone cannot override the old closed deny statements in either policy.
@@ -74,6 +75,66 @@ systemctl stubbed. It downloads pinned public packages and contacts no AWS accou
 APIs. Its container and logs remain available under the new evidence directory.
 The regular suite checks the complete production handoff with mocked OpenTofu
 user-data and timezone-aware SDK dates, plus immutable configuration boundaries.
+
+## Run an unattended E2E
+
+The optional `job` configuration supplies a single Make target (`null` invokes
+the repository default), a bounded timeout, dataset URI/version/SHA-256, and result
+filename/hash plus provenance filename/dependency-lock hash. The dataset must be
+in the selected regional bucket's project data namespace. The controller creates
+a unique run ID and output prefix; callers do not reuse a result location.
+
+```bash
+export WORKSPACE_PYTHON=/path/to/locked/operator-venv/bin/python
+rtk bash scripts/aws/workspace.sh evidence/aws/workspace.json preflight evidence/aws/preflight/NEW
+rtk bash scripts/aws/workspace.sh evidence/aws/workspace.json run evidence/aws/runs/NEW \
+  --authorization 'User authorized one bounded E2E launch, scoped access and compute cleanup'
+rtk bash scripts/aws/workspace.sh evidence/aws/workspace.json status evidence/aws/runs/NEW --wait 60
+```
+
+`preflight` performs read-only storage, fixture, identity and deploy-key checks.
+It validates the private key in RAM, removes it, and tests read access to the
+pinned published commit without executing repository code locally.
+
+`run` reviews each immutable saved plan against a closed mutation scope and
+binds the supplied task authorization to its exact hashes before applying. It
+automates access preparation, lease preparation, one EC2 launch, bootstrap/SSM
+readiness, SSH clone and Make, independent result verification, retirement and
+runner cleanup, then retrieves the same S3 result and provenance versions again.
+The applied access receipt is saved in the operator configuration; its previous
+configuration remains beside the run's evidence. Persistent buckets and the
+existing watchdog are retained. No native launch retry occurs.
+
+The reviewed SSM command document clears the environment and uses `runuser`
+before fetching the key or invoking the repository. Its grant scopes commands
+to this document and the instance carrying the exact workspace, lease and guard
+tags. The private key is removed before Make. The guest receives `AWS_REGION`,
+`DATA_URI`, `DATA_VERSION_ID`, `DATA_SHA256`, `OUTPUT_URI` and `RUN_ID`, using
+instance-role credentials. Dependencies, processing and result/provenance upload
+belong to the external repository. Execution receipts and bounded logs are
+uploaded separately by the toolbox.
+
+Failure, timeout and ordinary interruption enter cleanup, including partial
+preparation or launch. Cleanup independently refuses live compute before removing
+the deadline and identities; the provider-side lifetime safeguard remains armed
+if the controller disappears or AWS cleanup fails. `result.json` reports success
+only when both result downloads match, compute/disk/interface absence is proven,
+and persistent storage and the input fixture remain intact. Status observations
+are bounded; immutable event and plan evidence remains under the run directory.
+
+```mermaid
+flowchart LR
+  P[Preflight] --> A[Access and lease]
+  A --> E[Provision EC2]
+  E --> C[SSH clone pinned commit]
+  C --> M[Make and upload]
+  M --> V[Verify S3 result]
+  V --> D[Delete compute]
+  D --> R[Retrieve same S3 version]
+  E -. Failure or timeout .-> D
+  C -. Failure or timeout .-> D
+  M -. Failure or timeout .-> D
+```
 
 ## Provision
 

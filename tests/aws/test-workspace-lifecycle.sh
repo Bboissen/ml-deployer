@@ -306,7 +306,7 @@ class ProjectConfiguration(unittest.TestCase):
         self.value['foundation']={'plan_directory':str(foundation),'outputs_file':str(foundation/'outputs.json'),
                                  'outputs_sha256':LIFE['sha']((foundation/'outputs.json').read_bytes())}
         members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'):
+        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'):
             members[name]=(ROOT/name).read_bytes()
         zip_path=self.directory/'toolbox.zip'; hash=LIFE['archive'](zip_path,members)
         LIFE['write'](self.directory/'artifacts.json',{'source':LIFE['source'](),'toolbox_zip_path':str(zip_path),'toolbox_zip_sha256':hash})
@@ -405,7 +405,21 @@ class Boundary(unittest.TestCase):
         with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'): LIFE['plan_scope'](plan,'workspace-access')
         plan['resource_changes'][0]['address']='aws_iam_role_policy.deployer'
         plan['resource_changes'][0]['change']['after']['policy']=None
-        with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'): LIFE['plan_scope'](plan,'workspace-access')
+        with self.assertRaisesRegex(LIFE['Failure'],'known exact deployer policy'): LIFE['plan_scope'](plan,'workspace-access')
+    def test_job_access_can_only_add_its_document_resource(self):
+        arn='arn:aws:ssm:us-east-1:000000000000:document/demo-run-ws-*-terminal'
+        before={'Version':'2012-10-17','Statement':[
+            {'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:CreateDocument'],'Resource':arn},
+            {'Sid':'Unrelated','Effect':'Allow','Action':'iam:GetRole','Resource':'reviewed'}]}
+        after=copy.deepcopy(before); after['Statement'][0]['Resource']=[arn,arn.removesuffix('-terminal')+'-job']
+        item={'address':'aws_iam_role_policy.deployer','mode':'managed','change':{'actions':['update'],
+            'before':{'name':'same','policy':json.dumps(before)},'after':{'name':'same','policy':json.dumps(after)}}}
+        plan={'variables':{'workspace_git_secret_arns':{'value':{'demo':['reviewed']}}},'resource_changes':[item]}
+        self.assertEqual(len(LIFE['plan_scope'](plan,'workspace-access')),1)
+        for changed in ({**after,'Statement':after['Statement']+[{'Sid':'Extra','Effect':'Allow','Action':'*','Resource':'*'}]},
+                        {**after,'Statement':[{**after['Statement'][0],'Resource':['*']},after['Statement'][1]]}):
+            item['change']['after']['policy']=json.dumps(changed)
+            with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan,'workspace-access')
     def test_naive_dates_cannot_be_labeled_utc(self):
         with self.assertRaisesRegex(LIFE['Failure'],'timezone-aware'): LIFE['stamp'](dt.datetime(2026,10,8))
     def test_native_terminal_command_passes_shared_handoff_contract(self):
@@ -595,13 +609,15 @@ class Foundation(unittest.TestCase):
         LIFE['write'](directory/'review.json',m); LIFE['authorize'](directory,LIFE['sha'](LIFE['canon'](m)),'Authorized bounded offline recovery')
         LIFE['write'](directory/'apply-started.json',{'review_sha256':LIFE['sha'](LIFE['canon'](m))})
         current={'resources':[{'mode':'managed','type':'aws_iam_role','name':'launch','instances':[{'attributes':{'name':'owned-launch'}}]}]}
-        def recover():
+        def recover(stage='prepare'):
             raw=LIFE['canon'](current)
             state={'key':m['backend']['key'],'version':'native-version','lineage':'owned-lineage','sha256':LIFE['sha'](raw)}
             api=types.SimpleNamespace(get_object=lambda **kw:{'Body':io.BytesIO(raw)})
-            return LIFE['recovery_context'](directory,'offline','prepare',dict(config,lease={'id':'new'}),target,state,None,lambda *_:api)
+            candidate=dict(config,lease={'id':'new'}) if stage=='prepare' else dict(config,phase='retire')
+            return LIFE['recovery_context'](directory,'offline',stage,candidate,target,state,None,lambda *_:api)
         with patch.dict(LIFE,{'platform_compute_absent':lambda *_:None}):
             self.assertEqual(recover()['owned'],[address])
+            self.assertEqual(recover('cleanup')['owned'],[address])
             current['resources'][0]['instances'][0]['attributes']['name']='foreign-launch'
             with self.assertRaises(LIFE['Failure']): recover()
             current['resources'][0]['name']='foreign'
@@ -610,6 +626,7 @@ class Foundation(unittest.TestCase):
         def live(*_): raise LIFE['Failure']('covered compute remains')
         with patch.dict(LIFE,{'platform_compute_absent':live}):
             with self.assertRaises(LIFE['Failure']): recover()
+            with self.assertRaises(LIFE['Failure']): recover('cleanup')
     def test_target_derivation_preserves_old_registry_and_identity(self):
         old={'account_id':'000000000000','region':'us-east-1','operator_arn':'operator','profile':'offline',
              'deployment_role_arn':'old-role','backend':{'bucket':'old-state'},'inventory':{'resource_prefix':'ml-infra'}}
@@ -777,7 +794,7 @@ def tofu_tests():
            'recurring_schedule_name':'ml-infra-workspace-watchdog-sweep','log_group':'/aws/lambda/ml-infra-workspace-watchdog',
            'failure_queue_arn':'arn:aws:sqs:us-east-1:000000000000:ml-infra-workspace-watchdog-failures','alarm_names':['offline-alarm']}
     members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh'): members[name]=(ROOT/name).read_bytes()
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'): members[name]=(ROOT/name).read_bytes()
     toolbox_sha=LIFE['archive'](OUT/'toolbox.zip',members)
     config={'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra','project_name':'ml-infra',
             'backend_bucket_name':'replace-ml-infra-aws-state-unique','state_bucket_arn':'arn:aws:s3:::replace-ml-infra-aws-state-unique',
@@ -820,7 +837,7 @@ def tofu_tests():
     if 'instance_initiated_shutdown_behavior' in resources['aws_instance.workspace'].get('expressions',{}):
         raise AssertionError('guest-shutdown setting triggers forbidden ModifyInstanceAttribute after RunInstances')
     depends=resources['aws_instance.workspace'].get('depends_on',[])
-    for name in ('aws_scheduler_schedule.workspace_deadline','aws_iam_role_policy.launch','aws_iam_instance_profile.workspace','aws_ssm_document.terminal','aws_iam_user_policy.operator'):
+    for name in ('aws_scheduler_schedule.workspace_deadline','aws_iam_role_policy.launch','aws_iam_instance_profile.workspace','aws_ssm_document.terminal','aws_ssm_document.job','aws_iam_user_policy.operator'):
         if name not in depends: raise AssertionError('missing guard/identity/terminal ordering: '+name)
     LIFE['plan_scope']({'resource_changes':[r for r in runner['resource_changes'] if r['address']=='aws_instance.workspace[0]']},'launch')
     return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),'fresh_foundation_mocked_plans':len(plans['fresh-platform'])+len(plans['fresh-bootstrap']),

@@ -100,7 +100,7 @@ resource "aws_instance" "workspace" {
     workspace_id       = local.id, toolbox_zip_base64 = filebase64(var.toolbox_zip_path),
     toolbox_zip_sha256 = var.toolbox_zip_sha256, region = var.aws_region
   }))
-  depends_on = [aws_scheduler_schedule.workspace_deadline, aws_iam_role_policy.launch, aws_iam_instance_profile.workspace, aws_ssm_document.terminal, aws_iam_user_policy.operator]
+  depends_on = [aws_scheduler_schedule.workspace_deadline, aws_iam_role_policy.launch, aws_iam_instance_profile.workspace, aws_ssm_document.terminal, aws_ssm_document.job, aws_iam_user_policy.operator]
   lifecycle {
     precondition {
       condition = try(var.guard_observation.guard_id == var.guard.guard_id &&

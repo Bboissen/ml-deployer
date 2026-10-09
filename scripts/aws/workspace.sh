@@ -3,6 +3,7 @@
 set -euo pipefail
 exec "${WORKSPACE_PYTHON:-python3}" - "$@" 3<&0 <<'PY'
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,8 +22,9 @@ require, read, write, checked = (L[k] for k in ('require', 'read', 'write', 'che
 def configuration(path):
     path = checked(path)
     value = read(path)
-    require(set(value) == {'version', 'target_name', 'target', 'project', 'workspace_id', 'repository',
-                          'sizing', 'maximum_runtime_minutes', 'foundation', 'artifacts'}, 'unknown/missing project configuration fields')
+    fields = {'version', 'target_name', 'target', 'project', 'workspace_id', 'repository',
+              'sizing', 'maximum_runtime_minutes', 'foundation', 'artifacts'}
+    require(set(value) in (fields, fields | {'job'}), 'unknown/missing project configuration fields')
     require(value['version'] == 1, 'unsupported project configuration version')
     os.environ['WORKSPACE_CONFIG'] = str(path)
     target = L['boundary']['targets']()[value['target_name']]
@@ -48,6 +50,20 @@ def configuration(path):
     require(type(value['maximum_runtime_minutes']) is int and 15 <= value['maximum_runtime_minutes'] <= 60,
             'reviewed lifetime is 15 through 60 minutes')
     require(set(value['foundation']) == {'plan_directory', 'outputs_file', 'outputs_sha256'}, 'foundation requires its applied plan and captured outputs hash')
+    if 'job' in value:
+        job = value['job']
+        require(set(job) == {'make_target', 'timeout_seconds', 'dataset', 'result', 'provenance'}, 'closed job configuration required')
+        require(job['make_target'] is None or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', job['make_target']), 'invalid Make target')
+        require(type(job['timeout_seconds']) is int and 30 <= job['timeout_seconds'] <= min(1800, (value['maximum_runtime_minutes']-10)*60), 'job timeout must leave time for cleanup')
+        data = job['dataset']
+        prefix = f"s3://{target['inventory']['buckets'][0]}/projects/{value['project']}/data/"
+        require(set(data) == {'uri', 'version_id', 'sha256'} and data['uri'].startswith(prefix)
+                and re.fullmatch(r'[A-Za-z0-9/_.,-]+', data['uri'][len(prefix):])
+                and all(part not in ('.', '..') for part in data['uri'][len(prefix):].split('/'))
+                and data['version_id'] not in ('', 'null') and re.fullmatch(r'[0-9a-f]{64}', data['sha256']), 'versioned dataset must be inside the reviewed regional namespace')
+        require(set(job['result']) == {'file', 'sha256'} and set(job['provenance']) == {'file', 'dependency_lock_sha256'}, 'result and provenance verification required')
+        for artifact, hash_field in ((job['result'], 'sha256'), (job['provenance'], 'dependency_lock_sha256')):
+            require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', artifact['file']) and re.fullmatch(r'[0-9a-f]{64}', artifact[hash_field]), 'invalid artifact name/hash')
     return value, target
 
 
@@ -101,6 +117,8 @@ def render(value, target, directory, starts_at):
               'guard': guard, 'lease': L['lease'](request, starts_at)}
     if 'credential' in value['repository']:
         config['workspace_git_credential'] = value['repository']['credential']
+    if 'job' in value:
+        config['workspace_job_timeout_seconds'] = value['job']['timeout_seconds']
     L['validate_config'](config, target, 'prepare')
     directory.mkdir(parents=True, mode=0o700)
     write(directory/'project.json', value)
@@ -147,8 +165,23 @@ def main():
     p.add_argument('--review-sha256', required=True); p.add_argument('--authorization', required=True)
     for verb in ('connect', 'commands'):
         p = sub.add_parser(verb); p.add_argument('run')
+    p = sub.add_parser('preflight', help='read-only AWS/Git checks; no resource creation')
+    p.add_argument('run')
+    p = sub.add_parser('run', help='one bounded unattended job, independent result verification and compute cleanup')
+    p.add_argument('run'); p.add_argument('--authorization', required=True)
+    p = sub.add_parser('status', help='bounded local observation of a run')
+    p.add_argument('run'); p.add_argument('--wait', type=int, default=0)
     args = parser.parse_args()
     value, target = configuration(args.config)
+    if args.verb in ('run', 'preflight', 'status'):
+        spec = importlib.util.spec_from_file_location('aws_workspace_e2e', ROOT/'scripts/aws/workspace-e2e.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        if args.verb == 'status': result = module.status(L, args.run, args.wait)
+        elif args.verb == 'preflight': result = module.preflight(L, value, target, checked(args.run))
+        else: result = module.execute(globals(), args.config, value, target, args.run, args.authorization)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if result.get('status') == 'failure': sys.exit(1)
+        return
     if args.verb == 'render': result = render(value, target, args.run, args.starts_at)
     else:
         directory, config = run_configuration(value, args.run)

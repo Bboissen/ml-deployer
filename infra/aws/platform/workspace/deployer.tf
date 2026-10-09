@@ -45,10 +45,13 @@ data "aws_iam_policy_document" "deployer" {
   dynamic "statement" {
     for_each = local.workspace_guards
     content {
-      sid       = "ManageReviewedNonRootTerminalDocuments"
-      effect    = "Allow"
-      actions   = ["ssm:CreateDocument", "ssm:DeleteDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"]
-      resources = ["arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-terminal"]
+      sid     = "ManageReviewedNonRootTerminalDocuments"
+      effect  = "Allow"
+      actions = ["ssm:CreateDocument", "ssm:DeleteDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"]
+      resources = [
+        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-terminal",
+        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-job",
+      ]
     }
   }
   statement {
@@ -198,7 +201,10 @@ data "aws_iam_policy_document" "deployer" {
     condition {
       test     = "ArnEquals"
       variable = "iam:PermissionsBoundary"
-      values   = concat([for boundary in aws_iam_policy.project_workspace_boundary : boundary.arn], [for boundary in aws_iam_policy.workspace_launch_boundary : boundary.arn])
+      values = concat(
+        [for slug in keys(var.ml_projects) : "arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:policy/${var.resource_prefix}-ws-${slug}-boundary"],
+        var.workspace_guard == null ? [] : ["arn:${data.aws_partition.current.partition}:iam::${var.aws_account_id}:policy/${var.resource_prefix}-workspace-launch-boundary"],
+      )
     }
   }
 

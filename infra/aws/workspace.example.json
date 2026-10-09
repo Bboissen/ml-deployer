@@ -59,5 +59,22 @@
     "outputs_file": "evidence/aws/foundation/outputs.json",
     "outputs_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "artifacts": "evidence/aws/artifacts/artifacts.json"
+  "artifacts": "evidence/aws/artifacts/artifacts.json",
+  "job": {
+    "make_target": null,
+    "timeout_seconds": 900,
+    "dataset": {
+      "uri": "s3://example-demo-workload/projects/demo/data/acceptance/fixture.csv",
+      "version_id": "REPLACE_WITH_IMMUTABLE_VERSION_ID",
+      "sha256": "876c1313400238ba1b78cc54fab94411c28b74d2c592c69422eb89800f634d4b"
+    },
+    "result": {
+      "file": "result.json",
+      "sha256": "e3af4380e384dfd71698bd14e8a4250b6fa72cb620f194359fa96eda5738e641"
+    },
+    "provenance": {
+      "file": "provenance.json",
+      "dependency_lock_sha256": "742b14d4dc065db182772235524a7954536fa5dfd4750d0b7d3c38bb766e782b"
+    }
+  }
 }

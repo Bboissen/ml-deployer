@@ -40,6 +40,18 @@ run "git_runtime_reads_only_workspace_secret" {
   }
 }
 
+run "unattended_job_drops_privileges_and_scopes_send_command" {
+  command = plan
+  assert {
+    condition     = aws_ssm_document.job.document_type == "Command" && jsondecode(aws_ssm_document.job.content).parameters.job.allowedPattern == "^[A-Za-z0-9+/=]{1,16384}$" && jsondecode(aws_ssm_document.job.content).mainSteps[0].inputs.timeoutSeconds == "930" && startswith(jsondecode(aws_ssm_document.job.content).mainSteps[0].inputs.runCommand[0], "exec /usr/sbin/runuser -u workspace -- /usr/bin/env -i ")
+    error_message = "The bounded job document must clear the environment and drop privileges before repository access."
+  }
+  assert {
+    condition     = length([for s in jsondecode(aws_iam_user_policy.operator.policy).Statement : s if s.Action == "ssm:SendCommand" && s.Condition.StringEquals["ssm:resourceTag/LeaseId"] == var.lease.id && s.Condition.StringEquals["ssm:resourceTag/WorkspaceId"] == local.id && s.Condition.StringEquals["ssm:resourceTag/GuardId"] == var.guard.guard_id]) == 1
+    error_message = "Command execution must be scoped to the current workspace lease and guard."
+  }
+}
+
 run "guarded_launch_is_encrypted_disposable_and_tagged" {
   command = plan
   variables { phase = "launch" }

@@ -14,7 +14,16 @@ resource "aws_iam_user_policy" "operator" {
     },
     { Effect = "Allow", Action = ["ssm:StartSession", "ssm:GetDocument"], Resource = aws_ssm_document.terminal.arn },
     { Effect = "Allow", Action = ["ssm:ResumeSession", "ssm:TerminateSession"], Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:session/sposhfi-admin-*" },
-    { Effect = "Allow", Action = ["ssm:DescribeInstanceInformation", "ec2:DescribeInstances"], Resource = "*" }
+    { Effect = "Allow", Action = ["ssm:DescribeInstanceInformation", "ssm:GetCommandInvocation", "ec2:DescribeInstances"], Resource = "*" },
+    { Effect = "Allow", Action = ["ssm:SendCommand", "ssm:GetDocument", "ssm:DescribeDocument"], Resource = aws_ssm_document.job.arn },
+    {
+      Effect   = "Allow", Action = "ssm:SendCommand",
+      Resource = "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*",
+      Condition = { StringEquals = {
+        "ssm:resourceTag/WorkspaceId" = local.id, "ssm:resourceTag/LeaseId" = var.lease.id,
+        "ssm:resourceTag/GuardId"     = var.guard.guard_id
+      } }
+    }
   ] })
   lifecycle {
     precondition {
