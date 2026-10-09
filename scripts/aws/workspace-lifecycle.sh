@@ -896,8 +896,11 @@ def plan_scope(plan, stage, recovery=None):
                 resources=original['Resource'] if isinstance(original['Resource'],list) else [original['Resource']]
                 extra=[arn.removesuffix('-terminal')+'-job' for arn in resources if arn.endswith('-terminal')]
                 changed=updated['Resource'] if isinstance(updated['Resource'],list) else [updated['Resource']]
+                old_actions=original['Action'] if isinstance(original['Action'],list) else [original['Action']]
+                new_actions=updated['Action'] if isinstance(updated['Action'],list) else [updated['Action']]
                 require(len(extra)==1 and set(changed)==set(resources+extra) and
-                        {k:v for k,v in original.items() if k!='Resource'}=={k:v for k,v in updated.items() if k!='Resource'}
+                        set(old_actions)==set(new_actions) and len(old_actions)==len(new_actions) and
+                        {k:v for k,v in original.items() if k not in ('Resource','Action')}=={k:v for k,v in updated.items() if k not in ('Resource','Action')}
                         and old==new and before['Version']==after['Version'], 'job access changes unrelated deployer permissions')
                 require(all(item['change']['before'].get(k)==v for k,v in item['change']['after'].items() if k!='policy'),
                         'job access changes unrelated deployer attributes')

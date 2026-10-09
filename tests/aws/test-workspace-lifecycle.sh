@@ -409,14 +409,16 @@ class Boundary(unittest.TestCase):
     def test_job_access_can_only_add_its_document_resource(self):
         arn='arn:aws:ssm:us-east-1:000000000000:document/demo-run-ws-*-terminal'
         before={'Version':'2012-10-17','Statement':[
-            {'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:CreateDocument'],'Resource':arn},
+            {'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:CreateDocument','ssm:GetDocument'],'Resource':arn},
             {'Sid':'Unrelated','Effect':'Allow','Action':'iam:GetRole','Resource':'reviewed'}]}
         after=copy.deepcopy(before); after['Statement'][0]['Resource']=[arn,arn.removesuffix('-terminal')+'-job']
+        after['Statement'][0]['Action'].reverse()
         item={'address':'aws_iam_role_policy.deployer','mode':'managed','change':{'actions':['update'],
             'before':{'name':'same','policy':json.dumps(before)},'after':{'name':'same','policy':json.dumps(after)}}}
         plan={'variables':{'workspace_git_secret_arns':{'value':{'demo':['reviewed']}}},'resource_changes':[item]}
         self.assertEqual(len(LIFE['plan_scope'](plan,'workspace-access')),1)
         for changed in ({**after,'Statement':after['Statement']+[{'Sid':'Extra','Effect':'Allow','Action':'*','Resource':'*'}]},
+                        {**after,'Statement':[{**after['Statement'][0],'Action':['ssm:*']},after['Statement'][1]]},
                         {**after,'Statement':[{**after['Statement'][0],'Resource':['*']},after['Statement'][1]]}):
             item['change']['after']['policy']=json.dumps(changed)
             with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan,'workspace-access')
