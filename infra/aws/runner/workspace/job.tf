@@ -17,7 +17,7 @@ resource "aws_ssm_document" "job" {
     schemaVersion = "2.2"
     description   = "Execute a pinned workspace repository as the non-root workspace user"
     parameters = {
-      job = { type = "String", allowedPattern = "^[A-Za-z0-9+/=]{1,16384}$" }
+      job = { type = "String", allowedPattern = "^[A-Za-z0-9+/=]+$", minChars = 1, maxChars = 16384 }
     }
     mainSteps = [{
       action = "aws:runShellScript", name = "workspaceJob"
