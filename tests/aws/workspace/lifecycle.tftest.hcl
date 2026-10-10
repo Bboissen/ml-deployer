@@ -47,7 +47,7 @@ run "unattended_job_drops_privileges_and_scopes_send_command" {
     error_message = "The bounded job document must clear the environment and drop privileges before repository access."
   }
   assert {
-    condition     = length([for s in jsondecode(aws_iam_user_policy.operator.policy).Statement : s if s.Action == "ssm:SendCommand" && s.Condition.StringEquals["ssm:resourceTag/LeaseId"] == var.lease.id && s.Condition.StringEquals["ssm:resourceTag/WorkspaceId"] == local.id && s.Condition.StringEquals["ssm:resourceTag/GuardId"] == var.guard.guard_id]) == 1
+    condition     = length([for s in jsondecode(aws_iam_user_policy.operator[0].policy).Statement : s if s.Action == "ssm:SendCommand" && s.Condition.StringEquals["ssm:resourceTag/LeaseId"] == var.lease.id && s.Condition.StringEquals["ssm:resourceTag/WorkspaceId"] == local.id && s.Condition.StringEquals["ssm:resourceTag/GuardId"] == var.guard.guard_id]) == 1
     error_message = "Command execution must be scoped to the current workspace lease and guard."
   }
 }

@@ -84,6 +84,10 @@ if find . -xdev -mindepth 1 \
   -not -path './scripts/aws/workspace-e2e.py' \
   -not -path './scripts/aws/workspace.py' \
   -not -path './scripts/aws/workspace-config.py' \
+  -not -path './scripts/aws/workspace-onboarding.py' \
+  -not -path './scripts/aws/workspace_ram.py' \
+  -not -path './tests/aws/run-offline.py' \
+  -not -path './tests/aws/test-workspace-onboarding.py' \
   -not -path './scripts/aws/workstation-auth.py' \
   -not -path './tests/aws/test-workstation-setup.py' \
   -not -path './tests/aws/test-workspace-config.py' \

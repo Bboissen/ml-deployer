@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 from pathlib import Path
 import subprocess
@@ -35,6 +36,7 @@ def foundation_extension():
 
     def target(original):
         result = copy.deepcopy(original)
+        if result['backend'].get('bucket','').endswith('-ws-v1'): return result
         prefix, account, region = (result['inventory']['resource_prefix'], result['account_id'], result['region'])
         result['deployment_role_arn'] = f'arn:aws:iam::{account}:role/{prefix}-workspace-deployer'
         result['backend']['bucket'] = f'{prefix}-tofu-state-{account}-{region}-ws-v1'
@@ -48,8 +50,9 @@ def foundation_extension():
     def config(value, selected):
         L['validate_config'](value, selected, 'fresh-platform')
         L['require'](value['deployer_principal_arns'] == [selected['operator_arn']], 'fresh deployer trusts only the named operator')
-        L['require'](value['ml_projects'] == {'demo': {'ml_project_name': 'demo', 'storage_mode': 'auto'}}, 'fresh foundation starts with empty auto Demo storage')
-        L['require'](value['availability_zone'] == 'us-east-1a', 'accepted fresh network zone differs')
+        L['require'](value['ml_projects'] and all(re.fullmatch(r'[a-z][a-z0-9-]{2,23}', p) and v == {'ml_project_name': p, 'storage_mode': 'auto'} for p,v in value['ml_projects'].items()), 'fresh foundation requires named empty auto storage')
+        L['require'](set(selected['inventory']['buckets']) == {'ml-'+p+'-'+L['sha'](f"{selected['account_id']}/{selected['region']}/{p}".encode())[:16] for p in value['ml_projects']}, 'foundation bucket inventory differs')
+        L['require'](re.fullmatch(re.escape(selected['region'])+r'[a-z]', value['availability_zone']), 'foundation network zone differs from region')
 
 
     FRESH_ADDRESSES = {
@@ -77,8 +80,11 @@ def foundation_extension():
         'aws_s3_bucket_lifecycle_configuration', 'aws_s3_bucket_policy')}
 
 
-    def scope(item):
-        L['require'](item['address'] in FRESH_ADDRESSES and item['change']['actions'] == ['create'],
+    def scope(item, projects=('demo',), provision_alert_topic=False):
+        addresses = {a for a in FRESH_ADDRESSES if '["demo"]' not in a}
+        if provision_alert_topic: addresses.add('aws_sns_topic.workspace_alerts[0]')
+        addresses.update(a.replace('["demo"]', '['+json.dumps(p)+']') for a in FRESH_ADDRESSES if '["demo"]' in a for p in projects)
+        L['require'](item['address'] in addresses and item['change']['actions'] == ['create'],
                      'fresh platform permits only its exact new resources; no old IAM updates/adoption/deletion')
 
 
@@ -97,10 +103,14 @@ def foundation_extension():
         iam = client(base, 'iam')
         for name in (prefix+'-workspace-deployer', prefix+'-workspace-watchdog', prefix+'-workspace-watchdog-invoke'):
             missing(lambda name=name: iam.get_role(RoleName=name), {'NoSuchEntity'})
-        for name in (prefix+'-ws-demo-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal'):
+        for name in ([prefix+'-ws-'+p+'-boundary' for p in value.get('ml_projects', {'demo':{}})] + [prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal']):
             missing(lambda name=name: iam.get_policy(PolicyArn=f'arn:aws:iam::{account}:policy/{name}'), {'NoSuchEntity'})
-        bucket = 'ml-demo-'+L['sha'](f"{account}/{value['aws_region']}/demo".encode())[:16]
-        missing(lambda: client(base, 's3').head_bucket(Bucket=bucket, ExpectedBucketOwner=account), {'404', 'NoSuchBucket'})
+        for project in value.get('ml_projects', {'demo':{}}):
+            bucket = 'ml-'+project+'-'+L['sha'](f"{account}/{value['aws_region']}/{project}".encode())[:16]
+            missing(lambda: client(base, 's3').head_bucket(Bucket=bucket, ExpectedBucketOwner=account), {'404', 'NoSuchBucket'})
+        if value.get('provision_alert_topic'):
+            topic = f"arn:aws:sns:{value['aws_region']}:{account}:{prefix}-workspace-alerts"
+            missing(lambda: client(base,'sns').get_topic_attributes(TopicArn=topic), {'NotFound','NotFoundException'})
         name = prefix+'-workspace-watchdog'
         missing(lambda: client(base, 'lambda').get_function_configuration(FunctionName=name), {'ResourceNotFoundException'})
         missing(lambda: client(base, 'sqs').get_queue_url(QueueName=name+'-failures', QueueOwnerAWSAccountId=account), {'AWS.SimpleQueueService.NonExistentQueue', 'QueueDoesNotExist'})
@@ -120,7 +130,7 @@ def foundation_extension():
             (f'aws_iam_role.workspace["{wid}"]', lambda: iam.get_role(RoleName=name), {'NoSuchEntity'}),
             ('aws_iam_role.launch', lambda: iam.get_role(RoleName=name+'-launch'), {'NoSuchEntity'}),
             (f'aws_iam_instance_profile.workspace["{wid}"]', lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'}),
-            ('aws_iam_user_policy.operator', lambda: iam.get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal'), {'NoSuchEntity'}),
+            (operator_address(value), lambda: operator_policy(iam, value, name+'-terminal'), {'NoSuchEntity'}),
             ('aws_ssm_document.terminal', lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'}),
             ('aws_ssm_document.job', lambda: client(base, 'ssm').get_document(Name=name+'-job'), {'InvalidDocument'}),
             ('aws_scheduler_schedule.workspace_deadline', lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'}),
@@ -515,7 +525,7 @@ def sessions(target):
         require(c.meta.endpoint_url.startswith('https://') and c.meta.endpoint_url.split('/')[2].endswith('.amazonaws.com'), 'SDK endpoint mismatch')
         return c
     observed = client(base,'sts').get_caller_identity()
-    require(observed['Account'] == target['account_id'] and observed['Arn'] == target['operator_arn'], 'SDK operator differs from named target')
+    require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):
         credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
         assumed = boto3.Session(aws_access_key_id=credentials['AccessKeyId'],aws_secret_access_key=credentials['SecretAccessKey'],
@@ -553,9 +563,29 @@ def role_name(config):
     suffix=sha(f"{config['aws_account_id']}/{config['aws_region']}/{ident['ml_project_name']}/{wid}".encode())[:10]
     return f"{config['resource_prefix'][:12]}-run-ws-{wid[:24]}-{suffix}"
 
+def supported_sizes():
+    return load_json(REPO/'infra/aws/workspace-profiles.json')['profiles']['cpu-python-v1']['supported_sizes']
+
+def operator_parts(config):
+    arn = config['workspace_identity']['request']['operators'][0]
+    return ('user' if ':user/' in arn else 'role'), arn.rsplit('/',1)[1]
+
+def operator_address(config):
+    kind, _ = operator_parts(config)
+    return 'aws_iam_'+kind+'_policy.operator[0]' if kind=='user' else 'aws_iam_role_policy.operator[0]'
+
+def operator_policy(iam, config, name):
+    kind, principal = operator_parts(config)
+    return iam.get_user_policy(UserName=principal, PolicyName=name) if kind=='user' else iam.get_role_policy(RoleName=principal, PolicyName=name)
+
+def operator_matches(expected, actual):
+    if ':role/' not in expected: return expected == actual
+    prefix = expected.split(':iam:')[0]+':sts::'+expected.split(':')[4]+':assumed-role/'+expected.rsplit('/',1)[1]+'/'
+    return actual.startswith(prefix) and bool(actual[len(prefix):])
+
 def prepared_addresses(config):
     wid=config['workspace_identity']['request']['workspace_id']
-    return {'terraform_data.lease','aws_iam_role.launch','aws_iam_role_policy.launch','aws_iam_user_policy.operator',
+    return {'terraform_data.lease','aws_iam_role.launch','aws_iam_role_policy.launch',operator_address(config),
             'aws_ssm_document.terminal','aws_ssm_document.job','aws_scheduler_schedule.workspace_deadline',
             *{name+'['+json.dumps(wid)+']' for name in ('aws_iam_role.workspace','aws_iam_role_policy.workspace_storage',
                 'aws_iam_role_policy_attachment.workspace_ssm','aws_iam_instance_profile.workspace')}}
@@ -566,12 +596,13 @@ def capacity(base,client,config):
     require(len(images)==1 and images[0]['State']=='available' and images[0]['Architecture']=='x86_64'
             and images[0]['Name']==TOOLBOX['ami_name']
             and images[0]['EnaSupport'],'reviewed AMI provenance/capability mismatch')
-    info=ec2.describe_instance_types(InstanceTypes=['r8i.2xlarge'])['InstanceTypes'][0]
-    require(info['VCpuInfo']['DefaultVCpus']==8 and info['MemoryInfo']['SizeInMiB']==65536,'capacity metadata mismatch')
+    sku=config.get('instance_type','r8i.2xlarge'); size=supported_sizes()[sku]
+    info=ec2.describe_instance_types(InstanceTypes=[sku])['InstanceTypes'][0]
+    require(info['VCpuInfo']['DefaultVCpus']==size['cpus'] and info['MemoryInfo']['SizeInMiB']>=size['memory_mb'],'capacity metadata mismatch')
     subnet=ec2.describe_subnets(SubnetIds=[config['subnet_id']])['Subnets'][0]
-    require(subnet['AvailabilityZone']=='us-east-1a','reviewed subnet zone mismatch')
+    require(subnet['AvailabilityZone']==config.get('availability_zone','us-east-1a'),'reviewed subnet zone mismatch')
     offered=ec2.describe_instance_type_offerings(LocationType='availability-zone',Filters=[
-        {'Name':'location','Values':[subnet['AvailabilityZone']]},{'Name':'instance-type','Values':['r8i.2xlarge']}])
+        {'Name':'location','Values':[subnet['AvailabilityZone']]},{'Name':'instance-type','Values':[sku]}])
     require(offered['InstanceTypeOfferings'] and not offered.get('NextToken'),'instance type not offered')
     security=ec2.describe_security_groups(GroupIds=[config['security_group_id']])['SecurityGroups'][0]
     require(security['VpcId']==subnet['VpcId'] and not security['IpPermissions'],'network must have no inbound rules')
@@ -587,8 +618,8 @@ def capacity(base,client,config):
     # host/reservation/other-family use is not silently discounted.
     types=sorted({i['InstanceType'] for i in instances})
     cpus={} if not types else {t['InstanceType']:t['VCpuInfo']['DefaultVCpus'] for t in ec2.describe_instance_types(InstanceTypes=types)['InstanceTypes']}
-    require(quota-sum(cpus[i['InstanceType']] for i in instances)>=8,'remaining observed CPU quota cannot fit default; no silent fallback')
-    return {'quota':quota,'account_instances':len(instances),'instance_type':'r8i.2xlarge','cpus':8,'memory_mb':65536,'capacity_available':'unverified'}
+    require(quota-sum(cpus[i['InstanceType']] for i in instances)>=size['cpus'],'remaining observed CPU quota cannot fit default; no silent fallback')
+    return {'quota':quota,'account_instances':len(instances),'instance_type':sku,'cpus':size['cpus'],'memory_mb':info['MemoryInfo']['SizeInMiB'],'capacity_available':'unverified'}
 
 def bound_instance(base,client,config,instance_id):
     result=client(base,'ec2').describe_instances(InstanceIds=[instance_id])
@@ -599,7 +630,7 @@ def bound_instance(base,client,config,instance_id):
               'LeaseId':config['lease']['id'],'ExpiresAt':config['lease']['expires_at'],'LeaseStart':config['lease']['starts_at'],
               'LaunchBefore':config['lease']['launch_before'],'ManagedBy':'opentofu','Project':config['project_name'],'Root':'runner'}
     require(all(tags.get(k)==v for k,v in expected.items()),'instance ownership/lease mismatch')
-    require(item['ImageId']==config.get('ami_id',TOOLBOX['ami_id']) and item['InstanceType']=='r8i.2xlarge'
+    require(item['ImageId']==config.get('ami_id',TOOLBOX['ami_id']) and item['InstanceType']==config.get('instance_type','r8i.2xlarge')
             and item['SubnetId']==config['subnet_id'] and {s['GroupId'] for s in item['SecurityGroups']}=={config['security_group_id']}
             and item['IamInstanceProfile']['Arn']==f"arn:aws:iam::{config['aws_account_id']}:instance-profile/{role_name(config)}",'instance image/network/profile mismatch')
     require(item['State']['Name']=='running' and utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['expires_at'])-dt.timedelta(minutes=5),'instance is not connectable within usable lease')
@@ -830,7 +861,10 @@ def observe_guard(base, client, config):
     require(role_records[names[0]]['trust']==expected_invoker_trust and role_records[names[1]]['trust']==expected_execution_trust,'guard Scheduler/Lambda trust differs from source')
     profile=iam.get_instance_profile(InstanceProfileName=role_name(config))['InstanceProfile']
     require([r['RoleName'] for r in profile['Roles']]==[role_name(config)], 'profile is not exact runtime role')
-    tag_values={t['Key']:t['Value'] for t in iam.list_user_tags(UserName='sposhfi-admin')['Tags']}
+    kind, name = operator_parts(config)
+    response = iam.list_user_tags(UserName=name) if kind=='user' else iam.list_role_tags(RoleName=name)
+    require(not response.get('IsTruncated'), 'operator tags incomplete')
+    tag_values={t['Key']:t['Value'] for t in response['Tags']}
     require(tag_values.get('SSMSessionRunAs','workspace')=='workspace','operator run-as override differs')
     doc=client(base,'ssm').get_document(Name=role_name(config)+'-terminal',DocumentVersion='$DEFAULT')
     inputs=json.loads(doc['Content'])['inputs']
@@ -927,7 +961,7 @@ def validate_config(config, target, stage):
     request=config['workspace_identity']['request']
     require(request['account_scope']==target['account_id'] and request['region']==target['region'] and
             request['operators']==[target['operator_arn']],'request operator/target mismatch')
-    require(config.get('instance_type','r8i.2xlarge')=='r8i.2xlarge' and config.get('ami_id',TOOLBOX['ami_id'])==TOOLBOX['ami_id'],'reviewed capacity/image mismatch')
+    require(config.get('instance_type','r8i.2xlarge') in supported_sizes() and config.get('ami_id',TOOLBOX['ami_id'])==TOOLBOX['ami_id'],'reviewed capacity/image mismatch')
     require(request['storage']['state_uri']==f"s3://{target['backend']['bucket']}/{target['backend']['runner_prefix']}{request['workspace_id']}.tfstate",'workspace state key mismatch')
     for key in ('starts_at','launch_before','expires_at'): utc(config['lease'][key])
     require(utc(config['lease']['starts_at']) < utc(config['lease']['launch_before']) <= utc(config['lease']['starts_at'])+dt.timedelta(minutes=5),'invalid launch window')
@@ -986,7 +1020,7 @@ def plan_scope(plan, stage, recovery=None):
             if recovery:
                 require(address in recovery['owned'] and address in ('aws_iam_role_policy.deployer','aws_iam_role_policy.workspace_guard["active"]') and actions==['update'],
                         'foundation recovery permits only its two owned inline policy updates')
-            else: foundation['scope'](item)
+            else: foundation['scope'](item, plan.get('variables', {}).get('ml_projects', {}).get('value', {'demo':{}}), plan.get('variables',{}).get('provision_alert_topic',{}).get('value',False))
         elif stage=='platform':
             require('delete' not in actions,'platform deletion forbidden')
             project_prerequisite=(address=='aws_iam_policy.session_manager' or address.startswith(('aws_s3_bucket_lifecycle_configuration.project[','terraform_data.project_storage_checks[')))
@@ -995,7 +1029,7 @@ def plan_scope(plan, stage, recovery=None):
         elif stage=='launch':
             require(address=='aws_instance.workspace[0]' and actions==['create'],'launch must create only its prepared EC2/root volume')
             after=item['change']['after']
-            require(after['instance_type']=='r8i.2xlarge' and after['ami']==TOOLBOX['ami_id'] and not after.get('key_name') and not after.get('disable_api_termination'),'unsafe launch values')
+            require(after['instance_type']==plan.get('variables',{}).get('instance_type',{}).get('value','r8i.2xlarge') and after['instance_type'] in supported_sizes() and after['ami']==TOOLBOX['ami_id'] and not after.get('key_name') and not after.get('disable_api_termination'),'unsafe launch values')
             require(len(base64.b64decode(after['user_data_base64'])) <= 16384,'EC2 user-data exceeds limit')
             root=after['root_block_device'][0]; metadata=after['metadata_options'][0]
             require(root['encrypted'] and root['delete_on_termination'] and root['volume_size']==30 and
@@ -1165,7 +1199,9 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     if stage=='fresh-platform' and not recovery:foundation['absent'](base,client,config)
     if stage=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config,recovery['owned'] if recovery else ())
     if is_platform(stage):
-        platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
+        platform_compute_absent(base,client,config)
+        if not config.get('provision_alert_topic'): alarm_destination(base,client,config)
+        shared_lambda_pool(base,client)
     details=None
     if stage=='launch':
         capacity_result=capacity(base,client,config)
@@ -1267,7 +1303,9 @@ def apply(directory):
     if m['stage']=='fresh-platform' and not recovery:foundation['absent'](base,client,config)
     if m['stage']=='prepare' and target==foundation['target'](target):foundation['prepare_absent'](base,client,config,recovery['owned'] if recovery else ())
     if is_platform(m['stage']):
-        platform_compute_absent(base,client,config); alarm_destination(base,client,config); shared_lambda_pool(base,client)
+        platform_compute_absent(base,client,config)
+        if not config.get('provision_alert_topic'): alarm_destination(base,client,config)
+        shared_lambda_pool(base,client)
     if m['stage']=='launch':
         preparation=read(Path(m['dependencies'][0]['directory'])/'review.json')
         platform_plan,platform_dependencies=reviewed_platform_plan(preparation)

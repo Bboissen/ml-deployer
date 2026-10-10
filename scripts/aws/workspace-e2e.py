@@ -7,6 +7,7 @@ import base64
 import copy
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -70,8 +71,9 @@ def verify_ssh(L, base, client, value, target):
     L['require'](isinstance(private, str) and len(private.encode()) <= 16384 and
                  private.startswith('-----BEGIN OPENSSH PRIVATE KEY-----\n') and
                  private.rstrip().endswith('-----END OPENSSH PRIVATE KEY-----'), 'Store raw OpenSSH private key plaintext in the selected Secrets Manager version')
-    L['require'](subprocess.check_output(['findmnt', '-no', 'FSTYPE', '--target', '/dev/shm'], timeout=5).strip() == b'tmpfs', 'RAM-backed key validation required')
-    with tempfile.TemporaryDirectory(prefix='workspace-preflight-', dir='/dev/shm') as temporary:
+    spec = importlib.util.spec_from_file_location('workspace_ram', L['REPO']/'scripts/aws/workspace_ram.py')
+    ram = importlib.util.module_from_spec(spec); spec.loader.exec_module(ram)
+    with ram.key_directory() as temporary:
         key = Path(temporary)/'key'
         descriptor = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, 'w') as stream:
@@ -103,12 +105,13 @@ def verify_ssh(L, base, client, value, target):
             return output
         # A pinned commit may be older than the advertised branch heads. Fetch
         # that exact object into a temporary bare repository; execute no code.
-        repository = str(Path(temporary)/'repository.git')
-        git(['init', '--bare', '--template=', repository], 5)
-        git(['-C', repository, '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', '--no-tags',
-             '--', value['repository']['url'], value['repository']['revision']])
-        L['require'](git(['-C', repository, 'rev-parse', 'FETCH_HEAD'], 5).decode().strip() == value['repository']['revision'],
-                     'Fetched repository commit differs from the pin')
+        with tempfile.TemporaryDirectory(prefix='workspace-ref-') as checkout:
+            repository = str(Path(checkout)/'repository.git')
+            git(['init', '--bare', '--template=', repository], 5)
+            git(['-C', repository, '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', '--no-tags',
+                 '--', value['repository']['url'], value['repository']['revision']])
+            L['require'](git(['-C', repository, 'rev-parse', 'FETCH_HEAD'], 5).decode().strip() == value['repository']['revision'],
+                         'Fetched repository commit differs from the pin')
     return {'public_key_fingerprint': fingerprint, 'private_key_file_removed': True, 'read_access_verified': True}
 
 
@@ -214,8 +217,8 @@ def run_command(L, base, client, target, config, launch, instance, job, director
     L['require'](json.loads(document['Content']) == json.loads(expected['aws_ssm_document.job']['content']) and
                  document['DocumentType'] == 'Command' and document['DocumentVersion'] == '1'
                  and description['DocumentVersion'] == '1' and description['HashType'] == 'Sha256', 'Unattended command document differs from the exact reviewed plan')
-    operator = client(base, 'iam').get_user_policy(UserName='sposhfi-admin', PolicyName=name+'-terminal')['PolicyDocument']
-    L['require'](operator == json.loads(expected['aws_iam_user_policy.operator']['policy']), 'Unattended operator grant differs from the exact reviewed plan')
+    operator = L['operator_policy'](client(base, 'iam'), config, name+'-terminal')['PolicyDocument']
+    L['require'](operator == json.loads(expected[L['operator_address'](config)]['policy']), 'Unattended operator grant differs from the exact reviewed plan')
     deadline = time.monotonic()+720
     while True:
         L['bound_instance'](base, client, config, instance)

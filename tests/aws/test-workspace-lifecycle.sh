@@ -154,7 +154,7 @@ class HeartbeatObservation(unittest.TestCase):
     def setUp(self):
         account='000000000000'; prefix='ml-infra'
         self.config={'aws_account_id':account,'aws_region':'us-east-1','resource_prefix':prefix,'project_name':prefix,
-                     'workspace_identity':{'ml_project_name':'demo','request':{'workspace_id':'demo-dev-01'},
+                     'workspace_identity':{'ml_project_name':'demo','request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'},
                      'permissions_boundary_arn':f'arn:aws:iam::{account}:policy/{prefix}-ws-demo-boundary',
                      'session_policy_arn':f'arn:aws:iam::{account}:policy/{prefix}-session-manager-minimal'},
                      'lease':{'id':'b'*32,'starts_at':LIFE['stamp'](T),'expires_at':LIFE['stamp'](T+dt.timedelta(hours=1))},
@@ -445,7 +445,7 @@ class Boundary(unittest.TestCase):
     def test_changed_schedule_timezone_or_end_closes_guard(self):
         config={'guard':{'guard_id':'a'*32,'function_arn':'function','invoker_role_arn':'role','failure_queue_arn':'queue'},
                 'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra',
-                'workspace_identity':{'ml_project_name':'demo','request':{'workspace_id':'demo-dev-01'}}}
+                'workspace_identity':{'ml_project_name':'demo','request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'}}}
         value={'State':'ENABLED','ScheduleExpression':'rate(1 minute)','ScheduleExpressionTimezone':'UTC','ActionAfterCompletion':'NONE',
                'FlexibleTimeWindow':{'Mode':'OFF'},'Target':{'Arn':'function','RoleArn':'role',
                'Input':json.dumps({'kind':'sweep','guard_id':'a'*32}),'RetryPolicy':{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':3},
@@ -589,7 +589,7 @@ class Boundary(unittest.TestCase):
         snapshot=LIFE['snapshot'](None,lambda *a:fake,target,'owned.tfstate')
         self.assertEqual(snapshot,{'key':'owned.tfstate','version':'native-version','lineage':'offline-lineage','serial':7,'sha256':hashlib.sha256(raw).hexdigest()})
     def test_cleanup_refuses_live_pending_and_stopped_compute(self):
-        config={'guard':{'guard_id':OWN['GuardId']},'workspace_identity':{'request':{'workspace_id':TAGS['WorkspaceId']}},'lease':{'id':TAGS['LeaseId']}}
+        config={'guard':{'guard_id':OWN['GuardId']},'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':TAGS['WorkspaceId']}},'lease':{'id':TAGS['LeaseId']}}
         for state in ('running','pending','stopped','shutting-down'):
             fake=EC2([instance(state)])
             with self.assertRaises(LIFE['Failure']): LIFE['inventory'](None,lambda *a:fake,config)
@@ -647,7 +647,7 @@ class Foundation(unittest.TestCase):
                 self.assertFalse(LIFE['prior_source']({'revision':'a'*40,'working_tree_sha256':LIFE['sha'](b'')}))
     def test_partial_recovery_binds_owned_state_and_consumed_plan(self):
         directory=OUT/'partial-recovery'; directory.mkdir()
-        config={'workspace_identity':{'request':{'workspace_id':'demo-dev-01'}},'lease':{'id':'old'}}
+        config={'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'}},'lease':{'id':'old'}}
         address='aws_iam_role.launch'
         planned=[{'address':a,'mode':'managed','values':{'name':'owned-launch'} if a==address else {}}
                  for a in LIFE['prepared_addresses'](config)]
@@ -718,7 +718,7 @@ class Foundation(unittest.TestCase):
         def missing(**kw):raise Missing()
         api=types.SimpleNamespace(get_role=missing,get_instance_profile=missing,get_user_policy=lambda **kw:{'PolicyDocument':{'old':'grant'}})
         with patch.dict(LIFE,{'role_name':lambda _: 'offline-new-workspace'}):
-            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{'workspace_identity':{'request':{'workspace_id':'offline'}}})
+            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'offline','operators':['arn:aws:iam::000000000000:user/operator']}}})
     def test_bootstrap_plan_binds_local_state_and_never_applies(self):
         directory=OUT/'bootstrap-offline-plan';config_path=OUT/'bootstrap-offline-config.json';calls=[]
         selected={'account_id':'000000000000','region':'us-east-1','profile':'offline','operator_arn':'arn:aws:iam::000000000000:user/offline',
