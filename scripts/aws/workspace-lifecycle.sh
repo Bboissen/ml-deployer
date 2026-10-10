@@ -12,6 +12,7 @@ import json
 import os
 import re
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -82,7 +83,7 @@ def foundation_extension():
 
     def scope(item, projects=('demo',), provision_alert_topic=False):
         addresses = {a for a in FRESH_ADDRESSES if '["demo"]' not in a}
-        if provision_alert_topic: addresses.add('aws_sns_topic.workspace_alerts[0]')
+        if provision_alert_topic: addresses.update({'aws_kms_key.workspace_alerts[0]','aws_sns_topic.workspace_alerts[0]','aws_sns_topic_policy.workspace_alerts[0]'})
         addresses.update(a.replace('["demo"]', '['+json.dumps(p)+']') for a in FRESH_ADDRESSES if '["demo"]' in a for p in projects)
         L['require'](item['address'] in addresses and item['change']['actions'] == ['create'],
                      'fresh platform permits only its exact new resources; no old IAM updates/adoption/deletion')
@@ -176,7 +177,29 @@ def foundation_extension():
         return {'packet':str(directory), 'compute_enabled':False, 'target_activation':'only after successful fresh platform and verified deployment role'}
 
 
-    def bootstrap_context(name, value, path):
+    def bootstrap_recovery(directory, value, selected):
+        directory=L['checked_path'](directory)
+        review=L['read'](directory/'review.json'); authorization=L['read'](directory/'authorization.json'); started=L['read'](directory/'apply-started.json')
+        L['require'](review['stage']=='bootstrap' and review['target']==selected and L['prior_source'](review['source']) and
+            authorization['review_sha256']==started['review_sha256']==L['sha'](L['canon'](review)) and
+            authorization['plan_sha256']==review['plan_sha256'] and authorization['scope']==review['scope'] and
+            L['sha']((directory/'saved.tfplan').read_bytes())==review['plan_sha256'] and
+            L['sha']((directory/'plan.json').read_bytes())==review['plan_json_sha256'] and
+            L['sha'](L['canon'](value))==review['config_sha256'],'bootstrap recovery authorization/input drift')
+        state_path=L['checked_path'](review['backend']['path']); current=L['read'](state_path)
+        owned=[]
+        for resource in current['resources']:
+            if resource['mode']!='managed': continue
+            address=resource['type']+'.'+resource['name']
+            L['require'](not resource.get('module') and address in BOOTSTRAP_ADDRESSES and len(resource['instances'])==1,'bootstrap recovery foreign state')
+            attributes=resource['instances'][0]['attributes']
+            L['require'](attributes.get('bucket')==value['state_bucket_name'],'bootstrap recovery bucket ownership differs')
+            owned.append(address)
+        L['require'](owned and current.get('lineage') and type(current.get('serial')) is int,'bootstrap recovery state ownership missing')
+        return {'directory':str(directory),'owned':sorted(owned),'backend_path':str(state_path),
+                'state_sha256':L['sha'](state_path.read_bytes()),'lineage':current['lineage'],'serial':current['serial']}
+
+    def bootstrap_context(name, value, path, recover_from=None):
         selected = target(L['boundary']['targets']()[name])
         L['require'](value['aws_account_id'] == selected['account_id'] and value['aws_region'] == selected['region'] and
                      value['project_name'] == selected['inventory']['resource_prefix'] and value['state_bucket_name'] == selected['backend']['bucket'], 'bootstrap target/config mismatch')
@@ -184,29 +207,40 @@ def foundation_extension():
         operator = L['boundary']['identity'](selected, env)
         base, client, _ = L['sessions'](selected)
         path = L['checked_path'](path)
-        L['require'](not path.exists(), 'bootstrap state exists; preserve it and review recovery')
-        missing(lambda: client(base, 's3').head_bucket(Bucket=value['state_bucket_name'], ExpectedBucketOwner=selected['account_id']), {'404', 'NoSuchBucket'})
+        if recover_from:
+            recovery=bootstrap_recovery(recover_from,value,selected)
+            L['require'](str(path)==recovery['backend_path'],'bootstrap recovery backend differs')
+            client(base,'s3').head_bucket(Bucket=value['state_bucket_name'],ExpectedBucketOwner=selected['account_id'])
+        else:
+            recovery=None
+            L['require'](not path.exists(), 'bootstrap state exists; preserve it and review recovery')
+            missing(lambda: client(base, 's3').head_bucket(Bucket=value['state_bucket_name'], ExpectedBucketOwner=selected['account_id']), {'404', 'NoSuchBucket'})
         identities = {'cli':operator, 'sdk_operator':selected['operator_arn'], 'provider':selected['operator_arn'], 'backend':'local'}
-        state = {'path':str(path), 'lineage':None, 'serial':None, 'sha256':None}
+        state = {'path':str(path), 'lineage':recovery['lineage'] if recovery else None,
+                 'serial':recovery['serial'] if recovery else None,'sha256':recovery['state_sha256'] if recovery else None}
         return selected, env, identities, state
 
 
-    def bootstrap_scope(plan):
+    def bootstrap_scope(plan, recovery=None):
         mutations = []
         for item in plan.get('resource_changes', []):
             if item['change']['actions'] in (['read'], ['no-op']):
                 continue
-            L['require'](item.get('mode') == 'managed' and item['address'] in BOOTSTRAP_ADDRESSES and item['change']['actions'] == ['create'], 'bootstrap permits only new state-storage prerequisites')
-            mutations.append({'address':item['address'], 'actions':['create']})
-        L['require']({x['address'] for x in mutations} == BOOTSTRAP_ADDRESSES, 'bootstrap must create all seven protected state resources')
+            L['require'](item.get('mode') == 'managed' and item['address'] in BOOTSTRAP_ADDRESSES and (item['change']['actions']==['create'] and (not recovery or item['address'] not in recovery['owned']) or
+                         recovery and item['address'] in recovery['owned'] and item['change']['actions']==['update']), 'bootstrap permits only its owned protected storage prerequisites')
+            mutations.append({'address':item['address'], 'actions':item['change']['actions']})
+        L['require'](recovery or {x['address'] for x in mutations} == BOOTSTRAP_ADDRESSES, 'bootstrap must create all seven protected state resources')
         return mutations
 
 
-    def bootstrap_plan(name, config_path, output):
+    def bootstrap_plan(name, config_path, output, recover_from=None):
         directory = L['checked_path'](output)
         L['require'](not directory.exists(), 'preserve earlier bootstrap plan')
         value = L['read'](config_path)
-        selected, env, identities, state = bootstrap_context(name, value, directory/'bootstrap.tfstate')
+        selected=target(L['boundary']['targets']()[name])
+        recovery=bootstrap_recovery(recover_from,value,selected) if recover_from else None
+        state_path=Path(recovery['backend_path']) if recovery else directory/'bootstrap.tfstate'
+        selected, env, identities, state = bootstrap_context(name, value, state_path, recover_from)
         root = L['REPO']/'infra/aws/bootstrap/workspace'
         L['require'](not any(root.glob('*.auto.tfvars*')) and not (root/'terraform.tfvars').exists(), 'implicit root configuration rejected')
         directory.mkdir(parents=True, mode=0o700)
@@ -220,14 +254,14 @@ def foundation_extension():
         L['run'](['tofu', f'-chdir={root}', 'validate', '-no-color'], env)
         L['run'](['tofu', f'-chdir={root}', 'plan', '-input=false', '-lock-timeout=30s', '-no-color', f'-var-file={directory}/config.tfvars.json', f'-out={directory}/saved.tfplan'], env, 240)
         raw = L['run'](['tofu', f'-chdir={root}', 'show', '-json', str(directory/'saved.tfplan')], env, 60)
-        scope_value = bootstrap_scope(L['json'].loads(raw))
+        scope_value = bootstrap_scope(L['json'].loads(raw),recovery)
         (directory/'plan.json').write_text(raw)
         manifest = {'target_name':name, 'target':selected, 'stage':'bootstrap', 'source':L['source'](), 'root':str(root),
             'identities':identities, 'backend':backend, 'state':state, 'config_sha256':L['sha'](L['canon'](value)),
             'plan_sha256':L['sha']((directory/'saved.tfplan').read_bytes()), 'plan_json_sha256':L['sha'](raw.encode()),
             'lock_sha256':L['sha']((root/'.terraform.lock.hcl').read_bytes()),
             'tofu_version':L['json'].loads(L['run'](['tofu', 'version', '-json'], env, 10))['terraform_version'],
-            'artifacts':{}, 'dependencies':[], 'scope':scope_value, 'created_at':L['stamp'](), 'deployment_authorized':False}
+            'artifacts':{}, 'dependencies':[], 'recovery':recovery,'scope':scope_value, 'created_at':L['stamp'](), 'deployment_authorized':False}
         L['write'](directory/'review.json', manifest)
         return {'evidence':str(directory), 'review_sha256':L['sha'](L['canon'](manifest)), 'scope':scope_value, 'deployment_authorized':False}
 
@@ -236,13 +270,13 @@ def foundation_extension():
         read, require, sha, canon = (L[k] for k in ('read','require','sha','canon'))
         m, authorization, value = (read(directory/name) for name in ('review.json','authorization.json','config.tfvars.json'))
         root = L['REPO']/'infra/aws/bootstrap/workspace'
-        require(m['root'] == str(root) and m['backend'] == {'path':str(directory/'bootstrap.tfstate')} and read(directory/'backend.json') == m['backend'], 'bootstrap root/backend drift')
+        require(m['root'] == str(root) and m['backend'] == {'path':m['recovery']['backend_path'] if m.get('recovery') else str(directory/'bootstrap.tfstate')} and read(directory/'backend.json') == m['backend'], 'bootstrap root/backend drift')
         require(authorization['review_sha256'] == sha(canon(m)) and authorization['plan_sha256'] == m['plan_sha256'] and authorization['scope'] == m['scope'], 'authorization does not bind exact bootstrap')
         require(not (directory/'apply-started.json').exists(), 'single-use authorization consumed')
         require(L['source']() == m['source'] and sha(canon(value)) == m['config_sha256'], 'source/config drift')
-        require(sha((directory/'saved.tfplan').read_bytes()) == m['plan_sha256'] and sha((directory/'plan.json').read_bytes()) == m['plan_json_sha256'] and bootstrap_scope(read(directory/'plan.json')) == m['scope'], 'bootstrap saved plan drift')
+        require(sha((directory/'saved.tfplan').read_bytes()) == m['plan_sha256'] and sha((directory/'plan.json').read_bytes()) == m['plan_json_sha256'] and bootstrap_scope(read(directory/'plan.json'),m.get('recovery')) == m['scope'], 'bootstrap saved plan drift')
         require(sha((root/'.terraform.lock.hcl').read_bytes()) == m['lock_sha256'], 'provider lock drift')
-        selected, env, identities, state = bootstrap_context(m['target_name'], value, directory/'bootstrap.tfstate')
+        selected, env, identities, state = bootstrap_context(m['target_name'], value, Path(m['backend']['path']),m['recovery']['directory'] if m.get('recovery') else None)
         require(selected == m['target'] and identities == m['identities'] and state == m['state'], 'bootstrap target/identity/state drift')
         env.update(TF_DATA_DIR=str(directory/'tofu-data'))
         for key in list(env):
@@ -251,8 +285,8 @@ def foundation_extension():
         L['run'](['tofu', f'-chdir={root}', 'init', '-reconfigure', '-input=false', '-lockfile=readonly', f'-backend-config={directory}/backend.json', '-no-color'], env)
         L['write'](directory/'apply-started.json', {'review_sha256':authorization['review_sha256'], 'started_at':L['stamp']()})
         L['run'](['tofu', f'-chdir={root}', 'apply', '-input=false', '-lock-timeout=30s', '-no-color', str(directory/'saved.tfplan')], env, 300)
-        require((directory/'bootstrap.tfstate').is_file(), 'bootstrap local state missing')
-        L['write'](directory/'apply-result.json', {'status':'success', 'completed_at':L['stamp'](), 'state_sha256':sha((directory/'bootstrap.tfstate').read_bytes()), 'native_workspace_ready':False})
+        require(Path(m['backend']['path']).is_file(), 'bootstrap local state missing')
+        L['write'](directory/'apply-result.json', {'status':'success', 'completed_at':L['stamp'](), 'state_sha256':sha(Path(m['backend']['path']).read_bytes()), 'native_workspace_ready':False})
         return {'status':'success', 'evidence':str(directory), 'native_workspace_ready':False}
 
 
@@ -380,7 +414,7 @@ def resolved_deployer_policy(planned, state):
     return policy
 
 def checked_path(value):
-    return inside(Path(value).resolve())
+    return inside(Path(value).absolute())
 
 def read(value):
     return load_json(checked_path(value))
@@ -429,18 +463,23 @@ def build(directory):
     for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'):
         members[name] = (REPO/name).read_bytes()
     toolbox_hash = archive(directory/'toolbox.zip', members)
+    require(shutil.disk_usage(REPO).free>=2*1024**3,'artifact build requires 2 GiB free space')
     sdk = directory/'sdk'
     # Local dependency downloads only; SDK is bundled to avoid mutable Lambda
     # runtime SDK behavior. uv verifies every wheel against the reviewed lock.
     env = {k:v for k,v in os.environ.items() if not k.startswith(('AWS_','TF_'))}
     env.update(UV_CACHE_DIR=str(directory/'uv-cache'), PYTHONDONTWRITEBYTECODE='1')
-    run(['uv','pip','install','--python','3.13','--target',str(sdk),'--only-binary',':all:',
-         '--require-hashes','--no-compile-bytecode','-r',str(toolbox/'sdk-requirements.lock')],env,180)
-    sdk_members = {str(p.relative_to(sdk)):p.read_bytes() for p in sdk.rglob('*')
-                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc' and p.relative_to(sdk).parts[0]!='bin'
-                   and p.name not in ('RECORD','uv_cache.json','direct_url.json')}
-    sdk_members['watchdog.py'] = (REPO/'infra/aws/runner/workspace/watchdog.py.tftpl').read_bytes()
-    guard_hash = archive(directory/'watchdog.zip',sdk_members)
+    try:
+        run(['uv','pip','install','--python','3.13','--target',str(sdk),'--only-binary',':all:',
+             '--require-hashes','--no-compile-bytecode','-r',str(toolbox/'sdk-requirements.lock')],env,180)
+        sdk_members = {str(p.relative_to(sdk)):p.read_bytes() for p in sdk.rglob('*')
+                       if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc' and p.relative_to(sdk).parts[0]!='bin'
+                       and p.name not in ('RECORD','uv_cache.json','direct_url.json')}
+        sdk_members['watchdog.py'] = (REPO/'infra/aws/runner/workspace/watchdog.py.tftpl').read_bytes()
+        guard_hash = archive(directory/'watchdog.zip',sdk_members)
+    finally:
+        for owned in (sdk,directory/'uv-cache'):
+            if owned.exists(): shutil.rmtree(owned)
     result = {'source':source(),'toolbox_zip_path':str(directory/'toolbox.zip'),
               'toolbox_zip_sha256':toolbox_hash,'guard_zip_path':str(directory/'watchdog.zip'),
               'guard_zip_sha256':guard_hash,'native_readiness':'unverified'}
@@ -552,7 +591,8 @@ def snapshot(base, client, target, key):
         return {'key':key,'version':None,'lineage':None,'serial':None,'sha256':None}
     require(head.get('VersionId') and 0 < head['ContentLength'] <= 2*1024*1024, 'versioned bounded state required')
     response = s3.get_object(**args,VersionId=head['VersionId'])
-    raw = response['Body'].read(2*1024*1024+1)
+    try: raw = response['Body'].read(2*1024*1024+1)
+    finally: response['Body'].close()
     require(len(raw)==head['ContentLength'], 'state size changed')
     value = json.loads(raw)
     require(isinstance(value.get('serial'),int) and value.get('lineage'), 'invalid state lineage')
@@ -611,12 +651,19 @@ def capacity(base,client,config):
     require(not routes.get('NextToken') and len(routes['RouteTables'])==1 and any(r.get('DestinationCidrBlock')=='0.0.0.0/0'
             and r.get('GatewayId','').startswith('igw-') and r['State']=='active' for r in routes['RouteTables'][0]['Routes']),'reviewed public outbound route missing')
     quota=client(base,'service-quotas').get_service_quota(ServiceCode='ec2',QuotaCode='L-1216C47A')['Quota']['Value']
-    active=ec2.describe_instances(Filters=[{'Name':'instance-state-name','Values':['pending','running','stopping','stopped','shutting-down']}],MaxResults=100)
-    require(not active.get('NextToken'),'quota inventory incomplete')
-    instances=[i for r in active['Reservations'] for i in r['Instances']]
+    query={'Filters':[{'Name':'instance-state-name','Values':['pending','running','stopping','stopped','shutting-down']}],'MaxResults':100}
+    instances=[]; tokens=set()
+    for _ in range(100):
+        active=ec2.describe_instances(**query)
+        instances.extend(i for r in active['Reservations'] for i in r['Instances'])
+        token=active.get('NextToken')
+        if not token: break
+        require(token not in tokens,'repeated quota continuation token'); tokens.add(token); query['NextToken']=token
+    else: raise Failure('quota inventory page bound exceeded')
     # Conservative standard-family ceiling includes stopped instances. Dedicated
     # host/reservation/other-family use is not silently discounted.
     types=sorted({i['InstanceType'] for i in instances})
+    require(len(types)<=100,'quota machine-type inventory exceeds supported bound')
     cpus={} if not types else {t['InstanceType']:t['VCpuInfo']['DefaultVCpus'] for t in ec2.describe_instance_types(InstanceTypes=types)['InstanceTypes']}
     require(quota-sum(cpus[i['InstanceType']] for i in instances)>=size['cpus'],'remaining observed CPU quota cannot fit default; no silent fallback')
     return {'quota':quota,'account_instances':len(instances),'instance_type':sku,'cpus':size['cpus'],'memory_mb':info['MemoryInfo']['SizeInMiB'],'capacity_available':'unverified'}
@@ -1018,8 +1065,9 @@ def plan_scope(plan, stage, recovery=None):
                     'credential update changes unrelated boundary attributes')
         elif stage=='fresh-platform':
             if recovery:
-                require(address in recovery['owned'] and address in ('aws_iam_role_policy.deployer','aws_iam_role_policy.workspace_guard["active"]') and actions==['update'],
-                        'foundation recovery permits only its two owned inline policy updates')
+                require((address in recovery.get('expected',recovery['owned']) and address not in recovery['owned'] and actions==['create']) or
+                        (address in recovery['owned'] and address in ('aws_iam_role_policy.deployer','aws_iam_role_policy.workspace_guard["active"]') and actions==['update']),
+                        'foundation recovery exceeds its owned controls/missing original creates')
             else: foundation['scope'](item, plan.get('variables', {}).get('ml_projects', {}).get('value', {'demo':{}}), plan.get('variables',{}).get('provision_alert_topic',{}).get('value',False))
         elif stage=='platform':
             require('delete' not in actions,'platform deletion forbidden')
@@ -1063,8 +1111,8 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
     previous=read(directory/'config.tfvars.json')
     require(sha(canon(previous))==m['config_sha256'], 'recovery config drift')
     if stage=='fresh-platform':
-        require(read(directory/'apply-result.json')['status']=='success' and previous==config, 'foundation recovery requires its successful exact configuration')
-        expected=foundation['FRESH_ADDRESSES']
+        require(previous==config,'foundation recovery requires its exact original configuration')
+        expected={r['address'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}
     else:
         # Only lease/observation may change. Never repurpose existing identities.
         excluded={'guard_observation','phase'} if stage=='cleanup' else {'lease','guard_observation'}
@@ -1078,7 +1126,8 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
             (m['state']['lineage'] is None or state['lineage']==m['state']['lineage']), 'recovery state lineage/key differs')
     response=client(base,'s3').get_object(Bucket=target['backend']['bucket'], Key=state['key'],
         VersionId=state['version'], ExpectedBucketOwner=target['account_id'])
-    raw=response['Body'].read(2*1024*1024+1)
+    try: raw=response['Body'].read(2*1024*1024+1)
+    finally: response['Body'].close()
     require(sha(raw)==state['sha256'], 'recovery state version changed')
     current=json.loads(raw); owned=set()
     planned={r['address']:r['values'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}
@@ -1094,7 +1143,7 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
                 if planned[address].get(field) is not None:
                     require(attributes.get(field)==planned[address][field], 'recovery resource identity differs: '+address)
             owned.add(address)
-    require(owned and (stage!='fresh-platform' or owned==expected), 'recovery state incomplete')
+    require(owned, 'recovery state contains no verified owned resources')
     platform_compute_absent(base,client,config)
     return {'directory':str(directory),'review_sha256':sha(canon(m)), 'authorization_sha256':sha(canon(authorization)),
             'started_sha256':sha(canon(started)), 'owned':sorted(owned), 'expected':sorted(expected), 'state':state}
@@ -1113,17 +1162,31 @@ def context(target_name, stage, config):
     state=snapshot(base,client,target,key)
     return target,env,base,client,identities,state
 
+def owned_pages(api,operation,field,filters):
+    arguments={'Filters':filters,'MaxResults':100}; items=[]; tokens=set(); deadline=time.monotonic()+60
+    for _ in range(100):
+        require(time.monotonic()<deadline,'inventory incomplete: time bound exhausted')
+        response=getattr(api,operation)(**arguments); page=response.get(field,[])
+        require(isinstance(page,list) and len(page)<=100,'inventory malformed/oversized')
+        items.extend(page)
+        token=response.get('NextToken')
+        if not token: return items
+        require(token not in tokens,'inventory incomplete: repeated continuation token')
+        tokens.add(token); arguments['NextToken']=token
+    raise Failure('inventory incomplete: pagination bound exhausted')
+
+
 def inventory(base,client,config):
     filters=[{'Name':'tag:'+k,'Values':[v]} for k,v in {
         'GuardId':config['guard']['guard_id'],'WorkspaceId':config['workspace_identity']['request']['workspace_id'],'LeaseId':config['lease']['id']}.items()]
-    result=client(base,'ec2').describe_instances(Filters=filters,MaxResults=100)
-    require(not result.get('NextToken'),'inventory incomplete')
-    items=[i for r in result['Reservations'] for i in r['Instances']]
+    api=client(base,'ec2')
+    reservations=owned_pages(api,'describe_instances','Reservations',filters)
+    items=[i for r in reservations for i in r['Instances']]
     live=[i for i in items if i['State']['Name']!='terminated']
     require(not live,'covered compute still remains; guard/deadline/profile must be retained')
     for operation in ('describe_volumes','describe_network_interfaces'):
-        page=getattr(client(base,'ec2'),operation)(Filters=filters,MaxResults=100)
-        require(not page.get('NextToken') and not page.get('Volumes',page.get('NetworkInterfaces',[])),'owned disk/interface remains; separate exact orphan review required')
+        items_left=owned_pages(api,operation,'Volumes' if operation=='describe_volumes' else 'NetworkInterfaces',filters)
+        require(not items_left,'owned disk/interface remains; separate exact orphan review required')
     return {'observed_at':stamp(),'covered_instances':len(items),'live_compute':0,'owned_volumes':0,'owned_interfaces':0,'elastic_ips_created':False}
 
 def remaining_owned(base,client,owned):
@@ -1145,9 +1208,9 @@ def remaining_owned(base,client,owned):
 
 def platform_compute_absent(base,client,config):
     guard_id=sha(f"{config['aws_account_id']}/{config['aws_region']}/{config['resource_prefix']}/workspace-v1".encode())[:32]
-    page=client(base,'ec2').describe_instances(Filters=[{'Name':'tag:'+k,'Values':[v]} for k,v in {
-        'GuardId':guard_id,'Project':config['project_name'],'Root':'runner','ManagedBy':'opentofu'}.items()],MaxResults=100)
-    require(not page.get('NextToken') and all(i['State']['Name']=='terminated' for r in page['Reservations'] for i in r['Instances']),
+    reservations=owned_pages(client(base,'ec2'),'describe_instances','Reservations',[{'Name':'tag:'+k,'Values':[v]} for k,v in {
+        'GuardId':guard_id,'Project':config['project_name'],'Root':'runner','ManagedBy':'opentofu'}.items()])
+    require(all(i['State']['Name']=='terminated' for r in reservations for i in r['Instances']),
             'covered compute remains; persistent guard may not be updated or retired')
 
 def alarm_destination(base,client,config):

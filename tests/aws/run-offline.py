@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -19,12 +20,18 @@ for name in commands:
     before = {path for scope in SCOPES if scope.exists() for path in scope.rglob('*')}
     free = shutil.disk_usage(ROOT).free
     if free < 2*1024**3: raise RuntimeError('offline checks require 2 GiB free space')
-    deleted = []; code = 2; started = time.monotonic()
+    deleted = []; code = 2; log = ''; started = time.monotonic()
     try:
         command = [sys.executable,'-B',name] if name.endswith('.py') else ['bash',name]
-        result = subprocess.run(command, env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1','WORKSPACE_PYTHON':sys.executable}, timeout=600, capture_output=True, text=True)
-        code = result.returncode
-        log = result.stdout+result.stderr
+        process = subprocess.Popen(command, env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1','WORKSPACE_PYTHON':sys.executable},
+                                   stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
+        try:
+            log,_=process.communicate(timeout=600); code=process.returncode
+        finally:
+            try: os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError: pass
+            tail,_=process.communicate(timeout=15)
+            if not log: log=tail or ''
         print(log[-8000:] if code else log[-1000:], flush=True)
     finally:
         created = {path for scope in SCOPES if scope.exists() for path in scope.rglob('*')} - before

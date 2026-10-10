@@ -159,27 +159,52 @@ def main():
     sub = parser.add_subparsers(dest='verb', required=True)
     p = sub.add_parser('configure', help='prepare a short project config; read-only discovery or supplied offline observations')
     p.add_argument('--discovery', help='offline discovery JSON; never treated as native admission')
+    p = sub.add_parser('deploy',help='review one concrete scope; execute it with task authorization')
+    p.add_argument('--operation'); p.add_argument('--authorization')
+    for verb in ('resume','cancel','logs'):
+        p=sub.add_parser(verb); p.add_argument('run',nargs='?')
     p = sub.add_parser('render', help='offline: derive request and runner inputs for a new absolute lease')
     p.add_argument('run'); p.add_argument('--starts-at', required=True)
     p = sub.add_parser('plan'); p.add_argument('run'); p.add_argument('stage', choices=['access', 'prepare', 'launch', 'retire', 'cleanup'])
     p = sub.add_parser('apply'); p.add_argument('run'); p.add_argument('stage', choices=['access', 'prepare', 'launch', 'retire', 'cleanup'])
     p.add_argument('--review-sha256', required=True); p.add_argument('--authorization', required=True)
     for verb in ('connect', 'commands'):
-        p = sub.add_parser(verb); p.add_argument('run')
+        p = sub.add_parser(verb); p.add_argument('run',nargs='?')
     p = sub.add_parser('preflight', help='read-only AWS/Git checks; no resource creation')
     p.add_argument('run')
     p = sub.add_parser('run', help='one bounded unattended job, independent result verification and compute cleanup')
     p.add_argument('run'); p.add_argument('--authorization', required=True)
     p = sub.add_parser('status', help='bounded local observation of a run')
-    p.add_argument('run'); p.add_argument('--wait', type=int, default=0)
+    p.add_argument('run',nargs='?'); p.add_argument('--wait', type=int, default=0)
     args = parser.parse_args()
     if args.verb == 'configure':
         print(json.dumps(P.configure(L, args.config, args.discovery), indent=2, sort_keys=True))
         return
     if L['load_json'](args.config).get('schema_version') == '1.0.0':
-        require(args.verb == 'status', 'short configuration supports configure/status only; generic deployment is pending')
-        require(args.wait == 0, 'configuration status is an immediate local observation; omit --wait')
-        print(json.dumps(P.operation_status(L, args.config, args.run), indent=2, sort_keys=True))
+        spec=importlib.util.spec_from_file_location('aws_deploy',ROOT/'scripts/aws/workspace-deploy.py')
+        D=importlib.util.module_from_spec(spec); spec.loader.exec_module(D)
+        require(args.verb in ('deploy','status','resume','cancel','logs','connect'), 'short configuration uses deploy; advanced run requires an explicit configuration')
+        if args.verb=='deploy': result=D.deploy(globals(),args.config,args.operation,args.authorization)
+        else:
+            directory=checked(args.run) if args.run else D.latest(L,args.config)
+            if args.verb in ('resume','cancel'): result=getattr(D,args.verb)(globals(),args.config,directory)
+            elif args.verb=='status':
+                P.operation_status(L,args.config,directory)
+                if (directory/'scope.json').exists():
+                    scope=read(directory/'scope.json'); journal=D.Journal(L,directory,L['sha'](L['canon'](scope)))
+                    require(0<=args.wait<=60,'status wait must be 0 through 60 seconds')
+                    result=D.extensions(L)['e2e'].status(L,directory,args.wait) if journal.records else {'status':'review_required','review':scope}
+                else: result=P.operation_status(L,args.config,directory)
+            elif args.verb=='logs':
+                result={'status':read(directory/'status.json'),'events':[{k:r[k] for k in ('sequence','stage','state','observed_at')} for r in D.Journal(L,directory,read(directory/'task-authorization.json')['scope_sha256']).records[-50:]],
+                        'output_uri':read(directory/'job.json')['output_uri'] if (directory/'job.json').exists() else None}
+            else:
+                D.validate_operation(globals(),args.config,directory)
+                value,target=configuration(directory/'runtime.json')
+                launch=directory/'workspace/launch'; instance=read(launch/'launched-owned.json')['instance_id']
+                L['connect'](value['target_name'],str(launch/'config.tfvars.json'),instance); return
+        print(json.dumps(result,indent=2,sort_keys=True))
+        if result.get('status') in ('failure','cancelled'): sys.exit(1)
         return
     value, target = configuration(args.config)
     if args.verb in ('run', 'preflight', 'status'):

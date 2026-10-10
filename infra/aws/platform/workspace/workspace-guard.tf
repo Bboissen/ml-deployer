@@ -2,10 +2,45 @@ variable "provision_alert_topic" {
   type    = bool
   default = false
 }
+resource "aws_kms_key" "workspace_alerts" {
+  count                   = var.provision_alert_topic ? 1 : 0
+  description             = "${var.resource_prefix} CloudWatch alarm topic"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    {
+      Sid       = "AccountAdministration", Effect = "Allow", Action = "kms:*", Resource = "*",
+      Principal = { AWS = "arn:aws:iam::${var.aws_account_id}:root" }
+    },
+    {
+      Sid       = "ScopedCloudWatchAlarmPublisher", Effect = "Allow",
+      Principal = { Service = "cloudwatch.amazonaws.com" },
+      Action    = ["kms:GenerateDataKey*", "kms:Decrypt"], Resource = "*",
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = var.aws_account_id },
+        ArnLike      = { "aws:SourceArn" = "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.resource_prefix}-workspace-watchdog-*" }
+      }
+    }
+  ] })
+  lifecycle { prevent_destroy = true }
+}
 resource "aws_sns_topic" "workspace_alerts" {
   count             = var.provision_alert_topic ? 1 : 0
   name              = "${var.resource_prefix}-workspace-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.workspace_alerts[0].arn
+  lifecycle { prevent_destroy = true }
+}
+resource "aws_sns_topic_policy" "workspace_alerts" {
+  count = var.provision_alert_topic ? 1 : 0
+  arn   = aws_sns_topic.workspace_alerts[0].arn
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Sid      = "ScopedCloudWatchAlarmPublisher", Effect = "Allow", Action = "sns:Publish",
+    Resource = aws_sns_topic.workspace_alerts[0].arn, Principal = { Service = "cloudwatch.amazonaws.com" },
+    Condition = {
+      StringEquals = { "aws:SourceAccount" = var.aws_account_id },
+      ArnLike      = { "aws:SourceArn" = "arn:aws:cloudwatch:${var.aws_region}:${var.aws_account_id}:alarm:${var.resource_prefix}-workspace-watchdog-*" }
+    }
+  }] })
   lifecycle { prevent_destroy = true }
 }
 
@@ -26,9 +61,10 @@ variable "workspace_guard" {
 }
 
 locals {
-  workspace_guards = var.workspace_guard == null ? {} : { active = var.workspace_guard }
-  guard_name       = "${var.resource_prefix}-workspace-watchdog"
-  guard_id         = substr(sha256("${var.aws_account_id}/${var.aws_region}/${var.resource_prefix}/workspace-v1"), 0, 32)
+  workspace_guards  = var.workspace_guard == null ? {} : { active = var.workspace_guard }
+  guard_alarm_topic = var.provision_alert_topic ? aws_sns_topic.workspace_alerts[0].arn : var.workspace_guard.alarm_topic_arn
+  guard_name        = "${var.resource_prefix}-workspace-watchdog"
+  guard_id          = substr(sha256("${var.aws_account_id}/${var.aws_region}/${var.resource_prefix}/workspace-v1"), 0, 32)
 }
 
 resource "aws_cloudwatch_log_group" "workspace_guard" {
@@ -196,7 +232,7 @@ resource "aws_cloudwatch_metric_alarm" "workspace_guard_heartbeat" {
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
   actions_enabled     = true
-  alarm_actions       = [each.value.alarm_topic_arn]
+  alarm_actions       = [local.guard_alarm_topic]
   lifecycle { prevent_destroy = true }
 }
 
@@ -213,7 +249,7 @@ resource "aws_cloudwatch_metric_alarm" "workspace_guard_errors" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   actions_enabled     = true
-  alarm_actions       = [each.value.alarm_topic_arn]
+  alarm_actions       = [local.guard_alarm_topic]
   lifecycle { prevent_destroy = true }
 }
 
@@ -245,7 +281,7 @@ resource "aws_cloudwatch_metric_alarm" "workspace_guard_delivery" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   actions_enabled     = true
-  alarm_actions       = [var.workspace_guard.alarm_topic_arn]
+  alarm_actions       = [local.guard_alarm_topic]
   lifecycle { prevent_destroy = true }
 }
 

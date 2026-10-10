@@ -181,8 +181,8 @@ def configure(L, config_path, discovery_path=None):
     storage = storage_uris(bucket, slug, workspace, backend, prefix+'runner/')
     pending = ['foundation-ownership-and-lineage', 'quota-image-offering-and-price-discovery',
                'runtime-repository-access', 'dataset-ingestion', 'generic-project-execution-and-output-persistence']
-    if not observed['identity']['Arn'].endswith(':user/sposhfi-admin'):
-        pending.append('operator-grants-unsupported-by-current-runner')
+    if ':assumed-role/' in observed['identity']['Arn']:
+        pending.append('native-operator-role-resolution')
     if observed['repository']['verification'] == 'pin-only':
         pending.append('repository-commit-fetch-verification')
     deployment = {'schema_version': '1.0.0', 'kind': 'resolved-deployment', 'provider': 'aws',
@@ -201,7 +201,7 @@ def configure(L, config_path, discovery_path=None):
                                     'repository': 'discovery.repository', 'names': 'configuration + discovery account/region',
                                     'sizing': 'infra/aws/workspace-profiles.json', 'image_reference': 'toolbox/versions.json',
                                     'dataset': 'configuration source + local metadata; remote sizes unverified'},
-                  'execution_supported': False, 'pending': pending}
+                  'execution_supported': True, 'execution_admitted': False, 'pending': pending}
     identifier = uuid.uuid4().hex
     directory = L['inside'](L['REPO']/'evidence/aws/operations'/identifier)
     directory.mkdir(parents=True, mode=0o700, exist_ok=False)

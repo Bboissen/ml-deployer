@@ -65,7 +65,7 @@ class Configuration(unittest.TestCase):
         self.assertEqual(second['names']['workspace_id'], 'fraud-model-test-02')
         self.assertIn('222222222222', second['storage']['state_uri'])
         self.assertEqual(second['dataset']['bytes'], 4)
-        self.assertFalse(second['execution_supported'])
+        self.assertTrue(second['execution_supported']); self.assertFalse(second['execution_admitted'])
 
     def test_default_job_mode_declares_setup_and_run_without_executing(self):
         marker = self.directory/'never-execute'
@@ -157,12 +157,12 @@ class Configuration(unittest.TestCase):
             with self.subTest(field=field):
                 self.observed = copy.deepcopy(baseline); self.observed[field] = value; self.rejected()
 
-    def test_federated_identity_is_recorded_with_native_grant_blocker(self):
+    def test_federated_identity_requires_native_role_resolution(self):
         self.observed['identity']['Arn'] = 'arn:aws:sts::111111111111:assumed-role/Operator/session'
         result = self.prepare()['review']
         self.assertEqual(result['operator_arn'], self.observed['identity']['Arn'])
-        self.assertIn('operator-grants-unsupported-by-current-runner', result['pending'])
-        self.assertFalse(result['execution_supported'])
+        self.assertIn('native-operator-role-resolution', result['pending'])
+        self.assertTrue(result['execution_supported']); self.assertFalse(result['execution_admitted'])
 
     def test_repository_credentials_invalid_refs_and_signed_dataset_url_rejected(self):
         baseline = copy.deepcopy(self.project)
@@ -231,7 +231,7 @@ class Configuration(unittest.TestCase):
         self.assertEqual(json.loads(status.stdout)['operation_id'], result['operation_id'])
         blocked = self.cli('run', result['operation_directory'], '--authorization', 'source improvement only')
         self.assertEqual(blocked.returncode, 2)
-        self.assertIn('generic deployment is pending', blocked.stderr)
+        self.assertIn('short configuration uses deploy', blocked.stderr)
 
     def test_launcher_preserves_terminal_stdin_descriptor(self):
         runtime = self.directory/'runtime'
@@ -241,7 +241,7 @@ class Configuration(unittest.TestCase):
                                 env={**os.environ, 'WORKSPACE_PYTHON': str(runtime)}, input='terminal input',
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [['scripts/aws/workspace.py', 'config.json', 'connect', 'run'], 'terminal input'])
+        self.assertEqual(json.loads(result.stdout), [['scripts/aws/workspace.py', str(ROOT/'config.json'), 'connect', 'run'], 'terminal input'])
 
     def test_status_rejects_symlink_and_changed_operation_flags(self):
         result = self.prepare(); directory = ROOT/result['operation_directory']

@@ -54,6 +54,10 @@ def write(path, value):
     with path.open("x", encoding="utf-8") as f:
         json.dump(value, f, indent=2, sort_keys=True)
         f.write("\n")
+        f.flush(); os.fsync(f.fileno())
+    descriptor=os.open(path.parent,os.O_RDONLY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
 
 
 def targets():

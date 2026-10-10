@@ -199,6 +199,7 @@ def onboard_key(L, deployment, selected, directory, authorization):
                        check=True, capture_output=True, timeout=10)
         public = key.with_suffix('.pub').read_text().strip()
         fingerprint = 'SHA256:'+base64.b64encode(hashlib.sha256(base64.b64decode(public.split()[1])).digest()).decode().rstrip('=')
+        L['write'](directory/'public-key.json',{'key':public,'fingerprint':fingerprint})
         request = subprocess.run(['gh','api','--method','POST','repos/'+owner_repo+'/keys','--input','-'],
                                  input=json.dumps({'title':'workspace-'+identifier,'key':public,'read_only':True}),
                                  capture_output=True, text=True, timeout=30)
@@ -218,6 +219,68 @@ def onboard_key(L, deployment, selected, directory, authorization):
     return reference
 
 
+def reconcile_key(L, deployment, selected, directory, authorization):
+    """Read-only recovery after registration/secret timeout; never create twice."""
+    directory=L['checked_path'](directory)
+    if (directory/'reference.json').exists(): return L['read'](directory/'reference.json')
+    intent=L['read'](directory/'intent.json'); public=L['read'](directory/'public-key.json')
+    L['require'](intent['authorization']==authorization and intent['read_only'] is True and
+                 deployment['repository']['url']=='git@github.com:'+intent['repository']+'.git','repository recovery intent differs')
+    matches=[]
+    for page in range(1,21):
+        response=subprocess.run(['gh','api','repos/'+intent['repository']+'/keys?per_page=100&page='+str(page)],
+                                capture_output=True,text=True,timeout=30)
+        L['require'](response.returncode==0 and len(response.stdout)<=1024*1024,'repository recovery inventory unavailable')
+        values=json.loads(response.stdout)
+        L['require'](isinstance(values,list) and len(values)<=100,'repository recovery inventory malformed')
+        matches.extend(k for k in values if k['title']=='workspace-'+intent['operation_id'])
+        if len(values)<100: break
+    else: raise ValueError('repository recovery page bound exceeded')
+    L['require'](len(matches)==1 and matches[0]['read_only'] is True and
+                 matches[0]['key'].split()[:2]==public['key'].split()[:2],'repository key absent/ambiguous; review before new registration')
+    base,client,_=L['sessions'](selected); secrets=client(base,'secretsmanager')
+    try: description=secrets.describe_secret(SecretId=intent['secret_name'])
+    except Exception as error:
+        if getattr(error,'response',{}).get('Error',{}).get('Code')=='ResourceNotFoundException':
+            # The private half disappeared with RAM. Preserve exact public-key
+            # ownership for separately reviewed revocation; no duplicate key.
+            L['write'](directory/('recovery-'+uuid.uuid4().hex+'.json'),{'key_id':matches[0]['id'],'repository':intent['repository'],
+                'public_key_fingerprint':public['fingerprint'],'status':'secret_absent','action':'review exact owned key revocation before new operation'})
+            raise ValueError('registered key has no native secret; review exact owned key revocation before retry') from None
+        raise
+    tags={t['Key']:t['Value'] for t in description.get('Tags',[])}
+    L['require'](description['Name']==intent['secret_name'] and tags=={'ManagedBy':'workspace-controller','OperationId':intent['operation_id']} and
+                 'AWSCURRENT' in description['VersionIdsToStages'].get(intent['operation_id'],[]),'recovered secret ownership/version differs')
+    reference={'secret_arn':description['ARN'],'version_id':intent['operation_id'],'public_key_fingerprint':public['fingerprint']}
+    L['write'](directory/'reference.json',reference); return reference
+
+
+def recovery_pointer(L, packet, stage, folder):
+    # Every recovery binding is immutable; the index names the latest receipt.
+    record=packet/(stage+'-binding-'+uuid.uuid4().hex+'.json')
+    L['write'](record,{'directory':str(folder)})
+    pointer=packet/(stage+'-binding.json'); temporary=packet/('.'+stage+'-'+uuid.uuid4().hex)
+    try:
+        with temporary.open('xb') as stream:
+            stream.write(L['canon']({'receipt':str(record)})); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary,pointer)
+        descriptor=os.open(packet,os.O_RDONLY)
+        try: os.fsync(descriptor)
+        finally: os.close(descriptor)
+    finally:
+        if temporary.exists(): temporary.unlink()
+
+
+def recovered_folder(L, packet, stage):
+    pointer=packet/(stage+'-binding.json')
+    if not pointer.exists(): return packet/stage
+    record=L['checked_path'](L['read'](pointer)['receipt'])
+    L['require'](record.parent==packet and record.name.startswith(stage+'-binding-'),'recovery binding ownership differs')
+    folder=L['checked_path'](L['read'](record)['directory'])
+    L['require'](folder.parent==packet and folder.name.startswith(stage+'-recovery-'),'recovery directory ownership differs')
+    return folder
+
+
 def provision(L, target_name, packet, authorization, retained=None):
     """Sequential exact plans/applies; capture dependencies without operator copies."""
     packet = L['checked_path'](packet); selected = L['read'](packet/'target.json')
@@ -226,18 +289,28 @@ def provision(L, target_name, packet, authorization, retained=None):
         return retained
     bootstrap = packet/'bootstrap'
     platform = packet/'platform'
+    bootstrap=recovered_folder(L,packet,'bootstrap')
     if not (bootstrap/'apply-result.json').exists():
-        L['require'](not (bootstrap/'apply-started.json').exists(),
-                     'bootstrap apply outcome uncertain; reconcile its local state before continuing')
+        if (bootstrap/'apply-started.json').exists():
+            recovery=packet/('bootstrap-recovery-'+uuid.uuid4().hex)
+            L['foundation']['bootstrap_plan'](target_name,str(packet/'bootstrap.tfvars.json'),str(recovery),str(bootstrap))
+            bootstrap=recovery
+            recovery_pointer(L,packet,'bootstrap',bootstrap)
         if not bootstrap.exists():
             L['foundation']['bootstrap_plan'](target_name,str(packet/'bootstrap.tfvars.json'),str(bootstrap))
         bind_plan(L, bootstrap, authorization)
+    platform=recovered_folder(L,packet,'platform')
     if not (platform/'apply-result.json').exists():
-        L['require'](not (platform/'apply-started.json').exists(),
-                     'platform apply outcome uncertain; reconcile the versioned state before continuing')
+        if (platform/'apply-started.json').exists():
+            recovery=packet/('platform-recovery-'+uuid.uuid4().hex)
+            L['native_plan'](target_name,'fresh-platform',str(packet/'platform.tfvars.json'),str(recovery),str(bootstrap),str(platform))
+            platform=recovery
+            recovery_pointer(L,packet,'platform',platform)
         if not platform.exists():
             L['native_plan'](target_name,'fresh-platform',str(packet/'platform.tfvars.json'),str(platform),str(bootstrap))
         bind_plan(L, platform, authorization)
+    if (packet/'outputs.json').exists():
+        return {'plan_directory':str(platform),'outputs_file':str(packet/'outputs.json'),'outputs_sha256':L['sha']((packet/'outputs.json').read_bytes())}
     return capture(L, target_name, platform, packet/'outputs.json')
 
 
@@ -247,7 +320,13 @@ def access(L, target_name, binding, project, reference, directory, authorization
     platform = copy.deepcopy(platform)
     platform.setdefault('workspace_git_secret_arns',{})[project] = [reference['secret_arn']]
     directory = L['checked_path'](directory)
-    inputs = directory.parent/'access.tfvars.json'; L['write'](inputs, platform)
-    L['native_plan'](target_name,'workspace-access',str(inputs),str(directory),binding['plan_directory'])
-    bind_plan(L, directory, authorization)
-    return capture(L, target_name, directory, directory.parent/'access-outputs.json')
+    inputs = directory.parent/'access.tfvars.json'
+    if not inputs.exists(): L['write'](inputs, platform)
+    L['require'](L['read'](inputs)==platform,'access inputs drift')
+    if not directory.exists(): L['native_plan'](target_name,'workspace-access',str(inputs),str(directory),binding['plan_directory'])
+    if (directory/'apply-result.json').exists():
+        L['require'](L['read'](directory/'apply-result.json')['status']=='success','access apply failed')
+    else: bind_plan(L, directory, authorization)
+    output=directory.parent/'access-outputs.json'
+    if output.exists(): return {'plan_directory':str(directory),'outputs_file':str(output),'outputs_sha256':L['sha'](output.read_bytes())}
+    return capture(L, target_name, directory, output)

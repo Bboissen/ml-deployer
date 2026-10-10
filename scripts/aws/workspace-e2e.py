@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
+import resource
 import signal
 import subprocess
 import tempfile
@@ -63,6 +65,37 @@ def object_bytes(L, s3, account, bucket, key, version=None, limit=1024*1024):
                   'size': len(data), 'last_modified': L['stamp'](response['LastModified'])}
 
 
+def verify_commit(L,value,environment):
+    def git(arguments, timeout=45):
+        remote = subprocess.Popen(['git', *arguments], env=environment,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                                  preexec_fn=lambda:resource.setrlimit(resource.RLIMIT_FSIZE,(512*1024**2,512*1024**2)))
+        try:
+            output, _ = remote.communicate(timeout=timeout)
+        finally:
+            if remote.poll() is None:
+                os.killpg(remote.pid, signal.SIGKILL)
+                remote.communicate(timeout=5)
+        L['require'](remote.returncode == 0, 'Repository cannot fetch the pinned GitHub commit')
+        return output
+    # A pinned commit may be older than the advertised branch heads. Fetch
+    # that exact object into a temporary bare repository; execute no code.
+    with tempfile.TemporaryDirectory(prefix='workspace-ref-') as checkout:
+        L['require'](shutil.disk_usage(checkout).free>=2*1024**3,'commit preflight requires 2 GiB free')
+        repository = str(Path(checkout)/'repository.git')
+        git(['init', '--bare', '--template=', repository], 5)
+        git(['-C', repository, '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', '--no-tags',
+             '--', value['repository']['url'], value['repository']['revision']])
+        L['require'](git(['-C', repository, 'rev-parse', 'FETCH_HEAD'], 5).decode().strip() == value['repository']['revision'],
+                     'Fetched repository commit differs from the pin')
+    return {'commit':value['repository']['revision'],'fetch_verified':True}
+
+
+def verify_public(L,value):
+    environment={'PATH':os.environ['PATH'],'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null','GIT_TERMINAL_PROMPT':'0'}
+    return verify_commit(L,value,environment)
+
+
 def verify_ssh(L, base, client, value, target):
     reference = value['repository']['credential']
     response = client(base, 'secretsmanager').get_secret_value(SecretId=reference['secret_arn'], VersionId=reference['version_id'])
@@ -92,26 +125,7 @@ def verify_ssh(L, base, client, value, target):
                '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', 'ConnectTimeout=10']
         environment = {'PATH': os.environ['PATH'], 'HOME': str(Path.home()), 'GIT_CONFIG_NOSYSTEM': '1',
                        'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0', 'GIT_SSH_COMMAND': shlex.join(ssh)}
-        def git(arguments, timeout=45):
-            remote = subprocess.Popen(['git', *arguments], env=environment,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-            try:
-                output, _ = remote.communicate(timeout=timeout)
-            finally:
-                if remote.poll() is None:
-                    os.killpg(remote.pid, signal.SIGKILL)
-                    remote.communicate(timeout=5)
-            L['require'](remote.returncode == 0, 'Dedicated deploy key cannot fetch the pinned GitHub commit')
-            return output
-        # A pinned commit may be older than the advertised branch heads. Fetch
-        # that exact object into a temporary bare repository; execute no code.
-        with tempfile.TemporaryDirectory(prefix='workspace-ref-') as checkout:
-            repository = str(Path(checkout)/'repository.git')
-            git(['init', '--bare', '--template=', repository], 5)
-            git(['-C', repository, '-c', 'core.hooksPath=/dev/null', 'fetch', '--depth=1', '--no-tags',
-                 '--', value['repository']['url'], value['repository']['revision']])
-            L['require'](git(['-C', repository, 'rev-parse', 'FETCH_HEAD'], 5).decode().strip() == value['repository']['revision'],
-                         'Fetched repository commit differs from the pin')
+        verify_commit(L,value,environment)
     return {'public_key_fingerprint': fingerprint, 'private_key_file_removed': True, 'read_access_verified': True}
 
 
@@ -214,7 +228,7 @@ def verify_result(L, value, target, job, config, instance, s3, directory, first=
     return record
 
 
-def run_command(L, base, client, target, config, launch, instance, job, directory):
+def run_command(L, base, client, target, config, launch, instance, job, directory, cancelled=lambda:False):
     expected = {r['address']: r['values'] for r in L['read'](launch/'plan.json')['planned_values']['root_module']['resources']}
     ssm = client(base, 'ssm'); name = L['role_name'](config)
     document = ssm.get_document(Name=name+'-job', DocumentVersion='1')
@@ -226,6 +240,7 @@ def run_command(L, base, client, target, config, launch, instance, job, director
     L['require'](operator == json.loads(expected[L['operator_address'](config)]['policy']), 'Unattended operator grant differs from the exact reviewed plan')
     deadline = time.monotonic()+720
     while True:
+        L['require'](not cancelled(),'cancel requested')
         L['bound_instance'](base, client, config, instance)
         information = ssm.describe_instance_information(Filters=[{'Key':'InstanceIds','Values':[instance]}])
         if any(i['InstanceId'] == instance and i['PingStatus'] == 'Online'
@@ -243,6 +258,7 @@ def run_command(L, base, client, target, config, launch, instance, job, director
                                          'document_hash': description['Hash'], 'submitted_at': L['stamp'](command['RequestedDateTime'])})
     deadline = time.monotonic()+job['timeout_seconds']+120
     while True:
+        L['require'](not cancelled(),'cancel requested')
         try:
             invocation = ssm.get_command_invocation(CommandId=identifier, InstanceId=instance, PluginName='workspaceJob')
         except ssm.exceptions.InvocationDoesNotExist:
@@ -262,6 +278,29 @@ def safe_error(error):
     return {'type': type(error).__name__, 'code': getattr(error, 'response', {}).get('Error', {}).get('Code')}
 
 
+def cleanup_runner(L, target_name, control, config, applied):
+    """Shared retirement path; expiry stays armed until ownership/absence passes."""
+    if config is None or not (control/'prepare/apply-started.json').exists():
+        return {'cleanup_status':'not_needed'}
+    config=copy.deepcopy(config); config['phase']='retire'
+    inputs=control/('retire-inputs-'+uuid.uuid4().hex+'.json'); L['write'](inputs,config)
+    if (control/'launch/apply-result.json').exists():
+        retired=applied('retire',inputs,str(control/'launch'))
+        applied('cleanup',inputs,str(retired))
+    else:
+        recovery=control/('launch' if (control/'launch/apply-started.json').exists() else 'prepare')
+        if recovery.name=='launch':
+            retirement=control/'retire'
+            if not retirement.exists(): L['native_plan'](target_name,'retire',str(inputs),str(retirement),None,None)
+            plan=L['read'](retirement/'plan.json')
+            if any(r['address']=='aws_instance.workspace[0]' and r['change']['before'] for r in plan['resource_changes']):
+                applied('retire',inputs)
+                recovery=None
+        if recovery: applied('cleanup',inputs,recover_from=str(recovery))
+        else: applied('cleanup',inputs,str(control/'retire'))
+    return {'cleanup_status':'success'}
+
+
 def execute(W, configuration_path, value, target, directory, authorization):
     L = W['L']; require = L['require']; directory = L['checked_path'](directory)
     require(len(authorization.strip()) >= 12 and 'job' in value, 'Explicit task authorization and a configured job required')
@@ -278,7 +317,11 @@ def execute(W, configuration_path, value, target, directory, authorization):
         publish_status(L, directory, {'status': 'running', 'phase': name, 'run_id': run_id, 'observed_at': L['stamp']()})
     def applied(stage, inputs, dependency=None, recover_from=None, folder=None):
         folder = folder or control/stage
-        L['native_plan'](value['target_name'], stage, str(inputs), str(folder), dependency, recover_from)
+        if (folder/'apply-result.json').exists():
+            require(L['read'](folder/'apply-result.json')['status']=='success','unsuccessful apply receipt')
+            return folder
+        require(not (folder/'apply-started.json').exists(),'uncertain apply; do not replay')
+        if not folder.exists(): L['native_plan'](value['target_name'], stage, str(inputs), str(folder), dependency, recover_from)
         review = L['read'](folder/'review.json')
         # native_plan checked the complete mutation scope; bind this task to its
         # exact immutable review and plan, with no fresh plan hidden in apply.
@@ -338,34 +381,7 @@ def execute(W, configuration_path, value, target, directory, authorization):
             signal.signal(signum, signal.SIG_IGN)
         if config is not None and (control/'prepare/apply-started.json').exists():
             try:
-                phase('cleanup'); config['phase'] = 'retire'
-                inputs = control/'retire.tfvars.json'; L['write'](inputs, config)
-                launch_complete = (control/'launch/apply-result.json').exists()
-                if launch_complete:
-                    retired = applied('retire', inputs, str(control/'launch'))
-                    inputs = control/'cleanup.tfvars.json'; L['write'](inputs, config)
-                    applied('cleanup', inputs, str(retired))
-                else:
-                    # A failed launch may have created compute before its
-                    # receipt. Retire state-owned compute if present; recovery
-                    # cleanup independently refuses any live compute.
-                    recovery = control/('launch' if (control/'launch/apply-started.json').exists() else 'prepare')
-                    if recovery.name == 'launch':
-                        retirement = control/'retire'
-                        L['native_plan'](value['target_name'], 'retire', str(inputs), str(retirement), None, None)
-                        plan = L['read'](retirement/'plan.json')
-                        has_compute = any(r['address'] == 'aws_instance.workspace[0]' and r['change']['before']
-                                          for r in plan['resource_changes'])
-                        if has_compute:
-                            review = L['read'](retirement/'review.json')
-                            L['authorize'](str(retirement), L['sha'](L['canon'](review)), authorization)
-                            L['apply'](str(retirement))
-                            recovery = None
-                    inputs = control/'cleanup.tfvars.json'; L['write'](inputs, config)
-                    if recovery:
-                        applied('cleanup', inputs, recover_from=str(recovery))
-                    else:
-                        applied('cleanup', inputs, str(control/'retire'))
+                phase('cleanup'); cleanup_runner(L,value['target_name'],control,config,applied)
                 result['cleanup_success'] = True
             except BaseException as error:
                 result['cleanup_error'] = safe_error(error)

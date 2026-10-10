@@ -2,6 +2,11 @@
 # Bootstrap before Python; retain the proven Python deployment engine.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+case "${1:-}" in
+  setup|login|auth-check|github-login|--help|"") ;;
+  /*) ;;
+  *) project_config="$PWD/$1"; shift; set -- "$project_config" "$@" ;;
+esac
 cd "$repo_root"
 if [[ "${1:-}" == setup ]]; then
   shift

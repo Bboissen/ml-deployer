@@ -34,15 +34,18 @@ def relative(path):
             all(p not in ('','.','..') for p in path.split('/')), 'relative dataset path without traversal required')
     return path
 
-def stream_hash(stream,size,deadline):
+def stream_hash(stream,size,deadline,cancelled=None):
     digest=hashlib.sha256(); count=0
     while True:
-        require(time.monotonic()<deadline,'dataset transfer time bound exhausted')
+        require(time.monotonic()<deadline and not (cancelled and cancelled()),'dataset transfer cancelled/time bound exhausted')
         chunk=stream.read(CHUNK)
         if not chunk: break
         count+=len(chunk); require(count<=size,'source grew beyond reviewed bytes'); digest.update(chunk)
     require(count==size,'source size changed or incomplete read')
     return digest.hexdigest()
+
+def inventory_bound(adapter, size, used=0):
+    require(size>=0 and size<=640*1024**3 and used+size<=getattr(adapter,'maximum_bytes',640*1024**3),'dataset exceeds selected byte bound')
 
 class Local:
     def __init__(self,source): self.root=Path(source).absolute()
@@ -62,7 +65,8 @@ class Local:
         records=[]
         for name,path in self.paths():
             with local_file(path) as stream:
-                before=local_stamp(stream); checksum=stream_hash(stream,before[2],deadline)
+                before=local_stamp(stream); inventory_bound(self,before[2],sum(r['bytes'] for r in records))
+                checksum=stream_hash(stream,before[2],deadline,getattr(self,'cancelled',None))
                 require(local_stamp(stream)==before,'source changed while hashing')
             records.append({'path':name,'bytes':before[2],'sha256':checksum,'source_stamp':before})
         require(records,'empty dataset directory'); return records
@@ -95,7 +99,8 @@ class S3:
             head=self.api.head_object(Bucket=self.bucket,Key=key)
             record={'path':relative(key[len(self.key):] if not self.key or self.key.endswith('/') else key.rsplit('/',1)[-1]),
                 'bytes':head['ContentLength'],'source_key':key,'source_etag':head['ETag'],'source_version':head.get('VersionId')}
-            with self.open(record) as stream: record['sha256']=stream_hash(stream,record['bytes'],deadline)
+            inventory_bound(self,record['bytes'],sum(r['bytes'] for r in records))
+            with self.open(record) as stream: record['sha256']=stream_hash(stream,record['bytes'],deadline,getattr(self,'cancelled',None))
             records.append(record)
         require(records,'empty S3 input'); return records
     @contextmanager
@@ -142,7 +147,8 @@ class HTTPS:
             require(size and size.isdigit() and etag and not etag.startswith('W/'),'HTTPS requires size and strong ETag')
             record={'path':relative(unquote(urlsplit(self.url).path.rsplit('/',1)[-1]) or 'dataset'),
                     'bytes':int(size),'source_etag':etag}
-        with self.open(record) as stream: record['sha256']=stream_hash(stream,record['bytes'],deadline)
+        inventory_bound(self,record['bytes'])
+        with self.open(record) as stream: record['sha256']=stream_hash(stream,record['bytes'],deadline,getattr(self,'cancelled',None))
         return [record]
     @contextmanager
     def open(self,record):
@@ -154,7 +160,9 @@ class HTTPS:
         finally: response.close()
 
 def source_adapter(dataset,s3,region):
-    return {'local':lambda:Local(dataset['source']),'s3':lambda:S3(dataset['source'],s3,region),'https':lambda:HTTPS(dataset['source'])}[dataset['adapter']]()
+    adapter={'local':lambda:Local(dataset['source']),'s3':lambda:S3(dataset['source'],s3,region),'https':lambda:HTTPS(dataset['source'])}[dataset['adapter']]()
+    adapter.maximum_bytes=dataset.get('maximum_bytes',640*1024**3)
+    return adapter
 
 def verify_object(s3,account,bucket,record,deadline):
     response=s3.get_object(Bucket=bucket,Key=record['key'],VersionId=record['version_id'],ExpectedBucketOwner=account)
@@ -198,7 +206,7 @@ def upload(L,s3,account,bucket,prefix,record,adapter,directory,deadline):
                 response=s3.create_multipart_upload(**owner,ChecksumAlgorithm='SHA256',Metadata={'operation-id':identifier})
                 upload_id=response['UploadId']; L['write'](ledger/'multipart.json',{'upload_id':upload_id,**owner}); parts=[]
                 while True:
-                    require(time.monotonic()<deadline,'transfer time bound exhausted')
+                    require(time.monotonic()<deadline and not (getattr(adapter,'cancelled',None) and adapter.cancelled()),'transfer cancelled/time bound exhausted')
                     data=stream.read(size)
                     if not data: break
                     count+=len(data); digest.update(data)

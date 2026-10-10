@@ -700,6 +700,18 @@ class Foundation(unittest.TestCase):
         with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items[:-1]})
         items[0]['change']['actions']=['update']
         with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items})
+    def test_partial_foundation_scopes_allow_only_original_missing_creates(self):
+        owned='aws_s3_bucket.state'; missing='aws_s3_bucket_versioning.state'
+        items=[{'address':owned,'mode':'managed','change':{'actions':['update']}},
+               {'address':missing,'mode':'managed','change':{'actions':['create']}}]
+        self.assertEqual(len(self.F['bootstrap_scope']({'resource_changes':items},{'owned':[owned]})),2)
+        for address,actions in [(owned,['create']),(owned,['delete']),(missing,['update']),('aws_instance.foreign',['create'])]:
+            with self.assertRaises(LIFE['Failure']): self.F['bootstrap_scope']({'resource_changes':[{'address':address,'mode':'managed','change':{'actions':actions}}]},{'owned':[owned]})
+        recovery={'owned':['aws_iam_role.deployer'],'expected':['aws_iam_role.deployer','aws_sns_topic.workspace_alerts[0]']}
+        planned={'resource_changes':[{'address':'aws_sns_topic.workspace_alerts[0]','mode':'managed','change':{'actions':['create']}}]}
+        self.assertEqual(len(LIFE['plan_scope'](planned,'fresh-platform',recovery)),1)
+        planned['resource_changes'][0]['address']='aws_instance.foreign'
+        with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](planned,'fresh-platform',recovery)
     def test_unknown_or_existing_names_never_count_as_absent(self):
         class Error(Exception):
             def __init__(self,code):self.response={'Error':{'Code':code}}
