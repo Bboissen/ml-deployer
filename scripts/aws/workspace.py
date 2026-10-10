@@ -43,11 +43,15 @@ def configuration(path):
     else:
         require('credential' not in repository, 'runtime SSH credential requires a GitHub SSH endpoint')
     # The source profile remains the reviewed RAM-first choice; no automatic fallback.
-    require(value['sizing'] == P.supported_profile(L, target['region'])['sizing'], 'unsupported sizing profile; review another profile first')
+    require(value['sizing']['instance_type'] in L['supported_sizes']() and all(value['sizing'][k] == L['supported_sizes']()[value['sizing']['instance_type']][k] for k in ('cpus','memory_mb','disk_gb')),  'unsupported sizing profile; review another profile first')
     require(type(value['maximum_runtime_minutes']) is int and 15 <= value['maximum_runtime_minutes'] <= 60,
             'reviewed lifetime is 15 through 60 minutes')
     require(set(value['foundation']) == {'plan_directory', 'outputs_file', 'outputs_sha256'}, 'foundation requires its applied plan and captured outputs hash')
-    if 'job' in value:
+    if 'job' in value and 'commands' in value['job']:
+        job=value['job']
+        require(set(job)=={'commands','outputs','dataset_manifest','timeout_seconds'},'closed generic job configuration required')
+        require(type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=min(1800,(value['maximum_runtime_minutes']-10)*60),'job must reserve teardown time')
+    if 'job' in value and 'commands' not in value['job']:
         job = value['job']
         require(set(job) == {'make_target', 'timeout_seconds', 'dataset', 'result', 'provenance'}, 'closed job configuration required')
         require(job['make_target'] is None or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', job['make_target']), 'invalid Make target')
@@ -108,7 +112,7 @@ def render(value, target, directory, starts_at):
                   'permissions_boundary_arn': f"arn:aws:iam::{target['account_id']}:policy/{target['inventory']['resource_prefix']}-ws-{project}-boundary",
                   'session_policy_arn': f"arn:aws:iam::{target['account_id']}:policy/{target['inventory']['resource_prefix']}-session-manager-minimal"},
               'toolbox_zip_path': artifacts['toolbox_zip_path'], 'toolbox_zip_sha256': artifacts['toolbox_zip_sha256'],
-              'instance_type': value['sizing']['instance_type'], 'ami_id': L['TOOLBOX']['ami_id'],
+              'instance_type': value['sizing']['instance_type'], 'availability_zone': value['sizing']['availability_zone'], 'ami_id': L['TOOLBOX']['ami_id'],
               'guard': guard, 'lease': L['lease'](request, starts_at)}
     if 'credential' in value['repository']:
         config['workspace_git_credential'] = value['repository']['credential']

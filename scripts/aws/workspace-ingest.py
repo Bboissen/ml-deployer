@@ -1,6 +1,7 @@
 """Streamed dataset ingestion; exact versions and checksums precede compute."""
 from contextlib import contextmanager
 import base64
+import importlib.util
 import hashlib
 import http.client
 import ipaddress
@@ -15,6 +16,10 @@ from urllib.parse import urlsplit, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler, HTTPSHandler
 import uuid
 
+spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
+files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
+local_file,local_stamp=files.local_file,files.local_stamp
+
 CHUNK=8*1024*1024
 MAX_PART=64*1024*1024
 
@@ -28,23 +33,6 @@ def relative(path):
     require(isinstance(path,str) and path and not path.startswith('/') and '\\' not in path and
             all(p not in ('','.','..') for p in path.split('/')), 'relative dataset path without traversal required')
     return path
-
-@contextmanager
-def local_file(path):
-    path=Path(path).absolute(); parent=os.open('/',os.O_RDONLY|os.O_DIRECTORY)
-    try:
-        for part in path.parts[1:-1]:
-            child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
-            os.close(parent); parent=child
-        descriptor=os.open(path.name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=parent)
-        with os.fdopen(descriptor,'rb') as stream:
-            require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode),'dataset special file unsupported')
-            yield stream
-    finally: os.close(parent)
-
-def local_stamp(stream):
-    value=os.fstat(stream.fileno())
-    return [value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns]
 
 def stream_hash(stream,size,deadline):
     digest=hashlib.sha256(); count=0

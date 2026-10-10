@@ -141,6 +141,11 @@ def preflight(L, value, target, directory):
 
 def payload(value, target, run_id):
     job = value['job']; bucket = target['inventory']['buckets'][0]
+    if 'commands' in job:
+        return {'repository':value['repository'],'workspace_id':value['workspace_id'],'account_id':target['account_id'],
+                'region':target['region'],'run_id':run_id,'commands':job['commands'],'outputs':job['outputs'],
+                'dataset_manifest':job['dataset_manifest'],'timeout_seconds':job['timeout_seconds'],'mode':value.get('mode','job'),
+                'output_uri':f"s3://{bucket}/projects/{value['project']}/workspaces/{value['workspace_id']}/output/{run_id}/"}
     return {'repository': value['repository'], 'workspace_id': value['workspace_id'], 'account_id': target['account_id'],
             'region': target['region'], 'run_id': run_id, 'make_target': job['make_target'], 'timeout_seconds': job['timeout_seconds'],
             'data_uri': job['dataset']['uri'], 'data_version_id': job['dataset']['version_id'], 'data_sha256': job['dataset']['sha256'],
@@ -244,8 +249,9 @@ def run_command(L, base, client, target, config, launch, instance, job, director
             invocation = {'Status': 'Pending'}
         if invocation['Status'] in ('Success','Failed','TimedOut','Cancelled','Undeliverable','Terminated'):
             L['write'](directory/'invocation.json', invocation)
-            L['require'](invocation['Status'] == 'Success' and invocation['ResponseCode'] == 0, 'Unattended SSH/Make command failed')
-            return {'command_id': identifier, 'status': 'success', 'exit_code': 0}
+            if 'commands' not in job:
+                L['require'](invocation['Status'] == 'Success' and invocation['ResponseCode'] == 0, 'Unattended SSH/Make command failed')
+            return {'command_id':identifier,'status':invocation['Status'],'exit_code':invocation.get('ResponseCode')}
         L['require'](time.monotonic() < deadline, 'Unattended job timed out')
         time.sleep(5)
 
@@ -386,3 +392,43 @@ def execute(W, configuration_path, value, target, directory, authorization):
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
     return result
+
+
+def verify_generic_result(L,value,target,job,config,instance,s3,directory,first=None):
+    """Bind independent execution/transfer outcomes without acceptance fixture hashes."""
+    spec=importlib.util.spec_from_file_location('ingest',L['REPO']/'scripts/aws/workspace-ingest.py')
+    ingest=importlib.util.module_from_spec(spec); spec.loader.exec_module(ingest)
+    bucket=target['inventory']['buckets'][0]; prefix=job['output_uri'][5:].split('/',1)[1]
+    raw,object_record=object_bytes(L,s3,target['account_id'],bucket,prefix+'execution.json',
+                                 first['execution_object']['version_id'] if first else None,1024*1024)
+    receipt=json.loads(raw)
+    expected_role=f"arn:aws:sts::{target['account_id']}:assumed-role/{L['role_name'](config)}/{instance}"
+    L['require'](receipt['run_id']==job['run_id'] and receipt['repository_commit']==value['repository']['revision'] and
+                 receipt['user']=='workspace' and receipt['instance_role_arn']==expected_role and
+                 receipt['commands']==job['commands'] and receipt['dataset_manifest']==job['dataset_manifest'] and
+                 receipt['bootstrap']['workspace_id']==value['workspace_id'] and receipt['bootstrap']['toolbox_sha256']==config['toolbox_zip_sha256'],
+                 'execution receipt does not bind this run/repository/instance/input/toolbox')
+    L['require'](receipt['infrastructure_ready'] is True and type(receipt['outputs_persisted']) is bool and
+                 all(receipt[k] is None or type(receipt[k]) is int for k in ('setup_exit','job_exit')),
+                 'invalid independent outcomes')
+    if receipt['setup_exit'] is not None:
+        L['require'](receipt['credential_removed_before_setup'] is True,'clone credential not removed before setup')
+    L['require'](L['utc'](object_record['last_modified'])>=L['utc'](config['lease']['starts_at']),'old execution receipt')
+    total=0; seen=set(); deadline=time.monotonic()+300
+    for record in receipt['output_objects']:
+        path=ingest.relative(record['path'])
+        L['require'](record['key']==prefix+'files/'+path and path not in seen and
+                     any(path==declared or path.startswith(declared+'/') for declared in job['outputs']['paths']),
+                     'output outside this run/declared paths')
+        seen.add(path); total+=record['bytes']
+        L['require'](total<=job['outputs']['maximum_bytes'],'output transfer exceeds selected bound')
+        ingest.verify_object(s3,target['account_id'],bucket,record,deadline)
+    if receipt['outputs_persisted']: L['require'](seen,'success requires declared output versions')
+    if 'log_object' in receipt:
+        record=receipt['log_object']; L['require'](record['key']==prefix+'job.log' and record['bytes']<=8*1024*1024,'log scope/bound differs')
+        ingest.verify_object(s3,target['account_id'],bucket,record,deadline)
+    record={'execution':receipt,'execution_object':object_record}
+    if first: L['require'](record==first,'outputs/execution changed after compute cleanup')
+    directory.mkdir(parents=True,mode=0o700,exist_ok=True)
+    L['write'](directory/'verification.json',record)
+    return record
