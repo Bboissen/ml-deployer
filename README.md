@@ -17,8 +17,11 @@ No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is nee
 
 For the AWS-first one-click target, read the
 [automation feasibility audit](docs/aws-automation-feasibility.md),
-[HTML setup guide](docs/aws-setup-guide.html) and
+[interactive HTML setup guide](docs/aws-setup-guide.html) and
 [migration goals and handoff](goal/workspace/07_AWS_AUTOMATION.md).
+Short configuration and workstation bootstrap are in draft PR27/28; generalized
+onboarding, ingestion and Deploy remain pending. The guide distinguishes current
+commands, assisted setup and ordered implementation TODOs.
 
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)

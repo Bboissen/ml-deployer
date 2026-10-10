@@ -21,7 +21,7 @@ reference and compatibility evidence.
 | [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Reviewed prior AWS test resources removed; IAM, alerts and evidence retained |
 | [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
 | [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Bounded unattended job accepted; generic and interactive acceptance remain |
-| [AWS automation](workspace/07_AWS_AUTOMATION.md) | Linux/macOS setup, short configuration, dataset upload and automatic entrypoint execution | Audit complete; migration planned; [handoff](workspace/08_AWS_AUTOMATION_HANDOFF.md) |
+| [AWS automation](workspace/07_AWS_AUTOMATION.md) | Linux/macOS setup, short configuration, dataset upload and automatic entrypoint execution | Configuration and installer source in PR27/28; onboarding/ingestion/generic Deploy pending; [handoff](workspace/08_AWS_AUTOMATION_HANDOFF.md) |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |
 

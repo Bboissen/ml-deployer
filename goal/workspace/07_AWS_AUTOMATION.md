@@ -1,9 +1,12 @@
 # AWS automated deployment goals
 
-Status: migration plan from merged `main` at `fd640b6`, assessed 9 October 2026.
-AWS has a successful bounded SSH/Make native run; generalized onboarding and
-dataset deployment remain planned. These goals authorize source planning, not
-new cloud mutations, credential changes or data upload.
+Status: updated 10 October 2026 from merged `main` at `fd640b6` and draft
+[PR27](https://github.com/Bboissen/Ray_terraform/pull/27) (`4622a05`) /
+[PR28](https://github.com/Bboissen/Ray_terraform/pull/28) (`d430823`). AWS has a
+successful bounded SSH/Make native run. Short configuration and workstation
+tools/login have source milestones; generic deployment remains incomplete.
+These goals authorize source work, not new cloud mutations, credential changes
+or data upload.
 
 The user supplies a provider, dataset source, GitHub repository/ref, explicit
 entrypoint and friendly names. The software installs supported local tools,
@@ -14,6 +17,23 @@ the interface leaves native GCP and Azure adapters possible.
 See the [feasibility audit](../../docs/aws-automation-feasibility.md),
 [setup guide](../../docs/aws-setup-guide.html) and
 [handoff](08_AWS_AUTOMATION_HANDOFF.md).
+
+## Current implementation and next work
+
+| Milestone | Current evidence | Remaining |
+| --- | --- | --- |
+| M0 | Baseline and hardcoded-assumption inventory recorded in PR27 | Refresh native ownership before any resource migration |
+| M1 | Short JSON schema, account/revision discovery, deterministic names, local dataset metadata and immutable configure/status records | Foundation/capacity/price discovery, generalized operator scope and deployment from those records |
+| M2 | PR28 Bash installer, pinned tools, console/SSO/GitHub login assistants; clean Linux x86_64 installation and offline checks | Native macOS/arm64, Linux arm64 and real browser-login acceptance; backend/provider checks in onboarding |
+| M3 | Existing roots and private SSH credential route to reuse | Next source task: generalized foundation/access plans, automatic output capture and scoped deploy-key registration |
+| M4 | Confirmed first-release sources: local files/directories, S3 and public HTTPS | Streamed/versioned ingestion, source-change checks and safe reuse before compute |
+| M5 | Existing bounded private clone/Make/S3 lifecycle proven | Generic explicit setup/run commands, declared output persistence and separate outcomes |
+| M6 | Saved-plan inspection, task authorization, expiry and owned cleanup engine exists | One Deploy from short config, durable journal, locking and reconciled recovery |
+| M7 | Clean Linux installer and earlier bounded AWS job accepted separately | Full clean-host Linux/macOS journey, repeated data reuse and versioned release artifacts |
+
+Keep Python for orchestration, Bash for first installation and OpenTofu for
+infrastructure. No rewrite is needed. The interactive guide tracks personal
+setup TODOs only; checked boxes never establish runtime readiness or authorization.
 
 ## Product contract
 
@@ -45,8 +65,10 @@ See the [feasibility audit](../../docs/aws-automation-feasibility.md),
 
 ## Proposed user configuration
 
-The example below is a design sketch, not an accepted input to the current CLI.
-The implementation must publish and validate its own explicit schema version.
+The example below is the original design sketch. PR27 now publishes a closed
+JSON project schema 1.0.0 and a concrete example; use that draft's example rather
+than passing this YAML to the CLI. Short configs currently support `configure`
+and `status` only, with `execution_supported: false`.
 
 ```yaml
 version: 1
@@ -264,7 +286,7 @@ passes its own native deployment/storage/access/expiry/teardown acceptance.
 | --- | --- | --- |
 | Default Deploy mode | Decided: install declared dependencies and run selected entrypoint automatically every time | M1 user interface |
 | Installer platforms | Decided: Linux and macOS in the first release; declare tested distro/architecture versions | M2 implementation |
-| Meaning of distant dataset | Local, S3 and public HTTPS first; named adapters for other sources | M4 scope |
+| Meaning of distant dataset | Decided: local files/directories, S3 and public HTTPS first; private sources deferred | M4 scope |
 | Private Git route | Reuse scoped deploy keys; add GitHub App if ongoing needs justify it | M3 credential setup |
 | Browser deployment | CLI wizard and HTML guide first; optional local controller UI later | M6 UI |
 | Cost preference | Retain RAM-first; offer an explicit user-selected price ceiling | M1 sizing UX |
