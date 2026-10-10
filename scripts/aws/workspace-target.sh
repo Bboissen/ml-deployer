@@ -6,6 +6,7 @@ exec python3 - "$@" 3<&0 <<'PY'
 import configparser
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -215,7 +216,16 @@ def identity(t, e):
     return observed
 
 
+def release_provenance():
+    spec=importlib.util.spec_from_file_location('workspace_release',REPO/'scripts/aws/workspace_release.py')
+    if not spec.origin or not Path(spec.origin).exists(): return None
+    module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module.provenance(REPO)
+
+
 def source():
+    release=release_provenance()
+    if release: return release['source']
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     changes = subprocess.check_output(["git", "diff", "HEAD", "--", "."])
     for name in subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], text=True).splitlines():

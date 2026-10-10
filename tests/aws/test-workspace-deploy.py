@@ -44,19 +44,18 @@ class Operations(unittest.TestCase):
         P=types.SimpleNamespace(operation_status=lambda *_:None,validate_project=lambda *_:project)
         with patch.object(D,'extensions',return_value={'config':P}),patch.dict(L,{'prior_source':lambda _:True}):
             with self.assertRaisesRegex(L['Failure'],'authorization'): D.validate_operation({'L':L},'config',self.directory)
-    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False):
+    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None):
         directory=self.directory; calls=[]; project=json.loads((ROOT/'infra/aws/project.example.json').read_text()); project['mode']=mode
         target={'profile':'offline','account_id':'111111111111','region':'us-east-1','operator_arn':'arn:aws:iam::111111111111:user/operator',
             'deployment_role_arn':'arn:aws:iam::111111111111:role/deployer','backend':{},'inventory':{'resource_prefix':self.prefix,'buckets':['workload']}}
-        registry=directory/'registry'; deployment={'configuration':project,'account_id':target['account_id'],
-            'names':{'workspace_id':project['project']+'-'+project['workspace']},'repository':{'url':'https://github.com/owner/project.git','revision':'a'*40},
+        registry=directory.parent/'registry' if store else directory/'registry'; deployment={'configuration':project,'account_id':target['account_id'],
+            'names':{'workspace_id':project['project']+'-'+project['workspace'],'workload_bucket':'workload'},'repository':{'url':'https://github.com/owner/project.git','revision':'a'*40},
             'dataset':{'adapter':'local','source':'unused'}}
         size={**L['supported_sizes']()['r8i.2xlarge'],'policy':'ram-first','instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1}
         scope={'target':target,'registry_directory':str(registry),'capacity':{'selected':size,'candidates':[size]},'foundation':None,
             'repository_reference':None,'new_private_access':False,'outputs':{'paths':['outputs'],'maximum_bytes':100},'dataset':{'inventory':[]}}
         task={'scope_sha256':'b'*64,'authorization':'authorized bounded mocked operation'}
         if cancelled: L['write'](directory/'cancel.json',{'requested_at':L['stamp']()})
-        L['write'](directory/'project.json',project); L['write'](directory/'deployment.json',deployment)
         artifacts={'toolbox_zip_sha256':'c'*64}; binding={'plan_directory':str(directory/'foundation/platform')}
         O=types.SimpleNamespace(prepare=lambda *a:calls.append('foundation-inputs'),provision=lambda *a:calls.append('foundation') or binding,
             capacity=lambda *a,**kw: {'candidates':[size]})
@@ -65,7 +64,15 @@ class Operations(unittest.TestCase):
             if ingest_failure: raise ValueError('failed transfer')
             return {'bucket':'workload','manifest_key':'manifest','manifest_version_id':'data-version','manifest_sha256':'d'*64,'content_sha256':'e'*64}
         I=types.SimpleNamespace(source_adapter=lambda *a:types.SimpleNamespace(inventory=lambda *_:[]),ingest=ingest)
-        s3=types.SimpleNamespace(list_multipart_uploads=lambda **kw:{'Uploads':[]})
+        s3=store or types.SimpleNamespace(list_multipart_uploads=lambda **kw:{'Uploads':[]})
+        if store:
+            actual=module('workspace-ingest.py'); data=directory.parent/'data'; data.mkdir(exist_ok=True)
+            if not (data/'input with spaces').exists(): (data/'input with spaces').write_bytes(b'ordinary selected data')
+            deployment['dataset']['source']=str(data)
+            scope['dataset']['inventory']=actual.Local(data).inventory(__import__('time').monotonic()+30)
+            def streamed(*a,**kw): calls.append('ingestion'); return actual.ingest(*a,**kw)
+            I=types.SimpleNamespace(source_adapter=actual.source_adapter,ingest=streamed,incomplete=actual.incomplete,canonical=actual.canonical)
+        L['write'](directory/'project.json',project); L['write'](directory/'deployment.json',deployment)
         def build(*a): calls.append('build'); return artifacts
         def render(value,selected,control,starts):
             control=Path(control); control.mkdir(); L['write'](control/'runner.json',{'lease':{'starts_at':'2000-01-01T00:00:00Z'},'instance_type':'r8i.2xlarge'})
@@ -115,6 +122,17 @@ class Operations(unittest.TestCase):
         O.recovery_pointer(L,self.directory,'bootstrap',two)
         self.assertEqual(O.recovered_folder(L,self.directory,'bootstrap'),two)
         self.assertEqual(len(list(self.directory.glob('bootstrap-binding-*.json'))),2)
+    def test_two_deploys_reuse_exact_manifest_versions_without_reupload(self):
+        spec=importlib.util.spec_from_file_location('ingest_tests',ROOT/'tests/aws/test-workspace-ingest.py')
+        fixture=importlib.util.module_from_spec(spec); spec.loader.exec_module(fixture); store=fixture.Store()
+        first,calls=self.pipeline(store=store); self.assertEqual(first['status'],'success',first); count=len(store.objects)
+        manifest=L['read'](self.directory/'ingestion/manifest.json')
+        self.directory=self.directory.parent/('f'*32); self.directory.mkdir()
+        second,again=self.pipeline(store=store)
+        self.assertEqual(first['status'],second['status']); self.assertEqual(second['status'],'success')
+        self.assertEqual(len(store.objects),count)
+        self.assertEqual(L['read'](self.directory/'ingestion/manifest.json'),manifest)
+        self.assertEqual(calls.count('launch'),1); self.assertEqual(again.count('launch'),1)
     def test_workspace_keeps_compute_and_runs_no_cleanup(self):
         result,calls=self.pipeline(mode='workspace')
         self.assertEqual(result['status'],'workspace_ready'); self.assertNotIn('cleanup',calls)

@@ -149,15 +149,17 @@ class Bootstrap(unittest.TestCase):
         self.assertIn('checksum mismatch', result.stderr)
         self.assertFalse((self.prefix/'current').exists())
         self.assertEqual(len(self.ledger.read_text().splitlines()), 1)
+        self.assertFalse((self.prefix/'install.lock').exists())
+        self.assertEqual(list((self.prefix/'releases').iterdir()),[])
 
     def test_failed_upgrade_keeps_previous_runtime_selected(self):
         self.assertEqual(self.run_setup().returncode, 0)
         before = (self.prefix/'current').resolve()
         lock = self.repo/'scripts/aws/workstation-tools.lock.tsv'
         lock.write_text(lock.read_text()+'# new reviewed release\n')
-        (self.prefix/'downloads'/hashlib.sha256((self.cache/'uv.tgz').read_bytes()).hexdigest()).write_bytes(b'corrupted')
+        (self.cache/'uv.tgz').write_bytes(b'corrupted')
         result = self.run_setup()
-        self.assertEqual(result.returncode, 2); self.assertIn('cached download checksum mismatch', result.stderr)
+        self.assertEqual(result.returncode, 2); self.assertIn('download checksum mismatch', result.stderr)
         self.assertEqual((self.prefix/'current').resolve(), before)
 
     def test_unsigned_macos_package_stops_before_activation(self):

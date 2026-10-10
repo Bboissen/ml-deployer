@@ -399,6 +399,8 @@ def prior_source(value):
     """Receipts survive source upgrades; a pending saved apply remains exact."""
     if value == source(): return True
     if value.get('working_tree_sha256') != sha(b''): return False
+    release=boundary['release_provenance']()
+    if release: return source()['working_tree_sha256']==sha(b'') and value.get('revision') in release['accepted_ancestors']
     revision = value.get('revision', '')
     if len(revision) != 40 or any(c not in '0123456789abcdef' for c in revision): return False
     return subprocess.run(['git','merge-base','--is-ancestor',revision,'HEAD'],

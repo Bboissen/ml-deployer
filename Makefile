@@ -5,7 +5,7 @@ WORKSPACE_PYTHON ?= $(CURDIR)/.tools/workspace-venv/bin/python
 
 .DEFAULT_GOAL := help
 
-.PHONY: aws-workstation-test
+.PHONY: aws-workstation-test aws-automation-test
 
 .PHONY: help check workspace-test workspace-test-setup aws-project-config-test historical-check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
@@ -24,10 +24,13 @@ workspace-test: ## Run workspace records, readiness and deterministic NumPy/pand
 	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -m unittest discover -s tests/workspace -v
 
 aws-project-config-test: ## Check short AWS project configuration and operation records offline.
-	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/test-workspace-config.py
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/run-offline.py tests/aws/test-workspace-config.py
 
 aws-workstation-test: ## Check workstation bootstrap and assisted login offline; never downloads or logs in.
-	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/test-workstation-setup.py
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/run-offline.py tests/aws/test-workstation-setup.py
+
+aws-automation-test: ## Run AWS installer/config/deploy/policy offline checks with verified cleanup
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -B tests/aws/run-offline.py
 
 historical-check: contract-test conformance-test dummy-operator-test ## Check preserved batch/demo compatibility explicitly; no cloud APIs.
 

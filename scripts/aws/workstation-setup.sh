@@ -115,17 +115,31 @@ mkdir -p "$prefix"
 [[ -O "$prefix" && -w "$prefix" ]] || fail 'prefix is not writable by the current user; choose a user-owned --prefix'
 [[ -f "$prefix/owner" ]] || printf 'aws-workstation-v1:%s\n' "$(id -u)" > "$prefix/owner"
 mkdir "$prefix/install.lock" 2>/dev/null || fail 'another setup holds install.lock; retry after it finishes, or inspect the lock before removing a stale lock'
-trap 'rmdir "$prefix/install.lock"' EXIT
-mkdir -p "$prefix/downloads" "$prefix/releases"
+release=''
+activated=0
+scratch="$(mktemp -d "$prefix/install.lock/scratch.XXXXXX")"
+cleanup() {
+  result=$?
+  if [[ -n "$release" ]] && (( !activated )); then rm -rf "$release"; fi
+  rm -rf "$scratch"
+  rmdir "$prefix/install.lock"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[[ "$(df -Pk "$prefix" | awk 'NR==2 {print $4}')" -ge 2097152 ]] || fail 'tool installation needs 2 GiB free'
+mkdir "$scratch/downloads"
+mkdir -p "$prefix/releases"
 [[ ! -L "$prefix/downloads" && ! -L "$prefix/releases" && ! -L "$prefix/uv-cache" ]] || fail 'installer directories must not be symlinks'
 release="$(mktemp -d "$prefix/releases/$fingerprint.XXXXXX")"
 mkdir "$release/bin"
-export UV_CACHE_DIR="$prefix/uv-cache" UV_PYTHON_DOWNLOADS=never PYTHONDONTWRITEBYTECODE=1
+export UV_CACHE_DIR="$scratch/uv-cache" UV_PYTHON_DOWNLOADS=never PYTHONDONTWRITEBYTECODE=1
 while IFS=$'\t' read -r row_platform tool version url checksum; do
   [[ "$row_platform" == "$platform" ]] || continue
   [[ "$tool" != gh || "$github" == 1 ]] || continue
   [[ "$checksum" =~ ^[a-f0-9]{64}$ && "$url" == https://* ]] || fail 'invalid tool lock entry'
-  archive="$prefix/downloads/$checksum"
+  archive="$scratch/downloads/$checksum"
   [[ ! -L "$archive" && ! -L "$archive.part" ]] || fail 'download cache must not contain symlinks'
   log "installing $tool $version"
   if [[ ! -f "$archive" ]]; then
@@ -187,4 +201,8 @@ ln -s "$release" "$prefix/install.lock/current"
 import os, sys
 os.replace(sys.argv[1], sys.argv[2])
 PY
+activated=1
+# Installer payloads are disposable; keep only user-installed runtime tools.
+rm -rf "$release/aws-installer"
+rm -f "$release/AWSCLIV2.pkg" "$release/choices.xml"
 log "ready: $platform; use scripts/aws/workspace.sh to select these tools automatically"

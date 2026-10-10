@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 os.chdir(ROOT)
 # This worktree's offline tests exclusively own new entries in these namespaces.
 SCOPES = [ROOT/'evidence/aws/tests', ROOT/'evidence/aws/operations', ROOT/'evidence/workspace']
-commands = sys.argv[1:] or ['tests/aws/test-workspace-config.py','tests/aws/test-workspace-onboarding.py',
-                           'tests/aws/test-workspace-lifecycle.sh','tests/aws/test-workspace-e2e.sh']
+commands = sys.argv[1:] or ['tests/aws/test-workstation-setup.py','tests/aws/test-workspace-config.py',
+    'tests/aws/test-workspace-onboarding.py','tests/aws/test-workspace-ingest.py','tests/aws/test-workspace-generic-job.py',
+    'tests/aws/test-workspace-deploy.py','tests/aws/test-workspace-release.py','tests/aws/test-workspace-e2e.sh',
+    'tests/aws/test-workspace-lifecycle.sh']
 for name in commands:
     before = {path for scope in SCOPES if scope.exists() for path in scope.rglob('*')}
     free = shutil.disk_usage(ROOT).free

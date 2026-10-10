@@ -254,5 +254,6 @@ def main():
 if __name__ == '__main__':
     try: main()
     except Exception as exc:
-        print('aws-workspace: FAIL: '+str(exc), file=sys.stderr)
+        reason=str(exc) if isinstance(exc,(L['Failure'],ValueError)) else 'stage failed: '+type(exc).__name__+'; use status/auth-check to reconcile'
+        print('aws-workspace: FAIL: '+reason, file=sys.stderr)
         sys.exit(2)

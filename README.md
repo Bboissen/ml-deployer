@@ -9,15 +9,17 @@ owns scripts, datasets, transformations, training and results.
 Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
 is deployed; a bounded private SSH/Make job, versioned S3 verification and compute
 teardown passed native acceptance in [PR24](https://github.com/Bboissen/Ray_terraform/pull/24).
-Generic onboarding, dataset ingestion and interactive access remain pending. Follow the
-[single-configuration AWS workflow](docs/operations/aws-workspace.md).
-The [short project configuration](docs/operations/aws-project-configuration.md)
-prepares account/repository facts and immutable local operation records; generic
-deployment from those records remains pending.
-The [AWS workstation installer](docs/operations/aws-workstation-setup.md) now
-provides pinned operator tools, a managed Python runtime and assisted native
-login on Linux/macOS. Native installer acceptance is recorded for Linux x86_64;
-macOS/arm64 and the full generic deployment journey remain acceptance work.
+The AWS deployer now implements short configuration, scoped foundation/access
+onboarding, streamed local/S3/public HTTPS ingestion, generic non-root setup/run,
+declared output persistence and one reviewed Deploy with durable recovery.
+See the [deployer quickstart](docs/operations/aws-deployer-quickstart.md),
+[operation and recovery behavior](docs/operations/aws-deploy-operation.md) and
+[native acceptance scope](docs/operations/aws-native-acceptance.md).
+
+Linux/macOS tooling and versioned source packaging have offline coverage. Generic
+native deployment, clean macOS installation, real IAM/alarm behavior and controller
+loss acceptance remain pending. Release publication is also pending. The native
+fixture receipt does not establish the complete generic journey.
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.

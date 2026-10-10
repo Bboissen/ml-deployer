@@ -302,7 +302,11 @@ def execute(W,config,directory,scope,task,resume=False):
                     if not cancelled() and result['setup_exit']==0 and result['job_exit']==0 and result['outputs_persisted'] and result['verified_after_compute_deletion']:
                         result['status']='success'
                     if (control/'prepare/apply-started.json').exists() and result['cleanup_status']=='success': active.unlink()
-                    elif not (control/'prepare/apply-started.json').exists() and not any((directory/'foundation'/stage/'apply-started.json').exists() and not (directory/'foundation'/stage/'apply-result.json').exists() for stage in ('bootstrap','platform')): active.unlink()
+                    elif not (control/'prepare/apply-started.json').exists():
+                        uncertain_access=any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown') for stage in ('repository','access'))
+                        completed=journal.latest('foundation') and journal.latest('foundation')['state']=='completed'
+                        uncertain_foundation=not completed and any(p.name=='apply-started.json' and not (p.parent/'apply-result.json').exists() for p in (directory/'foundation').rglob('apply-started.json'))
+                        if not uncertain_access and not uncertain_foundation: active.unlink()
                 except BaseException as error:
                     result.update(cleanup_status='unknown',cleanup_error=E.safe_error(error),recovery='use resume; provider expiry remains armed')
                     journal.record('cleanup','unknown',result['cleanup_error'])
