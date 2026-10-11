@@ -71,11 +71,11 @@ class Journal:
     def stage(self,name,callback,reconcile=None):
         old=self.latest(name)
         if old and old['state']=='completed': return old['detail']
+        self.L['require'](not (self.directory/'cancel.json').exists(),'cancel requested')
         if old and old['state'] in ('started','unknown'):
             self.L['require'](reconcile is not None,'uncertain '+name+'; resume must reconcile owned resources before another mutation')
             result=reconcile()
         else:
-            self.L['require'](not (self.directory/'cancel.json').exists(),'cancel requested')
             self.record(name,'started')
             try: result=callback()
             except BaseException as error:
@@ -326,13 +326,26 @@ def deploy(W,config,directory=None,authorization=None):
     return execute(W,config,directory,scope,task)
 
 
+def completed_result(L,directory):
+    result_path=directory/'result.json'
+    if result_path.exists():
+        result=L['read'](result_path)
+        if result['status'] in ('success','cancelled') and result['cleanup_status'] in ('success','not_needed'):
+            return result
+    return None
+
+
 def resume(W,config,directory):
     directory,scope,task=validate_operation(W,config,directory)
+    result=completed_result(W['L'],directory)
+    if result is not None: return result
     return execute(W,config,directory,scope,task,resume=True)
 
 
 def cancel(W,config,directory):
     L=W['L']; directory,scope,task=validate_operation(W,config,directory)
+    result=completed_result(L,directory)
+    if result is not None: return result
     if not (directory/'cancel.json').exists(): L['write'](directory/'cancel.json',{'requested_at':L['stamp'](),'scope_sha256':task['scope_sha256']})
     try: return execute(W,config,directory,scope,task,resume=True)
     except ValueError as error:

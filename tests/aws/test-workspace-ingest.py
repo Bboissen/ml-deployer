@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import tempfile
 import time
@@ -63,6 +64,27 @@ class Ingest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'empty'): self.ingest()
         (self.data/'link').symlink_to('/etc/passwd')
         with self.assertRaises(OSError): self.ingest('linked')
+    def test_fifo_input_is_rejected_without_waiting_for_writer(self):
+        os.mkfifo(self.data/'pipe')
+        def timeout(*_): raise TimeoutError('FIFO blocked before validation')
+        previous=signal.signal(signal.SIGALRM,timeout)
+        try:
+            signal.setitimer(signal.ITIMER_REAL,1)
+            with self.assertRaisesRegex(ValueError,'special file'): self.ingest()
+        finally:
+            signal.setitimer(signal.ITIMER_REAL,0)
+            signal.signal(signal.SIGALRM,previous)
+    def test_local_and_s3_inventory_enforce_cumulative_byte_limits(self):
+        (self.data/'second').write_bytes(b'world')
+        adapter=I.Local(self.data); adapter.maximum_bytes=9
+        with self.assertRaisesRegex(ValueError,'byte bound'): adapter.inventory(time.monotonic()+10)
+        from types import SimpleNamespace
+        api=SimpleNamespace(get_bucket_location=lambda **_: {'LocationConstraint':None},
+            list_objects_v2=lambda **_: {'Contents':[{'Key':'data/a'},{'Key':'data/b'}]},
+            head_object=lambda **_: {'ContentLength':5,'ETag':'etag','VersionId':'version'},
+            get_object=lambda **_: {'ContentLength':5,'ETag':'etag','VersionId':'version','Body':io.BytesIO(b'hello')})
+        remote=I.S3('s3://source-bucket/data/',api,'us-east-1'); remote.maximum_bytes=9
+        with self.assertRaisesRegex(ValueError,'byte bound'): remote.inventory(time.monotonic()+10)
     def test_multipart_is_bounded_and_failure_aborts_only_owned_id(self):
         (self.data/'input with spaces').write_bytes(b'a'*(I.CHUNK+123))
         self.store.fail=True; self.store.uploads['unrelated']={'Key':'unrelated/key','data':[]}

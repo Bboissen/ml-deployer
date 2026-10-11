@@ -1,9 +1,13 @@
 """Ordinary explicit commands, failure stages, bounded logs and output paths."""
 import importlib.util
+import datetime as dt
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
+import signal
 import sys
 import tempfile
 import time
@@ -16,7 +20,7 @@ ROOT=Path(__file__).resolve().parents[2]; os.chdir(ROOT)
 def module(name):
     spec=importlib.util.spec_from_file_location(name,ROOT/'scripts/aws'/name)
     value=importlib.util.module_from_spec(spec); spec.loader.exec_module(value); return value
-G=module('workspace-generic-job.py'); W=module('workspace.py')
+G=module('workspace-generic-job.py'); W=module('workspace.py'); E=module('workspace-e2e.py')
 
 class Jobs(unittest.TestCase):
     def setUp(self):
@@ -36,6 +40,40 @@ class Jobs(unittest.TestCase):
         self.assertEqual(self.execute([sys.executable,'-c','raise SystemExit(7)']),7)
         self.assertEqual(self.execute([sys.executable,'-c','raise SystemExit(9)']),9)
         with self.assertRaises(subprocess.TimeoutExpired): self.execute([sys.executable,'-c','import time;time.sleep(20)'],0.05)
+    @unittest.skipUnless(hasattr(os,'fork'),'process groups require POSIX')
+    def test_success_and_timeout_kill_children_after_leader_exits(self):
+        for close_output in (True,False):
+            pidfile=self.root/('child-'+str(close_output))
+            child=None
+            source='''import os,signal,sys,time
+pid=os.fork()
+if pid==0:
+    signal.signal(signal.SIGTERM,signal.SIG_IGN)
+    open(sys.argv[1],'w').write(str(os.getpid()))
+    if sys.argv[2]=='True':
+        os.close(1); os.close(2)
+    time.sleep(30)
+else:
+    while not os.path.exists(sys.argv[1]): time.sleep(.001)
+'''
+            try:
+                argv=[sys.executable,'-c',source,str(pidfile),str(close_output)]
+                if close_output: self.assertEqual(self.execute(argv),0)
+                else:
+                    with self.assertRaises(subprocess.TimeoutExpired): self.execute(argv,0.2)
+                child=int(pidfile.read_text())
+                # A terminated orphan may remain a zombie briefly until its
+                # host reaper collects it; it can no longer execute or write.
+                deadline=time.monotonic()+3
+                while time.monotonic()<deadline:
+                    state=Path('/proc')/str(child)/'stat'
+                    if not state.exists() or state.read_text().split()[2]=='Z': break
+                    time.sleep(.01)
+                else: self.fail('owned descendant survived command cleanup')
+            finally:
+                if pidfile.exists():
+                    try: os.kill(int(pidfile.read_text()),signal.SIGKILL)
+                    except ProcessLookupError: pass
     def test_large_log_is_truncated_while_process_completes(self):
         self.assertEqual(self.execute([sys.executable,'-c','import sys;sys.stdout.write("x"*9000000)']),0)
         self.assertEqual(next(self.root.glob('log-*')).stat().st_size,G.LOG_BYTES)
@@ -81,6 +119,39 @@ class Jobs(unittest.TestCase):
     def test_workspace_runs_setup_only_and_remains_available(self):
         code,receipt=self.guest(mode='workspace')
         self.assertEqual(code,0); self.assertEqual(receipt['setup_exit'],0); self.assertIsNone(receipt['job_exit'])
+    def test_output_metadata_limit_preserves_failure_receipt(self):
+        with patch.object(G.files,'EXECUTION_RECEIPT_BYTES',17000):
+            code,receipt=self.guest()
+        self.assertEqual(code,1)
+        self.assertFalse(receipt['outputs_persisted'])
+        self.assertEqual(receipt['output_error'],'ValueError')
+        self.assertEqual(receipt['output_objects'],[])
+    def test_controller_verifies_directory_receipt_larger_than_one_mib(self):
+        account='111111111111'; workspace='demand-dev'; run_id='a'*32
+        prefix='projects/demand/workspaces/'+workspace+'/output/'+run_id+'/'
+        job={'run_id':run_id,'commands':{'setup':['true'],'run':['true']},'dataset_manifest':{},
+             'outputs':{'paths':['results'],'maximum_bytes':100},'output_uri':'s3://data/'+prefix}
+        value={'workspace_id':workspace,'repository':{'revision':'b'*40}}
+        target={'account_id':account,'inventory':{'buckets':['data']}}
+        config={'aws_account_id':account,'aws_region':'us-east-1','resource_prefix':'demand',
+                'workspace_identity':{'ml_project_name':'demand','request':{'workspace_id':workspace}},
+                'toolbox_zip_sha256':'c'*64,'lease':{'starts_at':'2026-01-01T00:00:00Z'}}
+        receipt={'run_id':run_id,'repository_commit':value['repository']['revision'],'user':'workspace',
+                 'instance_role_arn':'arn:aws:sts::'+account+':assumed-role/'+W.L['role_name'](config)+'/i-owned',
+                 'commands':job['commands'],'dataset_manifest':{},'bootstrap':{'workspace_id':workspace,'toolbox_sha256':'c'*64},
+                 'infrastructure_ready':True,'outputs_persisted':True,'setup_exit':0,'job_exit':0,
+                 'credential_removed_before_setup':True,'output_objects':[]}
+        for number in range(6000):
+            path='results/file-'+str(number)
+            receipt['output_objects'].append({'path':path,'key':prefix+'files/'+path,'version_id':'version',
+                                             'bytes':0,'sha256':hashlib.sha256(b'').hexdigest()})
+        raw=G.receipt_bytes(receipt); self.assertGreater(len(raw),1024*1024)
+        def get(**kw):
+            data=raw if kw['Key'].endswith('/execution.json') else b''
+            return {'ContentLength':len(data),'VersionId':'version','Body':io.BytesIO(data),
+                    'LastModified':dt.datetime(2026,1,1,tzinfo=dt.timezone.utc)}
+        verified=E.verify_generic_result(W.L,value,target,job,config,'i-owned',types.SimpleNamespace(get_object=get),self.root/'verified')
+        self.assertEqual(verified['execution'],receipt)
     def test_fresh_run_cannot_pass_using_another_project_output(self):
         (self.project/'result').write_bytes(b'old'); fresh=self.root/'fresh'; fresh.mkdir()
         with self.assertRaisesRegex(ValueError,'missing'): G.output_files(fresh,['result'],100)

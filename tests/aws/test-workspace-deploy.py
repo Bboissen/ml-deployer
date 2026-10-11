@@ -44,6 +44,30 @@ class Operations(unittest.TestCase):
         P=types.SimpleNamespace(operation_status=lambda *_:None,validate_project=lambda *_:project)
         with patch.object(D,'extensions',return_value={'config':P}),patch.dict(L,{'prior_source':lambda _:True}):
             with self.assertRaisesRegex(L['Failure'],'authorization'): D.validate_operation({'L':L},'config',self.directory)
+    def test_resume_success_returns_receipt_without_repeating_cleanup(self):
+        result={'status':'success','cleanup_status':'success','verified_after_compute_deletion':True}
+        L['write'](self.directory/'result.json',result)
+        with patch.object(D,'validate_operation',return_value=(self.directory,{},{})),patch.object(D,'execute',side_effect=AssertionError('completed operation replayed')):
+            self.assertEqual(D.resume({'L':L},'config',self.directory),result)
+    def test_completed_operations_are_unchanged_by_cancel_or_resume(self):
+        for status in ('success','cancelled'):
+            for cleanup in ('success','not_needed'):
+                with self.subTest(status=status,cleanup=cleanup):
+                    directory=self.directory/(status+'-'+cleanup); directory.mkdir()
+                    result={'status':status,'cleanup_status':cleanup}
+                    L['write'](directory/'result.json',result)
+                    before=(directory/'result.json').read_bytes()
+                    with patch.object(D,'validate_operation',return_value=(directory,{},{})),patch.object(D,'execute',side_effect=AssertionError('completed operation replayed')):
+                        self.assertEqual(D.cancel({'L':L},'config',directory),result)
+                        self.assertEqual(D.resume({'L':L},'config',directory),result)
+                    self.assertFalse((directory/'cancel.json').exists())
+                    self.assertEqual((directory/'result.json').read_bytes(),before)
+    def test_resume_failed_or_uncertain_operation_still_reconciles(self):
+        result={'status':'failure','cleanup_status':'unknown'}
+        L['write'](self.directory/'result.json',result)
+        with patch.object(D,'validate_operation',return_value=(self.directory,{},{})),patch.object(D,'execute',return_value=result) as execute:
+            self.assertEqual(D.resume({'L':L},'config',self.directory),result)
+            execute.assert_called_once()
     def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None):
         directory=self.directory; calls=[]; project=json.loads((ROOT/'infra/aws/project.example.json').read_text()); project['mode']=mode
         target={'profile':'offline','account_id':'111111111111','region':'us-east-1','operator_arn':'arn:aws:iam::111111111111:user/operator',
@@ -115,6 +139,12 @@ class Operations(unittest.TestCase):
         restored=D.Journal(L,self.directory,'b'*64)
         self.assertEqual(restored.stage('ingestion',lambda:self.fail('repeated completed stage')),result)
         self.assertEqual(calls,['owned reconciliation'])
+    def test_cancellation_blocks_uncertain_stage_from_resuming_mutations(self):
+        journal=D.Journal(L,self.directory,'b'*64); journal.record('foundation','started')
+        L['write'](self.directory/'cancel.json',{'requested_at':L['stamp']()})
+        with self.assertRaisesRegex(L['Failure'],'cancel requested'):
+            journal.stage('foundation',lambda:self.fail('created new foundation'),
+                          lambda:self.fail('recovery applied more foundation resources'))
     def test_recovery_bindings_survive_multiple_interruptions(self):
         O=module('workspace-onboarding.py')
         one=self.directory/'bootstrap-recovery-one'; two=self.directory/'bootstrap-recovery-two'

@@ -131,7 +131,14 @@ def prepare(L, deployment, directory, artifacts, observed_capacity, operator):
 
 def bind_plan(L, directory, authorization):
     review = L['read'](directory/'review.json')
-    L['authorize'](str(directory), L['sha'](L['canon'](review)), authorization)
+    review_hash = L['sha'](L['canon'](review))
+    if (directory/'authorization.json').exists():
+        accepted = L['read'](directory/'authorization.json')
+        L['require'](accepted['review_sha256'] == review_hash and
+                     accepted['plan_sha256'] == review['plan_sha256'] and
+                     accepted['approval'] == authorization, 'saved plan authorization differs')
+    else:
+        L['authorize'](str(directory), review_hash, authorization)
     return L['apply'](str(directory))
 
 

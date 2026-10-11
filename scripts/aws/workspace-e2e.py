@@ -416,7 +416,7 @@ def verify_generic_result(L,value,target,job,config,instance,s3,directory,first=
     ingest=importlib.util.module_from_spec(spec); spec.loader.exec_module(ingest)
     bucket=target['inventory']['buckets'][0]; prefix=job['output_uri'][5:].split('/',1)[1]
     raw,object_record=object_bytes(L,s3,target['account_id'],bucket,prefix+'execution.json',
-                                 first['execution_object']['version_id'] if first else None,1024*1024)
+                                 first['execution_object']['version_id'] if first else None,ingest.files.EXECUTION_RECEIPT_BYTES)
     receipt=json.loads(raw)
     expected_role=f"arn:aws:sts::{target['account_id']}:assumed-role/{L['role_name'](config)}/{instance}"
     L['require'](receipt['run_id']==job['run_id'] and receipt['repository_commit']==value['repository']['revision'] and

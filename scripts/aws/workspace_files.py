@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 import stat
 
+# Keep execution receipts large enough for ordinary directory outputs and small
+# enough for the controller's bounded, pretty-printed local evidence reader.
+EXECUTION_RECEIPT_BYTES = 8 * 1024 * 1024
+
 def require(condition, reason):
     if not condition: raise ValueError(reason)
 
@@ -14,7 +18,9 @@ def local_file(path):
         for part in path.parts[1:-1]:
             child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
             os.close(parent); parent=child
-        descriptor=os.open(path.name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=parent)
+        # A replaced FIFO must fail the regular-file check instead of blocking
+        # before fstat can inspect the descriptor.
+        descriptor=os.open(path.name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
         with os.fdopen(descriptor,'rb') as stream:
             require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode),'dataset special file unsupported')
             yield stream

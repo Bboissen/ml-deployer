@@ -14,6 +14,12 @@ import subprocess
 import time
 
 LOG_BYTES=8*1024*1024
+spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
+files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
+
+
+def receipt_bytes(receipt):
+    return (json.dumps(receipt,sort_keys=True)+'\n').encode()
 
 def require(condition,reason):
     if not condition: raise ValueError(reason)
@@ -57,10 +63,13 @@ def execute(argv,environment,log,deadline,directory=None):
     finally:
         try: os.killpg(process.pid,signal.SIGTERM)
         except ProcessLookupError: pass
-        if process.poll() is None:
-            try: process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid,signal.SIGKILL); process.wait(timeout=5)
+        try: process.wait(timeout=3)
+        except subprocess.TimeoutExpired: pass
+        # The leader can exit while descendants ignore SIGTERM. Always finish
+        # the owned process group before hashing or uploading project outputs.
+        try: os.killpg(process.pid,signal.SIGKILL)
+        except ProcessLookupError: pass
+        process.wait(timeout=5)
         selector.close(); process.stdout.close()
 
 def output_files(project,paths,maximum):
@@ -80,20 +89,18 @@ def output_files(project,paths,maximum):
     require(selected,'declared outputs contain no files'); return sorted(selected.items())
 
 def persist(s3,account,bucket,key,path):
-    spec=importlib.util.spec_from_file_location('ingest',Path(__file__).with_name('workspace_files.py'))
-    ingest=importlib.util.module_from_spec(spec); spec.loader.exec_module(ingest)
     before=path.stat(); digest=hashlib.sha256()
     part_size=max(8*1024*1024,math.ceil(before.st_size/10000/(8*1024*1024))*(8*1024*1024))
     require(part_size<=64*1024*1024,'output object exceeds 640 GiB bounded transfer capability')
     from boto3.s3.transfer import TransferConfig
-    with ingest.local_file(path) as stream:
-        initial=ingest.local_stamp(stream)
+    with files.local_file(path) as stream:
+        initial=files.local_stamp(stream)
         for data in iter(lambda:stream.read(8*1024*1024),b''): digest.update(data)
-        require(ingest.local_stamp(stream)==initial,'output changed while hashing')
+        require(files.local_stamp(stream)==initial,'output changed while hashing')
         stream.seek(0)
         s3.upload_fileobj(stream,bucket,key,ExtraArgs={'ExpectedBucketOwner':account,'Metadata':{'sha256':digest.hexdigest()}},
                        Config=TransferConfig(multipart_threshold=8*1024*1024,multipart_chunksize=part_size,max_concurrency=1,use_threads=False))
-        require(ingest.local_stamp(stream)==initial,'output changed during upload')
+        require(files.local_stamp(stream)==initial,'output changed during upload')
     require(path.stat()==before,'output changed during upload')
     head=s3.head_object(Bucket=bucket,Key=key,ExpectedBucketOwner=account)
     require(head.get('VersionId') not in (None,'','null') and head['ContentLength']==before.st_size,'versioned output required')
@@ -139,13 +146,24 @@ def run(job,root=Path('/workspaces')):
         except Exception as error: receipt['execution_error']={'stage':stage,'type':type(error).__name__}
     s3=session.client('s3',config=settings); bucket,prefix=job['output_uri'][5:].split('/',1)
     try:
+        # Reserve space for log references and errors. Count encoded metadata
+        # once per file, rather than repeatedly serializing the growing receipt.
+        metadata_bytes=len(receipt_bytes(receipt))+16*1024
         for name,path in output_files(project,job['outputs']['paths'],job['outputs']['maximum_bytes']):
-            receipt['output_objects'].append({'path':name,**persist(s3,job['account_id'],bucket,prefix+'files/'+name,path)})
+            key=prefix+'files/'+name
+            maximum_record={'path':name,'key':key,'version_id':'x'*1024,'bytes':path.stat().st_size,'sha256':'x'*64}
+            require(metadata_bytes+len(receipt_bytes(maximum_record))+2<=files.EXECUTION_RECEIPT_BYTES,
+                    'output metadata exceeds execution receipt limit')
+            record={'path':name,**persist(s3,job['account_id'],bucket,key,path)}
+            metadata_bytes+=len(receipt_bytes(record))+2
+            receipt['output_objects'].append(record)
         receipt['outputs_persisted']=True
     except Exception as error: receipt['output_error']=type(error).__name__
     try: receipt['log_object']=persist(s3,job['account_id'],bucket,prefix+'job.log',log_path)
     except Exception as error: receipt['log_error']=type(error).__name__
-    response=s3.put_object(Bucket=bucket,Key=prefix+'execution.json',Body=(json.dumps(receipt,sort_keys=True)+'\n').encode(),
+    encoded=receipt_bytes(receipt)
+    require(len(encoded)<=files.EXECUTION_RECEIPT_BYTES,'execution receipt exceeds byte limit')
+    response=s3.put_object(Bucket=bucket,Key=prefix+'execution.json',Body=encoded,
         ContentType='application/json',ExpectedBucketOwner=job['account_id'])
     require(response.get('VersionId') not in (None,'','null'),'durable execution receipt required')
     return 0 if receipt['setup_exit']==0 and (job['mode']=='workspace' or (receipt['job_exit']==0 and receipt['outputs_persisted'])) else 1

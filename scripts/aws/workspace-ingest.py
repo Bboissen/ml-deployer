@@ -62,13 +62,14 @@ class Local:
                 require(len(result)<=100000,'dataset file-count bound exceeded')
         return sorted(result)
     def inventory(self,deadline):
-        records=[]
+        records=[]; total=0
         for name,path in self.paths():
             with local_file(path) as stream:
-                before=local_stamp(stream); inventory_bound(self,before[2],sum(r['bytes'] for r in records))
+                before=local_stamp(stream); inventory_bound(self,before[2],total)
                 checksum=stream_hash(stream,before[2],deadline,getattr(self,'cancelled',None))
                 require(local_stamp(stream)==before,'source changed while hashing')
             records.append({'path':name,'bytes':before[2],'sha256':checksum,'source_stamp':before})
+            total+=before[2]
         require(records,'empty dataset directory'); return records
     @contextmanager
     def open(self,record):
@@ -94,14 +95,15 @@ class S3:
                 tokens.add(token); args['ContinuationToken']=token
             else: raise ValueError('S3 source pagination exhausted')
         else: keys=[self.key]
-        records=[]
+        records=[]; total=0
         for key in sorted(keys):
             head=self.api.head_object(Bucket=self.bucket,Key=key)
             record={'path':relative(key[len(self.key):] if not self.key or self.key.endswith('/') else key.rsplit('/',1)[-1]),
                 'bytes':head['ContentLength'],'source_key':key,'source_etag':head['ETag'],'source_version':head.get('VersionId')}
-            inventory_bound(self,record['bytes'],sum(r['bytes'] for r in records))
+            inventory_bound(self,record['bytes'],total)
             with self.open(record) as stream: record['sha256']=stream_hash(stream,record['bytes'],deadline,getattr(self,'cancelled',None))
             records.append(record)
+            total+=record['bytes']
         require(records,'empty S3 input'); return records
     @contextmanager
     def open(self,record):

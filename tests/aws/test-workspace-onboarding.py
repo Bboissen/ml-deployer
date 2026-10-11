@@ -19,6 +19,16 @@ def module(name):
 W=module('workspace.py'); O=module('workspace-onboarding.py'); R=module('workspace_ram.py'); L=W.L
 
 class Onboarding(unittest.TestCase):
+    def test_interruption_after_authorization_reuses_exact_plan_binding(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+            directory=Path(temporary); review={'plan_sha256':'a'*64,'scope':[]}
+            L['write'](directory/'review.json',review)
+            L['authorize'](str(directory),L['sha'](L['canon'](review)),'authorized bounded test')
+            with patch.dict(L,{'apply':lambda path:{'status':'success'},
+                               'authorize':lambda *_:self.fail('immutable authorization was rewritten')}):
+                self.assertEqual(O.bind_plan(L,directory,'authorized bounded test'),{'status':'success'})
+                with self.assertRaisesRegex(L['Failure'],'authorization differs'):
+                    O.bind_plan(L,directory,'different authorization')
     def test_user_role_paths_and_sso_owner_boundary(self):
         identity={'Account':'111111111111','Arn':'arn:aws:iam::111111111111:user/team/operator'}
         self.assertEqual(O.canonical_operator(L,identity),identity['Arn'])
