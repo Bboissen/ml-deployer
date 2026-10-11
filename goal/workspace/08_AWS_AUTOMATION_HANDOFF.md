@@ -1,5 +1,11 @@
 # AWS automation implementation handoff
 
+Historical planning snapshot. The installer/configuration/onboarding/ingestion/job/deploy
+stack is now consolidated; use the [current quickstart](../../docs/operations/aws-deployer-quickstart.md)
+and [native acceptance checklist](../../docs/operations/aws-native-acceptance.md)
+for current commands and remaining acceptance. PR27–34 references below describe
+the earlier implementation milestones.
+
 Implement the [AWS automation goals](07_AWS_AUTOMATION.md) one milestone at a
 time. PR24 is merged; draft PR27 adds short configuration and draft PR28 adds
 workstation installation/assisted login. Verify their current branch/merge state

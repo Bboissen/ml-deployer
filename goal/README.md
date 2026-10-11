@@ -21,8 +21,8 @@ reference and compatibility evidence.
 | [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Reviewed prior AWS test resources removed; IAM, alerts and evidence retained |
 | [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
 | [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Bounded unattended job accepted; generic and interactive acceptance pending |
-| [AWS controller configuration](../docs/operations/aws-project-configuration.md) | Short inputs, resolved intent and local operation records | First M0/M1 source slice; generic deployment remains pending |
-| [AWS workstation setup](../docs/operations/aws-workstation-setup.md) | Pinned operator installation, managed runtime and assisted login | M2 installer/authentication slice; native Linux x86_64 accepted, macOS/arm64 and backend/provider onboarding pending |
+| [AWS controller configuration](../docs/operations/aws-project-configuration.md) | Short inputs, resolved intent and local operation records | Implemented in the consolidated deployer; generic native acceptance pending |
+| [AWS workstation setup](../docs/operations/aws-workstation-setup.md) | Pinned operator installation, managed runtime and assisted login | Pinned installer and assisted login implemented; clean-host macOS/arm64 and generic onboarding acceptance pending |
 | [AWS automation](workspace/07_AWS_AUTOMATION.md) | Pinned tools, project configuration, onboarding, ingestion and reviewed Deploy | Implemented offline; generic native acceptance and release publication pending; [handoff](workspace/08_AWS_AUTOMATION_HANDOFF.md) |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |

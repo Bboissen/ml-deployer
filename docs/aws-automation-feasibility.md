@@ -1,5 +1,11 @@
 # AWS deployment automation feasibility
 
+Historical planning snapshot. The installer/configuration/onboarding/ingestion/job/deploy
+stack is now consolidated; use the [current quickstart](operations/aws-deployer-quickstart.md)
+and [native acceptance checklist](operations/aws-native-acceptance.md)
+for current commands and remaining acceptance. PR27–34 references below describe
+the earlier implementation milestones.
+
 An AWS deployment driven by a short configuration and one Deploy action is
 feasible. Most of the execution already exists. The remaining work is to make
 onboarding, configuration discovery, dataset transfer and ordinary project

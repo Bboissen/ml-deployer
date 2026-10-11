@@ -16,7 +16,8 @@ See the [deployer quickstart](docs/operations/aws-deployer-quickstart.md),
 [operation and recovery behavior](docs/operations/aws-deploy-operation.md) and
 [native acceptance scope](docs/operations/aws-native-acceptance.md).
 
-Linux/macOS tooling and versioned source packaging have offline coverage. Generic
+The repository is a release candidate for a clean installation, with
+production acceptance still pending. Linux/macOS tooling and versioned source packaging have offline coverage. Generic
 native deployment, clean macOS installation, real IAM/alarm behavior and controller
 loss acceptance remain pending. Release publication is also pending. The native
 fixture receipt does not establish the complete generic journey.
