@@ -24,6 +24,9 @@ Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
 
+The [AWS first-use guide](docs/aws-setup-guide.html) explains prerequisites and access;
+the deployer quickstart above describes the current commands.
+
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
 and [cleanup inventory for review](goal/workspace/06_CLEANUP_INVENTORY.md).
