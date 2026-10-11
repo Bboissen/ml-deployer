@@ -49,7 +49,7 @@ mapfile -t visible_evidence_files < <(
 [[ "${visible_evidence_files[*]}" == 'evidence/.gitignore evidence/README.md' ]] ||
   fail 'only evidence layout documentation may be visible to Git'
 git check-ignore -q evidence/aws/LOCAL-RUNTIME-PROBE || fail 'local evidence is not ignored'
-if rg -q --glob '!check-repository.sh' '\.dummy-runtime|/home/user/\.cache/opentofu' scripts tests; then
+if rg -q --glob '!check-repository.sh' '\.dummy-runtime|/home/[^/]+/\.cache/opentofu' scripts tests; then
   fail 'runtime/cache writers must use portable ignored paths'
 fi
 

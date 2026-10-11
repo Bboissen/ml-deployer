@@ -96,7 +96,13 @@ def targets():
 def check_environment():
     # Detect rather than silently discard credentials, alternate endpoints or
     # OpenTofu arguments that could invalidate the reviewed target.
-    allowed = {"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_LOGIN_CACHE_DIRECTORY", "AWS_CA_BUNDLE"}
+    # Selection variables are overwritten by profile_environment, so ambient
+    # shell defaults cannot change the reviewed target; credential, endpoint
+    # and role sources still conflict.
+    allowed = {"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "AWS_LOGIN_CACHE_DIRECTORY", "AWS_CA_BUNDLE",
+               "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PAGER",
+               "AWS_DEFAULT_OUTPUT", "AWS_CLI_AUTO_PROMPT", "AWS_SDK_LOAD_CONFIG", "AWS_EC2_METADATA_DISABLED",
+               "AWS_MAX_ATTEMPTS", "AWS_RETRY_MODE", "AWS_CLI_FILE_ENCODING"}
     conflicts = [k for k in os.environ if (k.startswith("AWS_") and k not in allowed)
                  or k.startswith("TF_VAR_") or k.startswith("TF_CLI_ARGS")
                  or k in {"TF_DATA_DIR", "TF_WORKSPACE", "TF_CLI_CONFIG_FILE", "BOTO_CONFIG"}]

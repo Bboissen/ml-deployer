@@ -106,6 +106,23 @@ class Release(unittest.TestCase):
         self.assertNotEqual(result.returncode,0)
         self.assertIn('installed release source changed',result.stderr)
         self.assertEqual(evidence.read_text(),'preserve real state receipt')
+    def test_restore_repairs_tampered_source_and_preserves_evidence(self):
+        self.assertEqual(self.install().returncode,0)
+        release=self.prefix/'releases'/self.result['version']; evidence=release/'evidence/aws/retained.json'
+        evidence.parent.mkdir(parents=True,exist_ok=True); evidence.write_text('preserve real state receipt')
+        original=(release/'workspace').read_bytes()
+        (release/'workspace').write_text('broken launcher'); (release/'scripts/aws/workspace.py').unlink()
+        self.assertNotEqual(self.install().returncode,0)
+        result=subprocess.run(['bash',str(self.archive.parent/'install.sh'),'--prefix',str(self.prefix),'--restore'],cwd=self.directory,env=self.env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr); self.assertIn('restored 2 verified source file',result.stderr)
+        self.assertEqual((release/'workspace').read_bytes(),original); self.assertTrue((release/'scripts/aws/workspace.py').is_file())
+        self.assertEqual(R.provenance(release)['source']['working_tree_sha256'],hashlib.sha256(b'').hexdigest())
+        self.assertEqual(evidence.read_text(),'preserve real state receipt')
+        self.assertTrue((self.prefix/'bin/aws-workspace').is_file()); self.assertFalse((self.prefix/'install.lock').exists())
+    def test_prefix_with_spaces_installs(self):
+        spaced=self.directory/'install dir'
+        result=subprocess.run(['bash',str(self.archive.parent/'install.sh'),'--prefix',str(spaced)],cwd=self.directory,env=self.env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr); self.assertTrue((spaced/'bin/aws-workspace').is_file())
     def test_reinstall_rejects_symlinked_source_before_executing_setup(self):
         self.assertEqual(self.install().returncode,0)
         release=self.prefix/'releases'/self.result['version']

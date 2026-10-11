@@ -52,7 +52,7 @@ class Bootstrap(unittest.TestCase):
         self.protected = [self.host_home/'.aws/config', self.host_home/'.aws/credentials', self.host_home/'.zshrc']
         for path in self.protected: path.write_text('preserve existing user settings\n')
         self.env['HOME'] = str(self.host_home)
-        executable(self.shims/'uname', '#!/bin/sh\ncase "$1" in -s) echo "${MOCK_OS:-Linux}";; -m) echo "${MOCK_ARCH:-x86_64}";; esac\n')
+        executable(self.shims/'uname', '#!/bin/sh\ncase "$1" in -s) echo "${MOCK_OS:-Linux}";; -m) echo "${MOCK_ARCH:-x86_64}";; *) exec ' + shlex.quote(shutil.which('uname')) + ' "$@";; esac\n')
         executable(self.shims/'getconf', '#!/bin/sh\necho "${MOCK_LIBC:-glibc 2.35}"\n')
         executable(self.shims/'sw_vers', '#!/bin/sh\necho "${MOCK_MAC:-13.0}"\n')
         executable(self.shims/'xcode-select', '#!/bin/sh\nexit 0\n')
@@ -91,12 +91,12 @@ class Bootstrap(unittest.TestCase):
 
     def fixtures(self):
         uv = (self.root/'fixture-uv').read_text(); py = (self.root/'fixture-python').read_text()
-        linux_aws = '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = --bin-dir ]; then dest="$2"; fi; shift; done\nprintf "#!/bin/sh\\necho \'aws-cli/2.36.14 Python/mock\'\\n" > "$dest/aws"\nchmod +x "$dest/aws"\n'
+        linux_aws = '#!/bin/sh\necho "aws-cli/2.36.14 Python/mock"\n'
         hashes = {
             'uv.tgz': self.archive('uv.tgz', {'uv/uv': uv}),
             'python.tgz': self.archive('python.tgz', {'python/bin/python3.13': py}),
             'tofu.zip': self.archive('tofu.zip', {'tofu': '#!/bin/sh\necho "OpenTofu v1.12.3"\n'}, True),
-            'aws.zip': self.archive('aws.zip', {'aws/install': linux_aws}, True),
+            'aws.zip': self.archive('aws.zip', {'aws/dist/aws': linux_aws, 'aws/install': '#!/bin/sh\nexit 9\n'}, True),
             'ssm.zip': self.archive('ssm.zip', {'sessionmanager-bundle/bin/session-manager-plugin': '#!/bin/sh\necho 1.2.835.0\n'}, True),
             'gh.tgz': self.archive('gh.tgz', {'gh/bin/gh': '#!/bin/sh\necho "gh version 2.102.0 (mock)"\n'}),
             'gh.zip': self.archive('gh.zip', {'gh_2.102.0_macOS_arm64/bin/gh': '#!/bin/sh\necho "gh version 2.102.0 (mock)"\n'}, True)}
@@ -169,11 +169,27 @@ class Bootstrap(unittest.TestCase):
         self.assertFalse((self.prefix/'current').exists())
 
     def test_unsupported_hosts_fail_before_writes(self):
-        for values in [{'MOCK_ARCH':'riscv64'}, {'MOCK_OS':'Windows'}, {'MOCK_LIBC':'musl 1.2'},
-                       {'MOCK_LIBC':'glibc 2.34'}, {'MOCK_OS':'Darwin','MOCK_MAC':'12.7'}]:
+        for values in [{'MOCK_ARCH':'riscv64'}, {'MOCK_OS':'Windows'}, {'MOCK_LIBC':'musl 1.2'}]:
             with self.subTest(values=values), patch.dict(self.env, values):
                 self.assertEqual(self.run_setup().returncode, 2)
                 self.assertFalse(self.prefix.exists())
+
+    def test_old_but_capable_os_versions_install(self):
+        # No distribution or OS-version gate: the pinned binaries are verified by running them.
+        for values in [{'MOCK_LIBC':'glibc 2.17'}, {'MOCK_OS':'Darwin','MOCK_ARCH':'arm64','MOCK_MAC':'12.7'}]:
+            with self.subTest(values=values), patch.dict(self.env, {**values, 'WORKSPACE_TOOLS_DIR': str(self.root/values.get('MOCK_LIBC', 'mac'))}):
+                result = self.run_setup()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_binary_that_cannot_run_is_reported_with_repair(self):
+        (self.cache/'tofu.zip').unlink()
+        broken = self.archive('tofu.zip', {'tofu': '#!/bin/sh\necho "cannot execute binary"; exit 127\n'}, True)
+        lock = self.repo/'scripts/aws/workstation-tools.lock.tsv'
+        lock.write_text(lock.read_text().replace(lock.read_text().split('tofu.zip\t')[1].split('\n')[0], broken))
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('tofu 1.12.3 does not run', result.stderr); self.assertIn('glibc', result.stderr)
+        self.assertFalse((self.prefix/'current').exists())
 
     def test_foreign_prefix_and_symlinks_are_preserved(self):
         self.prefix.mkdir(); (self.prefix/'valuable').write_text('keep')
@@ -183,17 +199,103 @@ class Bootstrap(unittest.TestCase):
         (self.root/'link').symlink_to(self.prefix)
         self.assertEqual(self.run_setup().returncode, 2)
 
-    def test_prefix_metacharacters_and_spaces_fail(self):
-        for suffix in ('space dir', 'semi;colon', '../other', 'dollar$HOME'):
+    def test_prefix_metacharacters_fail_but_spaces_install(self):
+        for suffix in ('semi;colon', '../other', 'dollar$HOME', "quote'dir"):
             with self.subTest(suffix=suffix):
                 self.assertEqual(self.run_setup('--prefix', str(self.root)+'/'+suffix).returncode, 2)
+        spaced = self.root/'tools with spaces'
+        result = self.run_setup('--prefix', str(spaced))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((spaced/'current/bin/aws').exists())
+        self.assertEqual(self.run_setup('--prefix', str(spaced), '--check').returncode, 0)
 
-    def test_lock_stops_concurrent_mutation(self):
-        self.assertEqual(self.run_setup().returncode, 0)
-        (self.prefix/'install.lock').mkdir()
-        lock=self.repo/'scripts/aws/workstation-tools.lock.tsv'; lock.write_text(lock.read_text()+'# upgrade\n')
+    def test_symlinked_ancestor_resolves_to_the_owned_directory(self):
+        real = self.root/'real-home'; real.mkdir(); (self.root/'home-link').symlink_to(real)
+        self.env['WORKSPACE_TOOLS_DIR'] = str(self.root/'home-link/tools')
+        result = self.run_setup(); self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((real/'tools/owner').is_file())
+        self.assertEqual(self.run_setup('--check').returncode, 0)
+
+    def lock(self, owner):
+        (self.prefix/'install.lock').mkdir(parents=True)
+        (self.prefix/'owner').write_text('aws-workstation-v1:%d\n' % os.getuid())
+        if owner is not None: (self.prefix/'install.lock/owner').write_text(owner)
+
+    def test_stale_lock_of_exited_process_is_recovered(self):
+        exited = subprocess.run(['sh', '-c', 'echo $$'], capture_output=True, text=True).stdout.strip()
+        self.lock(exited+'\n'+os.uname().nodename+'\n')
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr); self.assertIn('recovering install.lock', result.stderr)
+        self.assertFalse((self.prefix/'install.lock').exists()); self.assertTrue((self.prefix/'current').exists())
+
+    def test_live_setup_lock_is_never_removed(self):
+        holder = self.root/'workstation-setup.sh'; executable(holder, '#!/bin/sh\nsleep 30\n')
+        process = subprocess.Popen(['bash', str(holder)]); self.addCleanup(process.wait); self.addCleanup(process.kill)
+        self.lock(str(process.pid)+'\n'+os.uname().nodename+'\n')
         result = self.run_setup(); self.assertEqual(result.returncode, 2)
-        self.assertIn('another setup', result.stderr)
+        self.assertIn('another setup (process '+str(process.pid)+')', result.stderr)
+        self.assertTrue((self.prefix/'install.lock/owner').exists()); self.assertFalse((self.prefix/'current').exists())
+
+    def test_uncertain_locks_are_preserved_with_exact_instructions(self):
+        process = subprocess.Popen(['sleep', '30']); self.addCleanup(process.wait); self.addCleanup(process.kill)
+        cases = {'unrelated live process': str(process.pid)+'\n'+os.uname().nodename+'\n',
+                 'other host': '1\nother-host\n', 'missing owner': None}
+        for label, owner in cases.items():
+            with self.subTest(label=label):
+                shutil.rmtree(self.prefix, ignore_errors=True); self.lock(owner)
+                result = self.run_setup(); self.assertEqual(result.returncode, 2)
+                self.assertIn('rm -r', result.stderr); self.assertTrue((self.prefix/'install.lock').is_dir())
+                self.assertFalse((self.prefix/'current').exists())
+
+    def test_fresh_rebuilds_verified_tools_and_removes_the_previous_release(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        before = (self.prefix/'current').resolve(); downloads = len(self.ledger.read_text().splitlines())
+        result = self.run_setup('--fresh'); self.assertEqual(result.returncode, 0, result.stderr)
+        after = (self.prefix/'current').resolve()
+        self.assertNotEqual(before, after); self.assertFalse(before.exists()); self.assertTrue((after/'complete').is_file())
+        self.assertEqual(len(self.ledger.read_text().splitlines()), 2*downloads)
+        self.assertEqual([p.name for p in (self.prefix/'releases').iterdir()], [after.name])
+        for path in self.protected: self.assertEqual(path.read_text(), 'preserve existing user settings\n')
+        self.assertEqual(self.run_setup('--check', '--fresh').returncode, 2)
+
+    def test_corrupt_tool_is_reported_by_check_and_repaired_by_setup(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        before = (self.prefix/'current').resolve()
+        (before/'bin/tofu').write_text('#!/bin/sh\nexit 1\n')
+        result = self.run_setup('--check'); self.assertEqual(result.returncode, 2); self.assertIn('--fresh', result.stderr)
+        result = self.run_setup(); self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual((self.prefix/'current').resolve(), before); self.assertFalse(before.exists())
+        self.assertEqual(self.run_setup('--check').returncode, 0)
+
+    def test_failed_fresh_rebuild_preserves_the_working_installation(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        before = (self.prefix/'current').resolve()
+        (self.cache/'uv.tgz').write_bytes(b'corrupted')
+        result = self.run_setup('--fresh'); self.assertEqual(result.returncode, 2); self.assertIn('checksum mismatch', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), before); self.assertTrue(before.exists())
+        self.assertEqual(self.run_setup('--check').returncode, 0)
+        self.assertFalse((self.prefix/'install.lock').exists())
+
+    def test_interrupted_installation_leftovers_are_removed_on_the_next_setup(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        leftover = self.prefix/'releases/abandoned.partial'; leftover.mkdir(); (leftover/'bin').mkdir()
+        self.assertEqual(self.run_setup('--fresh').returncode, 0)
+        self.assertFalse(leftover.exists())
+
+    def test_debug_diagnostics_are_bounded_and_never_show_values(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        self.env['AWS_SECRET_ACCESS_KEY'] = 'SECRETVALUE'
+        result = self.run_setup('--check', '--debug'); self.assertEqual(result.returncode, 0, result.stderr)
+        for expected in ('debug: platform=linux-x86_64', 'debug: lock=none', 'debug: pins=match', 'debug: aws: aws-cli/2.36.14'):
+            self.assertIn(expected, result.stderr)
+        self.assertNotIn('SECRETVALUE', result.stderr)
+
+    def test_doctor_without_tools_reports_setup_without_installing(self):
+        result = subprocess.run(['bash', str(self.repo/'workspace'), 'doctor', 'project.json'], env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Managed tools   Action needed  managed tools are not installed', result.stdout)
+        self.assertIn('next: ./workspace setup', result.stdout); self.assertIn('Unknown', result.stdout)
+        self.assertFalse(self.prefix.exists()); self.assertFalse(self.ledger.exists())
 
     def test_check_cannot_install_system_packages(self):
         self.assertEqual(self.run_setup('--check', '--system-packages').returncode, 2)
@@ -201,7 +303,7 @@ class Bootstrap(unittest.TestCase):
 
     def test_missing_system_tools_and_privileges_have_repair_instructions(self):
         minimal = self.root/'minimal'; minimal.mkdir()
-        for name in ('bash','dirname','tar','unzip','ssh'):
+        for name in ('bash','dirname','basename','tar','sha256sum','cat','id','mkdir','df','awk','ps','grep','head','cut'):
             (minimal/name).symlink_to(shutil.which(name))
         for name in ('uname','getconf','curl','dpkg-deb'):
             (minimal/name).symlink_to(self.shims/name)
@@ -215,7 +317,7 @@ class Bootstrap(unittest.TestCase):
 
     def test_failed_native_package_install_does_not_start_downloads(self):
         minimal = self.root/'minimal'; minimal.mkdir()
-        for name in ('bash','dirname','tar','unzip','ssh'):
+        for name in ('bash','dirname','basename','tar','sha256sum','cat','id','mkdir','df','awk','ps','grep','head','cut'):
             (minimal/name).symlink_to(shutil.which(name))
         for name in ('uname','getconf','curl','dpkg-deb'):
             (minimal/name).symlink_to(self.shims/name)

@@ -10,8 +10,62 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import sys
 import time
 import uuid
+
+
+def say(line):
+    """Human-readable progress on stderr; stdout stays machine-readable JSON."""
+    print(line, file=sys.stderr, flush=True)
+
+
+def describe_scope(scope):
+    target=scope['target']; selected=scope['capacity']['selected']; dataset=scope['dataset']; repository=scope['repository']
+    lines=['Deployment scope '+scope['operation_id'],
+        '  account:     '+target['account_id']+' as '+target['operator_arn'],
+        '  region/zone: '+target['region']+' / '+selected['availability_zone'],
+        '  repository:  '+repository['url']+' @ '+repository['revision'][:12]+(' (private deploy key will be registered)' if scope['new_private_access'] else ''),
+        '  dataset:     %d file(s), %.1f MiB from %s' % (len(dataset['inventory']),dataset['total_bytes']/1024**2,dataset['source'].get('source','')),
+        '  compute:     '+selected['instance_type']+' at %.4f USD/hour, at most %d minutes (about %.2f USD)' % (selected['hourly_usd'],scope['maximum_runtime_minutes'],scope['estimated_compute_usd']),
+        '  mode:        '+scope['mode']+'; cleanup: '+scope['cleanup'],
+        '  foundation:  '+('reuse retained foundation' if scope['foundation'] else 'create new foundation (state/workload buckets, network, IAM, expiry guard)'),
+        '  outputs:     '+', '.join(scope['outputs']['paths'])+' (at most %d MiB)' % (scope['outputs']['maximum_bytes']//1024**2 or 1),
+        '  retained after the job: '+'; '.join(scope['retained_resources']),
+        '  not in the quote: '+'; '.join(scope['additional_cost_scope']) if isinstance(scope['additional_cost_scope'],list) else '  not in the quote: '+str(scope['additional_cost_scope'])]
+    migration=scope.get('foundation_iam_migration')
+    if migration and migration.get('required'): lines.append('  includes a reviewed tightening of the retained deployer IAM policy')
+    return lines
+
+
+def confirm(L,scope):
+    """One interactive confirmation of the displayed scope; never implicit."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()): return None
+    for line in describe_scope(scope): say(line)
+    say('Type deploy to launch exactly this scope, or press Enter to stop without any cloud change.')
+    try: answer=input('> ')
+    except EOFError: answer=''
+    if answer.strip()!='deploy':
+        say('Stopped; nothing was launched. Rerun the same command to confirm later.'); return None
+    return 'Interactive confirmation of scope '+L['sha'](L['canon'](scope))[:16]+' at '+L['stamp']()
+
+
+def describe_result(config,result):
+    status=result.get('status'); lines=['Outcome: '+str(status)]
+    if 'setup_exit' in result:
+        lines.append('  infrastructure ready: %s; setup exit: %s; job exit: %s; outputs persisted: %s' % (
+            result.get('infrastructure_ready'),result.get('setup_exit'),result.get('job_exit'),result.get('outputs_persisted')))
+        lines.append('  compute cleanup: %s; outputs verified after compute deletion: %s' % (
+            result.get('cleanup_status'),result.get('verified_after_compute_deletion')))
+    if result.get('output_uri'): lines.append('  outputs: '+result['output_uri'])
+    if result.get('error'): lines.append('  error: '+str(result['error'].get('reason') or result['error'].get('type')))
+    command='./workspace '+str(config)
+    if status=='review_required': lines.append('  next: review the scope above, then rerun '+command+' and type deploy, or pass --authorization TEXT')
+    elif status=='success': lines.append('  next: a second Deploy reuses the retained data; '+command+' logs shows events')
+    elif status=='workspace_ready': lines.append('  next: '+command+' connect; '+command+' cancel ends compute before expiry')
+    elif status in ('failure','cancelled') and result.get('cleanup_status') in ('success','not_needed'): lines.append('  next: owned compute is gone; fix the cause and run '+command+' for a new review')
+    elif status in ('failure','cancelled','cancellation_requested'): lines.append('  next: '+command+' resume reconciles owned resources; provider expiry stays armed')
+    return lines
 
 
 def extensions(L):
@@ -66,6 +120,7 @@ class Journal:
         path=self.path/f"{value['sequence']:06}.json"
         atomic(self.L,path,value,exclusive=True)
         self.records.append(value); atomic(self.L,self.directory/'status.json',value)
+        say('stage %-12s %s' % (stage,state))
         return value
     def latest(self,stage): return next((r for r in reversed(self.records) if r['stage']==stage),None)
     def stage(self,name,callback,reconcile=None):
@@ -331,6 +386,7 @@ def deploy(W,config,directory=None,authorization=None):
     L=W['L']
     if authorization and directory is None: directory=latest(L,config)
     directory,scope=prepare(W,config,directory)
+    if not authorization: authorization=confirm(L,scope)
     if not authorization: return {'status':'review_required','operation_directory':str(directory),'review':scope,'cloud_mutations':False}
     L['require'](len(authorization.strip())>=12 and L['source']()['working_tree_sha256']==L['sha'](b''),'task authorization and clean committed source required')
     task={'scope_sha256':L['sha'](L['canon'](scope)),'authorization':authorization,'authorized_at':L['stamp']()}

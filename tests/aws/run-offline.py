@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TESTS = [
     'tests/aws/test-offline-runner.py',
     'tests/aws/test-workstation-setup.py',
+    'tests/aws/test-workspace-doctor.py',
     'tests/aws/test-workspace-config.py',
     'tests/aws/test-workspace-onboarding.py',
     'tests/aws/test-workspace-access-recovery.py',

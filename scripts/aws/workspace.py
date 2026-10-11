@@ -205,6 +205,7 @@ def main():
                 launch=directory/'workspace/launch'; instance=read(launch/'launched-owned.json')['instance_id']
                 L['connect'](value['target_name'],str(launch/'config.tfvars.json'),instance); return
         print(json.dumps(result,indent=2,sort_keys=True))
+        for line in D.describe_result(args.config,result): D.say(line)
         if result.get('status') in ('failure','cancelled'): sys.exit(1)
         return
     value, target = configuration(args.config)

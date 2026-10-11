@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import types
 import unittest
@@ -197,5 +198,37 @@ class Operations(unittest.TestCase):
     def test_workspace_keeps_compute_and_runs_no_cleanup(self):
         result,calls=self.pipeline(mode='workspace')
         self.assertEqual(result['status'],'workspace_ready'); self.assertNotIn('cleanup',calls)
+    def review_scope(self):
+        size={'instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1.5}
+        return {'operation_id':self.directory.name,'target':{'account_id':'111111111111','operator_arn':'arn:aws:iam::111111111111:user/operator','region':'us-east-1'},
+            'capacity':{'selected':size},'repository':{'url':'https://github.com/owner/project.git','revision':'a'*40},'new_private_access':False,
+            'dataset':{'inventory':[{'path':'rows.csv','bytes':3}],'total_bytes':3,'source':{'source':'/data'}},'maximum_runtime_minutes':30,
+            'estimated_compute_usd':0.75,'mode':'job','cleanup':'owned compute after job','foundation':None,'foundation_iam_migration':None,
+            'outputs':{'paths':['outputs'],'maximum_bytes':100*1024*1024},'retained_resources':['buckets'],'additional_cost_scope':['storage']}
+    def test_interactive_confirmation_binds_the_displayed_scope_once(self):
+        scope=self.review_scope(); executed=[]
+        clean={'revision':'a'*40,'working_tree_sha256':L['sha'](b'')}
+        with patch.object(D,'prepare',return_value=(self.directory,scope)),patch.object(D,'execute',side_effect=lambda W,c,d,s,t:executed.append(t) or {'status':'success'}),\
+             patch.dict(L,{'source':lambda:clean}),patch.object(sys.stdin,'isatty',return_value=True),patch.object(sys.stdout,'isatty',return_value=True),\
+             patch('builtins.input',return_value='deploy'):
+            result=D.deploy({'L':L},'config')
+        self.assertEqual(result['status'],'success'); self.assertEqual(len(executed),1)
+        task=L['read'](self.directory/'task-authorization.json')
+        self.assertEqual(task['scope_sha256'],L['sha'](L['canon'](scope))); self.assertTrue(task['authorization'].startswith('Interactive confirmation'))
+    def test_declined_or_noninteractive_review_never_launches(self):
+        scope=self.review_scope()
+        for tty,answer in ((True,''),(True,'yes'),(False,'deploy')):
+            with self.subTest(tty=tty,answer=answer),patch.object(D,'prepare',return_value=(self.directory,scope)),\
+                 patch.object(D,'execute',side_effect=AssertionError('launched without authorization')),\
+                 patch.object(sys.stdin,'isatty',return_value=tty),patch.object(sys.stdout,'isatty',return_value=tty),patch('builtins.input',return_value=answer):
+                result=D.deploy({'L':L},'config')
+            self.assertEqual(result['status'],'review_required'); self.assertFalse(result['cloud_mutations'])
+            self.assertFalse((self.directory/'task-authorization.json').exists())
+    def test_readable_scope_and_outcome_summaries(self):
+        lines='\n'.join(D.describe_scope(self.review_scope()))
+        for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git'): self.assertIn(expected,lines)
+        outcome='\n'.join(D.describe_result('/p/project.json',{'status':'failure','cleanup_status':'unknown','setup_exit':0,'job_exit':None,'outputs_persisted':False,'error':{'reason':'lost'}}))
+        self.assertIn('./workspace /p/project.json resume',outcome); self.assertIn('lost',outcome)
+        self.assertIn('reuses the retained data','\n'.join(D.describe_result('/p/project.json',{'status':'success','output_uri':'s3://b/o/'})))
 
 if __name__=='__main__': unittest.main(verbosity=2)

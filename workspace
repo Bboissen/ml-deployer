@@ -2,34 +2,57 @@
 # Primary operator entry point; install tools only when a command needs them.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
+fail() { printf 'workspace: %s\n' "$1" >&2; exit 2; }
+doctor_config=''
+doctor_debug=0
 case "${1:-}" in
   -h|--help|"")
     cat <<'HELP'
-Usage: workspace PROJECT.json [COMMAND] [OPTIONS]
+Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 
-  workspace project.json                       Review an AWS deployment
-  workspace project.json --authorization TEXT  Launch the reviewed deployment
-  workspace project.json status                Inspect the latest operation
-  workspace project.json connect               Open its non-root terminal
+First use:
+  workspace setup                              Install pinned local tools (no login, no cloud calls)
+  workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
+  workspace github-login                       GitHub login; private repositories only
+  workspace doctor [PROJECT.json] [--debug]    Readiness report: tools, AWS identity, GitHub, project config
+
+Deploy and operate (Deploy is the default command):
+  workspace project.json                       Review the scope, confirm once interactively, then deploy
+  workspace project.json --authorization TEXT  Noninteractive launch of the saved reviewed scope
+  workspace project.json status [--wait N]     Inspect the latest operation
+  workspace project.json logs                  Show recent operation events and output location
+  workspace project.json connect               Open its non-root terminal (workspace mode)
   workspace project.json cancel                Clean up its owned compute
-  workspace project.json resume                Reconcile an interrupted operation
-  workspace project.json logs                  Show recent operation events
+  workspace project.json resume                Reconcile an interrupted operation; never repeats a launch
 
-Deploy is the default command. Persistent storage survives compute teardown.
-The first command installs pinned local tools if needed; cloud launch requires
-a reviewed scope and authorization. Google Cloud and Azure launch are pending.
+Repair:
+  workspace setup --fresh                      Rebuild the managed tools; keeps logins, config and evidence
+  workspace setup --check                      Verify managed tools without installing
+  workspace setup --system-packages            Ubuntu/Debian: install missing OS packages with sudo first
+  workspace auth-check --profile NAME --region REGION   Re-check an AWS login
 
-  workspace setup [--github]                   Install pinned local tools
-  workspace login --profile NAME --region REGION
-  workspace auth-check --profile NAME --region REGION
-  workspace github-login                      Authenticate private GitHub access
-
-Use workspace PROJECT.json deploy --help for deployment options.
+Persistent storage survives compute teardown; cloud launch always requires a
+reviewed scope plus one confirmation or an explicit --authorization. Google
+Cloud and Azure launch are not available. Use workspace PROJECT.json deploy --help
+for deployment options.
 HELP
     exit 0 ;;
   setup|login|auth-check|github-login) ;;
-  -*) printf 'workspace: unknown option: %s\n' "$1" >&2; exit 2 ;;
+  doctor)
+    shift
+    while (($#)); do
+      case "$1" in
+        --debug) doctor_debug=1 ;;
+        -*) fail "unknown doctor option $1; usage: workspace doctor [PROJECT.json] [--debug]" ;;
+        *)
+          [[ -z "$doctor_config" ]] || fail 'doctor accepts one PROJECT.json'
+          doctor_config="$1"
+          [[ "$doctor_config" == /* ]] || doctor_config="$PWD/$doctor_config" ;;
+      esac
+      shift
+    done
+    set -- doctor ;;
+  -*) fail "unknown option $1; see workspace --help" ;;
   *)
     project_config="$1"
     [[ "$project_config" == /* ]] || project_config="$PWD/$project_config"
@@ -41,9 +64,40 @@ HELP
     ;;
 esac
 cd "$repo_root"
+tools_dir="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}"
+select_tools() {
+  export PATH="$tools_dir/current/bin:$tools_dir/current/sdk/bin:$PATH"
+  export WORKSPACE_PYTHON="$tools_dir/current/sdk/bin/python"
+}
 if [[ "${1:-}" == setup ]]; then
   shift
   exec bash scripts/aws/workstation-setup.sh "$@"
+fi
+export PYTHONDONTWRITEBYTECODE=1
+if [[ "${1:-}" == doctor ]]; then
+  # Doctor never installs: it reports the exact next command instead.
+  check=(--check); ((!doctor_debug)) || check+=(--debug)
+  if [[ -n "${WORKSPACE_PYTHON:-}" ]]; then
+    tools_detail="developer runtime override WORKSPACE_PYTHON=$WORKSPACE_PYTHON"
+  elif report="$(bash scripts/aws/workstation-setup.sh "${check[@]}" 2>&1 >/dev/null)"; then
+    ((!doctor_debug)) || printf '%s\n' "$report" | grep 'debug:' >&2 || true
+    tools_detail="${report##*workstation-setup: ready: }"
+    select_tools
+  else
+    ((!doctor_debug)) || printf '%s\n' "$report" | grep 'debug:' >&2 || true
+    reason="${report##*workstation-setup: }"
+    next='./workspace setup'
+    [[ "$reason" != *--fresh* ]] || next='./workspace setup --fresh'
+    [[ "$reason" != *--system-packages* ]] || next='./workspace setup --system-packages'
+    printf 'AWS workspace doctor\n  %-14s  %-13s  %s\n  %-14s  %-13s  next: %s\n' 'Managed tools' 'Action needed' "$reason" '' '' "$next"
+    for check_name in 'AWS identity' 'GitHub access' 'Project config'; do
+      printf '  %-14s  %-13s  %s\n' "$check_name" 'Unknown' 'checked after the managed tools are installed'
+    done
+    printf '\nAction needed: run %s, then ./workspace doctor%s again\n' "$next" "${doctor_config:+ ${doctor_config}}"
+    exit 1
+  fi
+  debug_option=(); ((!doctor_debug)) || debug_option=(--debug)
+  exec "$WORKSPACE_PYTHON" scripts/aws/workspace-doctor.py --tools-detail "$tools_detail" ${debug_option[@]+"${debug_option[@]}"} ${doctor_config:+"$doctor_config"}
 fi
 if [[ -z "${WORKSPACE_PYTHON:-}" ]]; then
   if [[ "${1:-}" == github-login ]]; then
@@ -51,11 +105,8 @@ if [[ -z "${WORKSPACE_PYTHON:-}" ]]; then
   else
     bash scripts/aws/workstation-setup.sh
   fi
-  tools_dir="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}"
-  export PATH="$tools_dir/current/bin:$tools_dir/current/sdk/bin:$PATH"
-  export WORKSPACE_PYTHON="$tools_dir/current/sdk/bin/python"
+  select_tools
 fi
-export PYTHONDONTWRITEBYTECODE=1
 case "${1:-}" in
   login|auth-check|github-login) exec "$WORKSPACE_PYTHON" scripts/aws/workstation-auth.py "$@" 3<&0 ;;
 esac
