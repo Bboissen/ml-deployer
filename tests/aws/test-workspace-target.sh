@@ -150,7 +150,7 @@ else: print('{}')
         self.assertEqual(self.calls(),[])
 
     def test_conflicting_ambient_sources(self):
-        for key in ('AWS_ACCESS_KEY_ID','AWS_PROFILE','AWS_ENDPOINT_URL','TF_DATA_DIR','TF_VAR_aws_region','TF_CLI_ARGS_init'):
+        for key in ('AWS_ACCESS_KEY_ID','AWS_ROLE_ARN','AWS_ENDPOINT_URL','TF_DATA_DIR','TF_VAR_aws_region','TF_CLI_ARGS_init'):
             self.blocked('conflicting environment',**{key:'SENTINEL_SECRET'})
         self.assertEqual(self.calls(),[])
 
@@ -194,8 +194,9 @@ else: print('{}')
         self.assertNotIn('SENTINEL_SECRET',''.join(p.read_text() for p in (self.root/'evidence/aws').rglob('*.json')))
 
     def test_exec_sdk_environment_and_stdin(self):
-        p=subprocess.run(['bash',SCRIPT,'exec','aws-lab','--','python3','-c',"import json,os,sys; print(json.dumps([os.environ['AWS_PROFILE'],os.environ['AWS_REGION'],os.environ['TF_VAR_aws_account_id'],sys.stdin.read()]))"],input='stdin works',text=True,capture_output=True,cwd=self.root,env=self.env,timeout=30)
+        p=subprocess.run(['bash',SCRIPT,'exec','aws-lab','--','python3','-c',"import json,os,sys; print(json.dumps([os.environ['AWS_PROFILE'],os.environ['AWS_REGION'],os.environ['TF_VAR_aws_account_id'],sys.stdin.read()]))"],input='stdin works',text=True,capture_output=True,cwd=self.root,env={**self.env,'AWS_PROFILE':'ambient-shell-default','AWS_REGION':'eu-west-1'},timeout=30)
         self.assertEqual(p.returncode,0,p.stderr)
+        # Ambient shell selection defaults are overridden by the reviewed target, never a conflict.
         self.assertEqual(json.loads(p.stdout),['lab-temporary','us-west-2','222222222222','stdin works'])
 
     def test_open_tofu_execution_and_cli_overrides_closed(self):
