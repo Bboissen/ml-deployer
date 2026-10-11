@@ -6,8 +6,9 @@ set -euo pipefail
 [[ "$1" =~ ^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+(\.git)?$ ]] || exit 2
 [[ "$2" =~ ^[0-9a-f]{40}$ ]] || exit 2
 [[ ! -e "$3" && ! -L "$3" ]] || { echo 'Destination already exists.' >&2; exit 2; }
-git clone --no-checkout -- "$1" "$3"
-git -C "$3" fetch origin "$2"
+git init -- "$3"
+git -C "$3" remote add origin "$1"
+git -C "$3" fetch --no-tags --depth=1 origin "$2"
 git -C "$3" checkout --detach "$2"
 [[ "$(git -C "$3" rev-parse HEAD)" == "$2" ]]
 uv venv --python /usr/bin/python3.13 "$3/.venv"

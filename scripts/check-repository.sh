@@ -18,6 +18,7 @@ required_files=(
   AGENTS.md
   README.md
   Makefile
+  workspace
   evidence/.gitignore
   evidence/README.md
   shared/workspace/schema.json
@@ -81,26 +82,8 @@ if find . -xdev -mindepth 1 \
   -not -path './docs/ml-project' -not -path './docs/ml-project/*' \
   -not -path './scripts/workspace/validate.py' \
   -not -path './scripts/workspace/probe-toolbox.py' \
-  -not -path './scripts/aws/workspace-e2e.py' \
-  -not -path './scripts/aws/workspace.py' \
-  -not -path './scripts/aws/workspace-config.py' \
-  -not -path './scripts/aws/package-release.py' \
-  -not -path './scripts/aws/workspace_release.py' \
-  -not -path './tests/aws/test-workspace-release.py' \
-  -not -path './scripts/aws/workspace-deploy.py' \
-  -not -path './tests/aws/test-workspace-deploy.py' \
-  -not -path './scripts/aws/workspace-onboarding.py' \
-  -not -path './scripts/aws/workspace-ingest.py' \
-  -not -path './scripts/aws/workspace-generic-job.py' \
-  -not -path './scripts/aws/workspace_files.py' \
-  -not -path './tests/aws/test-workspace-generic-job.py' \
-  -not -path './tests/aws/test-workspace-ingest.py' \
-  -not -path './scripts/aws/workspace_ram.py' \
-  -not -path './tests/aws/run-offline.py' \
-  -not -path './tests/aws/test-workspace-onboarding.py' \
-  -not -path './scripts/aws/workstation-auth.py' \
-  -not -path './tests/aws/test-workstation-setup.py' \
-  -not -path './tests/aws/test-workspace-config.py' \
+  -not -path './scripts/aws/*.py' \
+  -not -path './tests/aws/*.py' \
   -not -path './tests/workspace/test_workspace.py' \
   -not -path './shared/workspace/example/example.py' \
   -not -path './shared/conformance/oci-ml-smoke/conformance.py' \
@@ -162,6 +145,8 @@ done < <(find scripts shared tests -type f -name '*.sh' -print | LC_ALL=C sort)
 if bash scripts/load-cloud-env.sh invalid >/dev/null 2>&1; then
   fail 'cloud environment loader accepted an unknown provider'
 fi
+
+bash -n workspace
 
 git diff --check
 git diff --cached --check

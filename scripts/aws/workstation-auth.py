@@ -9,9 +9,10 @@ import sys
 
 sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
-code = (ROOT/'scripts/aws/workspace-target.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-B = {'__name__': 'aws_workspace_boundary'}
-exec(compile(code.rsplit('\ntry:\n    main()', 1)[0], 'scripts/aws/workspace-target.sh', 'exec'), B)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workspace_target
+
+B = vars(workspace_target)
 require = B['require']
 
 

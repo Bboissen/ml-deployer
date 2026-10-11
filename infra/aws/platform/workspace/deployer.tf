@@ -36,9 +36,9 @@ data "aws_iam_policy_document" "deployer" {
   dynamic "statement" {
     for_each = local.workspace_guards
     content {
-      sid       = "ManageReviewedNamedOperatorWorkspaceGrant"
-      effect    = "Allow"
-      actions   = concat(anytrue([for arn in var.deployer_principal_arns : strcontains(arn, ":user/")]) ? ["iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:GetUserPolicy", "iam:ListUserTags"] : [], anytrue([for arn in var.deployer_principal_arns : strcontains(arn, ":role/")]) ? ["iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:ListRoleTags"] : [])
+      sid       = "DenyReviewedOperatorPolicyMutation"
+      effect    = "Deny"
+      actions   = ["iam:*"]
       resources = var.deployer_principal_arns
     }
   }

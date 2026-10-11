@@ -81,7 +81,8 @@ def clone(args, session):
                             '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(hosts),
                             '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'HostKeyAlgorithms=ssh-ed25519',
                             '-o', 'ConnectTimeout=10'])}
-        command(['git', 'clone', '--no-checkout', '--no-tags', '--', args.url, args.directory], environment)
+        command(['git', 'init', '--', args.directory], environment)
+        command(['git', '-C', args.directory, 'remote', 'add', 'origin', args.url], environment)
         command(['git', '-C', args.directory, 'fetch', '--no-tags', '--depth=1', 'origin', args.revision], environment)
         command(['git', '-C', args.directory, 'checkout', '--detach', args.revision], environment)
         require(command(['git', '-C', args.directory, 'rev-parse', 'HEAD'], environment).decode().strip() == args.revision,

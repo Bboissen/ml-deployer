@@ -13,7 +13,7 @@ locals {
       }, Bool = { "ssm:SessionDocumentAccessCheck" = "true" } }
     },
     { Effect = "Allow", Action = ["ssm:StartSession", "ssm:GetDocument"], Resource = aws_ssm_document.terminal.arn },
-    { Effect = "Allow", Action = ["ssm:ResumeSession", "ssm:TerminateSession"], Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:session/$${aws:userid}-*" },
+    { Effect = "Allow", Action = ["ssmmessages:OpenDataChannel", "ssm:ResumeSession", "ssm:TerminateSession"], Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:session/$${aws:userid}-*" },
     { Effect = "Allow", Action = ["ssm:DescribeInstanceInformation", "ssm:GetCommandInvocation", "ec2:DescribeInstances"], Resource = "*" },
     { Effect = "Allow", Action = ["ssm:SendCommand", "ssm:GetDocument", "ssm:DescribeDocument"], Resource = aws_ssm_document.job.arn },
     {
@@ -27,14 +27,16 @@ locals {
   ] })
 }
 resource "aws_iam_user_policy" "operator" {
-  count  = local.operator_kind == "user" ? 1 : 0
-  name   = "${local.role_name}-terminal"
-  user   = local.operator_name
-  policy = local.operator_policy
+  provider = aws.operator
+  count    = local.operator_kind == "user" ? 1 : 0
+  name     = "${local.role_name}-terminal"
+  user     = local.operator_name
+  policy   = local.operator_policy
 }
 resource "aws_iam_role_policy" "operator" {
-  count  = local.operator_kind == "role" ? 1 : 0
-  name   = "${local.role_name}-terminal"
-  role   = local.operator_name
-  policy = local.operator_policy
+  provider = aws.operator
+  count    = local.operator_kind == "role" ? 1 : 0
+  name     = "${local.role_name}-terminal"
+  role     = local.operator_name
+  policy   = local.operator_policy
 }

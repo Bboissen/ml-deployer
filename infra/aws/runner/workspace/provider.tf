@@ -14,6 +14,14 @@ provider "aws" {
   }
 }
 
+# Updating an operator's own grant requires their existing administrative
+# authority. The routine deployer must never be able to elevate its caller.
+provider "aws" {
+  alias               = "operator"
+  region              = var.aws_region
+  allowed_account_ids = [var.aws_account_id]
+}
+
 data "aws_partition" "current" {}
 
 data "aws_iam_policy_document" "runtime_assume" {

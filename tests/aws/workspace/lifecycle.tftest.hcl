@@ -6,6 +6,10 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::000000000000:role/offline-role" } }
 }
 
+mock_provider "aws" {
+  alias = "operator"
+}
+
 run "preparation_arms_deadline_without_compute" {
   command = plan
   assert {
@@ -15,6 +19,16 @@ run "preparation_arms_deadline_without_compute" {
   assert {
     condition     = jsondecode(aws_scheduler_schedule.workspace_deadline.target[0].input).lease_id == var.lease.id && aws_scheduler_schedule.workspace_deadline.target[0].arn == var.guard.function_arn && jsondecode(aws_ssm_document.terminal.content).inputs.runAsDefaultUser == "workspace"
     error_message = "Deadline must target the pinned guard and terminal must use non-root workspace."
+  }
+  assert {
+    condition = anytrue([
+      for statement in jsondecode(aws_iam_user_policy.operator[0].policy).Statement : try(
+        contains(statement.Action, "ssmmessages:OpenDataChannel") &&
+        statement.Resource == "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:session/$${aws:userid}-*",
+        false,
+      )
+    ])
+    error_message = "The operator must be able to open the data channel for their own interactive session."
   }
 }
 

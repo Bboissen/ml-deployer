@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 ROOT = Path.cwd()
+sys.path.insert(0, str(ROOT/'scripts/aws'))
 OUT = ROOT/'evidence/aws/tests/e2e'/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
 OUT.mkdir(parents=True)
 
@@ -27,7 +28,7 @@ def load(path):
     exec(compile(text, path, 'exec'), namespace)
     return namespace
 
-L = load('scripts/aws/workspace-lifecycle.sh')
+L = load('scripts/aws/workspace_lifecycle.py')
 E = load('scripts/aws/workspace-e2e.py')
 G = load('scripts/aws/workspace-job.sh')
 T = dt.datetime(2026, 10, 9, 12, tzinfo=dt.timezone.utc)

@@ -10,9 +10,10 @@ import sys
 
 sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
-code = (ROOT/'scripts/aws/workspace-lifecycle.sh').read_text().split("<<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-L = {'__name__': 'aws_workspace_lifecycle'}
-exec(compile(code, 'scripts/aws/workspace-lifecycle.sh', 'exec'), L)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workspace_lifecycle
+
+L = vars(workspace_lifecycle)
 require, read, write, checked = (L[k] for k in ('require', 'read', 'write', 'checked_path'))
 spec = importlib.util.spec_from_file_location('aws_workspace_config', ROOT/'scripts/aws/workspace-config.py')
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
@@ -223,9 +224,9 @@ def main():
         elif args.verb == 'plan':
             stage = args.stage
             if stage == 'access':
-                require('credential' in value['repository'], 'access planning requires a reviewed runtime SSH credential')
                 platform = read(checked(value['foundation']['plan_directory'])/'config.tfvars.json')
-                platform['workspace_git_secret_arns'] = {value['project']: [value['repository']['credential']['secret_arn']]}
+                if 'credential' in value['repository']:
+                    platform['workspace_git_secret_arns'] = {value['project']: [value['repository']['credential']['secret_arn']]}
                 inputs = directory/'access.tfvars.json'; write(inputs, platform)
                 result = L['native_plan'](value['target_name'], 'workspace-access', str(inputs), str(directory/'access'), value['foundation']['plan_directory'])
                 print(json.dumps(result, indent=2, sort_keys=True))

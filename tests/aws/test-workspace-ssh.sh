@@ -31,6 +31,8 @@ class RuntimeSSH(unittest.TestCase):
             directory='/workspaces/demo-dev-01/offline-ssh-project', secret_arn=ARN,
             version_id='00000000-0000-0000-0000-000000000000', fingerprint=FINGERPRINT,
             account='000000000000', region='us-east-1')
+        self.temporary = tempfile.TemporaryDirectory(prefix='offline-ssh-')
+        self.addCleanup(self.temporary.cleanup)
         self.commands = []; self.key_path = None; self.reads = []
         self.response = {'ARN': ARN, 'VersionId': self.args.version_id, 'SecretString': PRIVATE}
         self.method = 'iam-role'; self.failure = None
@@ -59,11 +61,15 @@ class RuntimeSSH(unittest.TestCase):
             return self.args.revision.encode()
         return b''
 
+    def key_directory(self, *, prefix, dir):
+        self.assertEqual(dir, '/dev/shm')
+        return tempfile.TemporaryDirectory(prefix=prefix, dir=self.temporary.name)
+
     def invoke(self):
         with patch.dict('sys.modules', {'botocore.config': CONFIG}), \
                 patch.object(SSH['os'], 'geteuid', return_value=1000), \
                 patch.object(SSH['pwd'], 'getpwuid', return_value=types.SimpleNamespace(pw_name='workspace')), \
-                patch.dict(SSH, {'command': self.command}):
+                patch.dict(SSH, {'command': self.command, 'tempfile': types.SimpleNamespace(TemporaryDirectory=self.key_directory)}):
             return SSH['clone'](self.args, self.session)
 
     def test_secure_clone_uses_pinned_version_commit_and_removes_key(self):
@@ -74,7 +80,11 @@ class RuntimeSSH(unittest.TestCase):
         self.assertTrue(result['credential_removed'])
         self.assertEqual(result['repository_commit'], self.args.revision)
         git_calls = [item for item in self.commands if item[0][0] == 'git']
-        self.assertEqual(len(git_calls), 4)
+        self.assertEqual(len(git_calls), 5)
+        self.assertFalse(any('clone' in arguments for arguments, _ in git_calls))
+        self.assertEqual([arguments for arguments, _ in git_calls if 'fetch' in arguments], [
+            ['git', '-C', self.args.directory, 'fetch', '--no-tags', '--depth=1', 'origin', self.args.revision]
+        ])
         for arguments, environment in git_calls:
             ssh = environment['GIT_SSH_COMMAND']
             for option in ('StrictHostKeyChecking=yes', 'IdentitiesOnly=yes', 'IdentityAgent=none',

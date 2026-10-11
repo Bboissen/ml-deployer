@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Primary operator entry point; install tools only when a command needs them.
+set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+case "${1:-}" in
+  -h|--help|"")
+    cat <<'HELP'
+Usage: workspace PROJECT.json [COMMAND] [OPTIONS]
+
+  workspace project.json                       Review an AWS deployment
+  workspace project.json --authorization TEXT  Launch the reviewed deployment
+  workspace project.json status                Inspect the latest operation
+  workspace project.json connect               Open its non-root terminal
+  workspace project.json cancel                Clean up its owned compute
+  workspace project.json resume                Reconcile an interrupted operation
+  workspace project.json logs                  Show recent operation events
+
+Deploy is the default command. Persistent storage survives compute teardown.
+The first command installs pinned local tools if needed; cloud launch requires
+a reviewed scope and authorization. Google Cloud and Azure launch are pending.
+
+  workspace setup [--github]                   Install pinned local tools
+  workspace login --profile NAME --region REGION
+  workspace auth-check --profile NAME --region REGION
+  workspace github-login                      Authenticate private GitHub access
+
+Use workspace PROJECT.json deploy --help for deployment options.
+HELP
+    exit 0 ;;
+  setup|login|auth-check|github-login) ;;
+  -*) printf 'workspace: unknown option: %s\n' "$1" >&2; exit 2 ;;
+  *)
+    project_config="$1"
+    [[ "$project_config" == /* ]] || project_config="$PWD/$project_config"
+    shift
+    case "${1:-}" in
+      ""|--authorization|--authorization=*|--operation|--operation=*) set -- deploy "$@" ;;
+    esac
+    set -- "$project_config" "$@"
+    ;;
+esac
+cd "$repo_root"
+if [[ "${1:-}" == setup ]]; then
+  shift
+  exec bash scripts/aws/workstation-setup.sh "$@"
+fi
+if [[ -z "${WORKSPACE_PYTHON:-}" ]]; then
+  if [[ "${1:-}" == github-login ]]; then
+    bash scripts/aws/workstation-setup.sh --github
+  else
+    bash scripts/aws/workstation-setup.sh
+  fi
+  tools_dir="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}"
+  export PATH="$tools_dir/current/bin:$tools_dir/current/sdk/bin:$PATH"
+  export WORKSPACE_PYTHON="$tools_dir/current/sdk/bin/python"
+fi
+export PYTHONDONTWRITEBYTECODE=1
+case "${1:-}" in
+  login|auth-check|github-login) exec "$WORKSPACE_PYTHON" scripts/aws/workstation-auth.py "$@" 3<&0 ;;
+esac
+exec "$WORKSPACE_PYTHON" scripts/aws/workspace.py "$@" 3<&0

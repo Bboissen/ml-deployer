@@ -1,12 +1,14 @@
 """Offline short configuration, read-only discovery and immutable operation checks."""
 import copy
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import types
+import tempfile
 import unittest
 from unittest.mock import patch
 import uuid
@@ -295,6 +297,60 @@ class Discovery(unittest.TestCase):
             result = P.discover(L, project)
         self.assertEqual(calls, [(project['profile'], project['region'], ['sts', 'get-caller-identity'])])
         P.validate_discovery(L, project, result)
+
+
+class AccessMigration(unittest.TestCase):
+    def test_public_repository_can_plan_exact_iam_update_without_git_secret(self):
+        directory = OUT/'public-access'
+        foundation = OUT/'retained-foundation'
+        platform = {'workspace_git_secret_arns': {}, 'retained': 'unchanged'}
+        value = {'repository': {'url': 'https://github.com/owner/project.git'},
+                 'project': 'example', 'target_name': 'aws-example',
+                 'foundation': {'plan_directory': str(foundation)}}
+        with patch.object(sys, 'argv', ['workspace', 'config.json', 'plan', str(directory), 'access']), \
+             patch.object(W, 'configuration', return_value=(value, {})), \
+             patch.object(W, 'run_configuration', return_value=(directory, {})), \
+             patch.object(W, 'read', return_value=platform), patch.object(W, 'write') as write, \
+             patch.dict(L, {'load_json': lambda _: {}}), \
+             patch.dict(L, {'native_plan': lambda *args: {'stage': args[1], 'config': args[2]}}), \
+             patch.object(sys, 'stdout', new_callable=io.StringIO) as output:
+            W.main()
+        write.assert_called_once_with(directory/'access.tfvars.json', platform)
+        self.assertEqual(platform['workspace_git_secret_arns'], {})
+        self.assertEqual(json.loads(output.getvalue())['stage'], 'workspace-access')
+
+
+class Launcher(unittest.TestCase):
+    def test_help_needs_no_tools_or_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = Path(directory)/'must-not-be-installed'
+            environment = {**os.environ, 'WORKSPACE_TOOLS_DIR': str(tools)}
+            environment.pop('WORKSPACE_PYTHON', None)
+            for entry in (ROOT/'workspace', ROOT/'scripts/aws/workspace.sh'):
+                result = subprocess.run(['bash', str(entry), '--help'], cwd=directory,
+                                        env=environment, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Deploy is the default command', result.stdout)
+            self.assertFalse(tools.exists())
+
+    def test_default_deploy_preserves_paths_and_authorization_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            python = Path(directory)/'runtime'
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            python.chmod(0o755)
+            environment = {**os.environ, 'WORKSPACE_PYTHON': str(python)}
+            cases = [([], ['deploy']),
+                     (['--authorization', 'reviewed scope with spaces'],
+                      ['deploy', '--authorization', 'reviewed scope with spaces']),
+                     (['status', '--wait', '0'], ['status', '--wait', '0'])]
+            for entry in (ROOT/'workspace', ROOT/'scripts/aws/workspace.sh'):
+                for arguments, expected in cases:
+                    result = subprocess.run(['bash', str(entry), 'project with spaces.json', *arguments],
+                                            cwd=directory, env=environment, capture_output=True,
+                                            text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(),
+                                     ['scripts/aws/workspace.py', str(Path(directory)/'project with spaces.json'), *expected])
 
 
 if __name__ == '__main__':
