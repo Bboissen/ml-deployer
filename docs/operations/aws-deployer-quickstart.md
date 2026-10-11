@@ -63,8 +63,10 @@ tree (a published copy lives in `releases/VERSION/infra/aws/`). Set the explicit
 profile, credential-free repository/ref, dataset path/URI, setup/run argv, output
 paths and lifetime. The supported toolbox is `cpu-python-v1` in `us-east-1`;
 selection keeps the most RAM within supported sizes, current regional quota,
-offering and the optional `resources.maximum_hourly_usd`. Set byte ceilings for
-dataset transfer and output persistence. Dataset paths are relative to the JSON
+offering and the optional `resources.maximum_hourly_usd`. Reusing a foundation
+keeps its existing subnet and availability zone; review and pre-launch capacity
+checks both stay in that zone. Set byte ceilings for dataset transfer and output
+persistence. Dataset paths are relative to the JSON
 file, and may contain spaces. Local directories, same-region S3 object/prefixes
 and public HTTPS files with strong ETags and known size are supported. Signed
 URLs, private HTTP, symlinks, special files and cross-region S3 are rejected.
@@ -74,9 +76,9 @@ URLs, private HTTP, symlinks, special files and cross-region S3 are rejected.
 ```
 
 Review the displayed account/operator, region/zone, repository commit, source
-bytes/hash, target namespaces, retained resources, selected EC2 quote, additional
-fee categories and absolute lifetime policy. Without authorization this command
-makes no mutation. To bind that saved scope and proceed:
+bytes/hash, target namespaces, retained resources, any required operator-policy
+tightening, selected EC2 quote, additional fee categories and absolute lifetime
+policy. Without authorization this command makes no mutation. To bind that saved scope and proceed:
 
 ```sh
 ./workspace /absolute/project/project.json \
@@ -106,21 +108,21 @@ ownership and never repeats an uncertain launch/command. See
 
 ## Existing foundation IAM update
 
-Old foundations that allowed the deployer to change operator permissions are
-blocked before compute launch. Keep the generated runtime configuration and
-workspace directory from that operation; prepare the access update with:
+When an owned foundation still lets the deployer change operator permissions,
+Deploy includes the exact policy tightening in its review. The authorized journey
+applies that IAM update before repository access or compute, removes the former
+operator-management grant and adds an explicit denial for those principals.
+Public repositories need no Git secret for this update. It preserves resource
+addresses, Git inputs and all other foundation inputs.
 
-```sh
-./workspace /absolute/operation/runtime.json plan /absolute/operation/workspace access
-```
-
-This uses the existing foundation state. Inspect `access/plan.json` and its
-`review.json`, then apply the exact review hash through the existing `apply`
-command. The allowed IAM update removes the operator-management grant and adds
-an explicit denial for those principals. Public repositories need no Git secret
-for this update. It preserves resource addresses and all other foundation inputs.
-Use the resulting captured foundation outputs for the next operation; never
-edit historical reviews, authorization records or saved plans to bypass the gate.
+No manual plan command, review-hash copy or output rebinding is needed. An older
+saved deployment scope that omits a required migration stops and requires a new
+deployment review. Policy changes after review also stop. If the IAM apply is
+interrupted, `resume` verifies retained state and creates a fresh plan limited to
+the original policy update; it preserves consumed plans and their authorizations.
+Unrelated drift or ownership uncertainty still stops for reconciliation. These
+paths have offline coverage; the retained live foundation has not been migrated
+by this source audit.
 
 ## Release and evidence retention
 
@@ -133,8 +135,9 @@ python3 -B scripts/aws/package-release.py evidence/aws/releases/candidate
 
 The deterministic archive includes source hashes, commit ancestry and pinned
 locks; it excludes `.git`, tools, caches, state, plans and credentials. The
-installer keeps each version and its evidence. Reinstalling the same version
-preserves state and receipts. Changing versions selects another code/evidence
+standalone installer selects the version from that same committed release
+manifest. The installer keeps each version and its evidence. Reinstalling the
+same version preserves state and receipts. Changing versions selects another code/evidence
 directory: recover older operations with the same original version before any
 upgrade. Automatic migration/adoption of another version's evidence is deferred;
 the controller refuses same-name unowned foundation reuse. Never delete release

@@ -1,19 +1,22 @@
-# One reviewed AWS Deploy (M6)
+# One reviewed AWS deployment
 
 Use the short JSON configuration from `infra/aws/project.example.json` with the
-workstation installer from PR28. Run from the installed repository:
+workstation setup described in the [quickstart](aws-deployer-quickstart.md).
+From a source checkout:
 
 ```sh
-scripts/aws/workspace.sh project.json deploy
-scripts/aws/workspace.sh project.json deploy --authorization 'Approve the displayed account, resources, transfer, cost and lifetime scope'
-scripts/aws/workspace.sh project.json status --wait 30
-scripts/aws/workspace.sh project.json logs
-scripts/aws/workspace.sh project.json cancel
-scripts/aws/workspace.sh project.json resume
+./workspace project.json
+./workspace project.json --authorization 'Approve the displayed account, resources, transfer, cost and lifetime scope'
+./workspace project.json status --wait 30
+./workspace project.json logs
+./workspace project.json cancel
+./workspace project.json resume
 ```
 
 The first Deploy performs read-only authentication, exact Git ref resolution,
 source hashing, retained-state ownership checks and RAM/quota/price discovery.
+A retained foundation keeps its existing subnet zone. The review includes any
+required removal of the deployer's former operator-management permissions.
 It saves a concrete immutable scope and selects its operation automatically.
 Authorization binds the displayed scope, generated inputs and source. It then
 binds every inspected immutable OpenTofu plan to that authorization; routine
@@ -22,9 +25,10 @@ A changed configuration/source requires another review. `--operation` can select
 an earlier operation explicitly; operators need not copy state paths or hashes.
 Configuration paths are resolved before the CLI changes its working directory.
 
-The ordered stages are artifacts, state/bootstrap and platform, optional private
-repository access, ingestion, guarded preparation, one launch, non-root setup/run,
-output verification, compute teardown and a second output verification. Completed
+The ordered stages are artifacts, state/bootstrap and platform, any reviewed
+retained IAM update, optional private repository access, ingestion, guarded
+preparation, one launch, non-root setup/run, output verification, compute teardown
+and a second output verification. Completed
 immutable manifests may be reused only after exact native object versions and
 SHA256 hashes are read again. Generic outcomes report infrastructure, setup, job,
 output persistence and cleanup separately. Workspace mode executes setup and
@@ -46,8 +50,18 @@ operation-owned multipart keys before a fresh attempt or sealed-manifest reuse.
 A secret-creation timeout can recover an exact registered read-only deploy key
 and native secret version. If the private key disappeared before secret creation,
 resume stops and records the exact public key for separately reviewed revocation;
-it never registers another key silently. An uncertain access/retirement apply
-without a verifiable success receipt stops for ownership reconciliation.
+it never registers another key silently.
+
+Interrupted IAM migration or credential-access applies use a fresh recovery plan
+for the original policy changes. Recovery checks the original authorization,
+state lineage, complete retained resource ownership and unchanged non-policy
+attributes. Each policy must match its original before or after value; recovery
+can finish those updates or record that they already completed. It cannot create
+or delete resources, replay a consumed plan, or adopt unrelated policy drift.
+The exact live policies are read again before apply, so changes outside OpenTofu
+also stop a stale saved plan. Repeated interruptions preserve the entire recovery chain. An uncertain
+retirement apply without a verifiable success receipt still stops for ownership
+reconciliation.
 
 Once launch started, resume never repeats RunInstances or SendCommand. It checks
 for durable results and performs owned teardown. Cancel records an intent even
@@ -63,7 +77,8 @@ state, but is not a cross-host operation coordinator.
 
 Offline tests cover short-config stage ordering, transfer-before-compute, teardown,
 workspace retention, cancellation, lock exclusion, journal drift, consumed launch
-refusal, repeated recovery bindings, original-create ownership scopes and legacy
+refusal, repeated recovery bindings, reviewed IAM tightening, exact access-policy
+recovery, retained-zone selection, original-create ownership scopes and legacy
 engine compatibility. These are mocked cloud checks, not native acceptance.
 
 Clean Linux/macOS installations, real IAM propagation, encrypted SNS delivery,

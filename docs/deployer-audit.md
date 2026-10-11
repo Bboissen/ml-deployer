@@ -33,9 +33,14 @@ owned by their original tasks.
 | Source inventory | Byte counting repeatedly rescanned the accumulated inventory | Maintain a running total for linear accounting |
 | Recovery | Completed operation resume/cancel could repeat cleanup and overwrite success | Return the verified completed result without replaying mutation |
 | Authorization recovery | Interrupted onboarding could try to overwrite an immutable authorization | Reuse only the exact saved-plan, scope, review hash and approval binding |
+| Retained IAM | Existing deployers needed a manual policy migration before launch | Include exact operator-policy tightening in the deployment review and apply its saved plan before access or compute |
+| Access recovery | A consumed IAM apply stopped even when its exact retained state could be proved | Create a new recovery plan limited to the original policies; reject ownership, lineage or unrelated attribute changes |
+| Saved access plans | Out-of-band IAM changes could be overwritten while backend state was unchanged | Read the exact live policies again before consuming authorization, including completed recovery plans |
+| Retained capacity | A new capacity selection could choose a different zone from the retained subnet | Constrain review and pre-launch checks to the retained foundation zone |
 | Cancellation | An uncertain stage could call its mutation recovery after cancellation | Check cancellation before initial and recovery callbacks |
 | Git checkout | Fetching all default history could exhaust a bounded workspace | Initialize and shallow-fetch the exact reviewed commit |
 | Release reinstall | Saved checksum marker did not establish installed source integrity | Compare installed source to the verified archive before executing setup |
+| Release version | A newer packaged installer could still download the hardcoded original release | Generate its default version from the same committed release manifest as the archive |
 | Test ownership | Cleanup deleted newly observed paths in shared evidence directories | Run each suite in its own disposable source snapshot and remove only that directory |
 | Snapshot provenance | A clone without an index misrepresented tracked source as deleted | Restore the captured Git index before overlaying current source |
 | macOS shell | Empty arrays failed under Bash 3.2 with `nounset` | Use compatible array checks and expansions |
@@ -64,27 +69,32 @@ were removed from the AWS scaffold and CI.
 ## Validation and limits
 
 Focused regressions exercise failed/cancelled recovery, surviving descendants,
-FIFO rejection, large receipts, changed release source, concurrent test evidence,
-interruption/timeout cleanup, source snapshots and launch argument handling.
+FIFO rejection, large receipts, changed release source and versions, concurrent
+test evidence, interruption/timeout cleanup, source snapshots, launch argument
+handling, retained-zone capacity and repeated IAM recovery.
 All default-check components passed: repository checks, shared workspace tests,
 AWS automation, AWS/GCP/Azure scaffolds and OpenTofu formatting. The preserved
 historical contract, guest, OCI and dispatcher checks also passed. The lifecycle
-suite includes 81 unit cases plus mocked OpenTofu plans and emitted IAM checks;
-it covers IAM-only migration without requiring a Git secret. The PR records the
-remaining focused suite counts and cleanup evidence.
+suite includes mocked OpenTofu plans and emitted IAM checks; it covers IAM-only
+migration without requiring a Git secret and recovery after interrupted policy
+updates. The PR records focused suite counts and cleanup evidence.
 
-No native cloud acceptance was run for this audit. Google Cloud and Azure
+No native cloud acceptance was run for this audit. The live AWS session was
+expired, so no IAM migration or generic launch was exercised against the account.
+The migration and recovery changes are validated offline. Google Cloud and Azure
 workspace launch remain unsupported; their historical roots and regression
 contracts are preserved. The historical Azure daily shutdown schedule does not
 establish the required absolute lifetime guarantee. Native generic AWS happy/fault
 paths, interactive access with restricted real identities, clean macOS install
 and provider-side deadline failure drills remain acceptance work.
 
-Existing foundations need a reviewed IAM update before the tighter deployer
-policy is effective. Existing state/resource addresses are preserved. The source
+Existing foundations receive the tighter deployer policy through an IAM update
+included in the next deployment review. Older saved scopes that omit the update
+require a new review. Existing state/resource addresses are preserved. The source
 operator must already have authority to create/delete its own scoped terminal
-grant; the deployer cannot grant itself that authority. Uncertain workspace-access
-applies continue to stop for state reconciliation instead of replaying mutation.
+grant; the deployer cannot grant itself that authority. An interrupted access
+apply resumes only when retained state and policies prove the original scope;
+it never reuses a consumed saved plan or repairs unrelated drift.
 
 Large test payloads and source snapshots are disposable; small ignored receipts
 record exact deleted paths and before/after free space. Existing runtimes, source
