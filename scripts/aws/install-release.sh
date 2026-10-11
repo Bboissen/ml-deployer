@@ -23,7 +23,7 @@ while [[ "$parent" != / ]]; do
   [[ ! -L "$parent" ]] || fail 'installation ancestors cannot be symlinks'
   parent="$(dirname "$parent")"
 done
-for tool in curl tar awk; do command -v "$tool" >/dev/null || fail "missing prerequisite: $tool"; done
+for tool in curl tar awk cmp; do command -v "$tool" >/dev/null || fail "missing prerequisite: $tool"; done
 hash() {
   if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d ' ' -f 1
   else shasum -a 256 "$1" | cut -d ' ' -f 1; fi
@@ -65,6 +65,18 @@ tar -xzf "$scratch/archive" -C "$scratch"
 release="$prefix/releases/$version"
 if [[ -e "$release" ]]; then
   [[ -d "$release" && ! -L "$release" && -f "$release/.release-sha256" && ! -L "$release/.release-sha256" && "$(cat "$release/.release-sha256")" == "$checksum" ]] || fail 'existing version differs; preserve it and choose a new version'
+  # Compare against the newly verified archive before executing existing code.
+  # Runtime tools and operation evidence are retained alongside these files.
+  while IFS= read -r entry; do
+    relative="${entry#aws-workspace-$version/}"
+    candidate="$release/$relative"
+    parent="$candidate"
+    while [[ "$parent" != "$release" ]]; do
+      [[ ! -L "$parent" ]] || fail 'installed release source cannot be symlinked'
+      parent="$(dirname "$parent")"
+    done
+    [[ -f "$candidate" ]] && cmp -s "$scratch/$entry" "$candidate" || fail 'installed release source changed; preserve its evidence and restore the reviewed source'
+  done < "$scratch/entries"
 else
   mv "$scratch/aws-workspace-$version" "$release"
   release_created=1
@@ -72,13 +84,13 @@ else
 fi
 setup_options=()
 ((!github)) || setup_options+=(--github)
-bash "$release/scripts/aws/workstation-setup.sh" "${setup_options[@]}"
+bash "$release/scripts/aws/workstation-setup.sh" ${setup_options[@]+"${setup_options[@]}"}
 # Preserve each version and its evidence. Explicit version selection supports
 # old operation recovery without rewriting recorded paths or deleting state.
 cat > "$scratch/aws-workspace" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
-exec bash '$release/scripts/aws/workspace.sh' "\$@"
+exec bash '$release/workspace' "\$@"
 SH
 chmod 0755 "$scratch/aws-workspace"
 [[ ! -L "$prefix/bin/aws-workspace" && ! -d "$prefix/bin/aws-workspace" ]] || fail 'launcher destination cannot be a symlink/directory'

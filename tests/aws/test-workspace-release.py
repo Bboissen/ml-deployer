@@ -25,7 +25,7 @@ class Release(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(dir=BASE); self.addCleanup(self.temp.cleanup)
         self.directory=Path(self.temp.name); self.repo=self.directory/'source'; self.repo.mkdir()
-        names=subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode().split('\0')[:-1]
+        names=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z'],cwd=ROOT).decode().split('\0')[:-1]
         names+=['scripts/aws/package-release.py','scripts/aws/install-release.sh','scripts/aws/workspace_release.py','shared/workspace/release.json']
         for name in set(names):
             source=ROOT/name
@@ -88,6 +88,22 @@ class Release(unittest.TestCase):
         self.assertEqual(self.install().returncode,0); self.assertEqual(evidence.read_text(),'preserve real state receipt')
         (release/'scripts/aws/workspace.py').write_text('tampered source')
         self.assertNotEqual(R.provenance(release)['source']['working_tree_sha256'],hashlib.sha256(b'').hexdigest())
+        result=self.install()
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('installed release source changed',result.stderr)
+        self.assertEqual(evidence.read_text(),'preserve real state receipt')
+    def test_reinstall_rejects_symlinked_source_before_executing_setup(self):
+        self.assertEqual(self.install().returncode,0)
+        release=self.prefix/'releases'/self.result['version']
+        setup=release/'scripts/aws/workstation-setup.sh'
+        outside=self.directory/'replacement-setup.sh'
+        marker=self.directory/'executed'
+        outside.write_text('#!/bin/sh\ntouch '+shlex.quote(str(marker))+'\n')
+        setup.unlink(); setup.symlink_to(outside)
+        result=self.install()
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('cannot be symlinked',result.stderr)
+        self.assertFalse(marker.exists())
     def test_corrupt_archive_and_failed_setup_leave_no_runtime_or_activation(self):
         good=self.archive.read_bytes(); self.archive.write_bytes(b'corrupted')
         result=self.install(); self.assertNotEqual(result.returncode,0); self.assertIn('checksum mismatch',result.stderr)

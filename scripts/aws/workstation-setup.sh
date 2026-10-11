@@ -52,7 +52,7 @@ for tool in "${prerequisites[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if [[ "$platform" == darwin-* ]] && ! xcode-select -p >/dev/null 2>&1; then missing+=(Command-Line-Tools); fi
-if ((${#missing[@]})); then
+if [[ -n "${missing[*]-}" ]]; then
   if ((system_packages)) && [[ "$platform" == linux-* ]] && command -v apt-get >/dev/null; then
     command -v sudo >/dev/null || fail 'sudo is missing; ask the host administrator to install curl ca-certificates git openssh-client unzip tar dpkg coreutils'
     sudo apt-get update >&2

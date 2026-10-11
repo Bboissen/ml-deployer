@@ -43,7 +43,6 @@ jobs:
           export WORKSPACE_PYTHON="$WORKSPACE_TOOLS_DIR/current/sdk/bin/python"
           "$WORKSPACE_PYTHON" -B tests/aws/run-offline.py
           if [[ "$RUNNER_OS" == Linux ]]; then
-            "$WORKSPACE_PYTHON" -B tests/aws/run-offline.py tests/aws/test-workspace-ssh.sh
             bash scripts/check-repository.sh
           fi
       - name: Preserve small logs and exact cleanup receipts

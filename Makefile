@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 TOFU ?= tofu
 WORKSPACE_PYTHON ?= $(CURDIR)/.tools/workspace-venv/bin/python
+export WORKSPACE_PYTHON
 
 .DEFAULT_GOAL := help
 
@@ -12,7 +13,7 @@ WORKSPACE_PYTHON ?= $(CURDIR)/.tools/workspace-venv/bin/python
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
 
-check: repository-check workspace-test scaffold-test fmt-check ## Validate workspace foundation and existing roots without cloud account APIs.
+check: repository-check workspace-test aws-automation-test scaffold-test fmt-check ## Validate workspace foundation and existing roots without cloud account APIs.
 
 workspace-test-setup: ## Install the locked Python 3.13 validation/example environment (downloads packages).
 	@command -v uv >/dev/null 2>&1 || { echo 'ERROR: uv is required.' >&2; exit 2; }
@@ -21,7 +22,7 @@ workspace-test-setup: ## Install the locked Python 3.13 validation/example envir
 
 workspace-test: ## Run workspace records, readiness and deterministic NumPy/pandas checks offline.
 	@test -x "$(WORKSPACE_PYTHON)" || { echo 'ERROR: run make workspace-test-setup first or set WORKSPACE_PYTHON.' >&2; exit 2; }
-	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -m unittest discover -s tests/workspace -v
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -B tests/aws/run-offline.py tests/workspace/test_workspace.py
 
 aws-project-config-test: ## Check short AWS project configuration and operation records offline.
 	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" tests/aws/run-offline.py tests/aws/test-workspace-config.py
@@ -116,9 +117,7 @@ dummy-cross-cloud-acceptance: ## Validate final AWS/GCP/Azure receipts under EVI
 	@bash scripts/dummy/validate-cross-cloud-acceptance.sh "$(EVIDENCE_ROOT)"
 
 scaffold-test: ## Validate all provider scaffolds without cloud credentials or API calls.
-	@bash tests/aws/test-scaffold.sh
-	@bash tests/gcp/test-scaffold.sh
-	@bash tests/azure/test-scaffold.sh
+	@PYTHONDONTWRITEBYTECODE=1 "$(WORKSPACE_PYTHON)" -B tests/aws/run-offline.py tests/aws/test-scaffold.sh tests/gcp/test-scaffold.sh tests/azure/test-scaffold.sh
 
 aws-platform-plan-test: ## Validate a sealed AWS platform plan and its review receipt offline.
 	@test -n "$(PLAN_JSON)" || { echo 'ERROR: set PLAN_JSON to the sealed tofu show -json artifact.' >&2; exit 2; }
