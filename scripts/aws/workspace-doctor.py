@@ -54,6 +54,10 @@ def cli(config=None):
     return './workspace' if config is None else './workspace ' + shell(config)
 
 
+def doctor_command(config=None):
+    return './workspace doctor' + ('' if config is None else ' ' + shell(config))
+
+
 def repository_route(url):
     if re.match(r'git@github\.com:', url): return 'private'
     if re.match(r'https://', url): return 'public'
@@ -121,11 +125,11 @@ def check_project(report, config):
         P.supported_profile(L, project['region'])
         dataset = P.dataset_metadata(L, project['dataset']['source'], config.parent)
     except Exception as exc:
-        report.add('Project config', ACTION, str(config) + ': ' + text_of(exc), 'edit the file and run ' + cli(config) + ' doctor')
+        report.add('Project config', ACTION, str(config) + ': ' + text_of(exc), 'edit the file and run ' + doctor_command(config))
         return None
     if dataset['adapter'] == 'local':
-        size = dataset['bytes']; unit = 'bytes' if size < 1024**2 else '%.1f MiB' % (size/1024**2)
-        detail = 'dataset %s: %d files, %s' % (dataset['source'], dataset['files'], unit if size < 1024**2 else unit)
+        size = dataset['bytes']; shown = '%d bytes' % size if size < 1024**2 else '%.1f MiB' % (size/1024**2)
+        detail = 'dataset %s: %d file(s), %s' % (dataset['source'], dataset['files'], shown)
     else:
         detail = 'remote dataset ' + dataset['source'] + '; size verified during Deploy'
     report.add('Project config', READY, str(config) + '; ' + detail + '; ' + project.get('mode', 'job') + ' mode, ' +
@@ -201,7 +205,7 @@ def doctor(config, tools_detail, debug):
     report.add('Managed tools', READY, tools_detail)
     project = None
     if config is None:
-        report.add('AWS identity', UNKNOWN, 'pass PROJECT.json to check its AWS profile', cli() + ' doctor PROJECT.json')
+        report.add('AWS identity', UNKNOWN, 'pass PROJECT.json to check its AWS profile', './workspace doctor PROJECT.json')
         report.add('GitHub access', UNKNOWN, 'public repositories need no login; pass PROJECT.json to check a private one')
         report.add('Project config', UNKNOWN, 'no configuration selected', 'cp infra/aws/project.example.json /path/project.json')
     else:
@@ -213,9 +217,9 @@ def doctor(config, tools_detail, debug):
     if debug: debug_lines(report, config)
     text = render(report)
     if report.ready:
-        text += '\n\nReady' + (': review and deploy with ' + cli(config) if config else ': run ' + cli() + ' doctor PROJECT.json before deploying')
+        text += '\n\nReady' + (': review and deploy with ' + cli(config) if config else ': run ./workspace doctor PROJECT.json before deploying')
     else:
-        text += '\n\nAction needed: resolve the items above, then run ' + cli(config) + ' doctor again'
+        text += '\n\nAction needed: resolve the items above, then run ' + doctor_command(config) + ' again'
     return report, text
 
 

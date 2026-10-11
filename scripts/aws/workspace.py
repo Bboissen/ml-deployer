@@ -258,4 +258,5 @@ if __name__ == '__main__':
     except Exception as exc:
         reason=str(exc) if isinstance(exc,(L['Failure'],ValueError)) else 'stage failed: '+type(exc).__name__+'; use status/auth-check to reconcile'
         print('aws-workspace: FAIL: '+reason, file=sys.stderr)
+        if len(sys.argv)>1 and not sys.argv[1].startswith('-'): print('aws-workspace: ./workspace doctor '+shlex.quote(sys.argv[1])+' lists the next step', file=sys.stderr)
         sys.exit(2)
