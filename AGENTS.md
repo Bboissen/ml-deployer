@@ -1,53 +1,27 @@
 # AGENTS.md
 
-## Project boundary
+## Priorities
 
-- This repository provisions ML-ready infrastructure on AWS, Google Cloud, and Azure with OpenTofu.
-- It does not own model code, training logic, experiment parameters, data transformations, or result analysis.
-- DigitalOcean, Ray cluster orchestration, Spotify-specific code, and local ML execution are out of scope.
-- The target is an independent cloud workspace with persistent native object storage and a clone-ready toolbox; `goal/README.md` defines the migration goals.
-- The external ML repository owns its dependencies and scripts. A pinned OCI workload image and opaque run specification are historical batch interfaces, not mandatory workspace inputs.
-- A small locked deterministic data-science example is allowed for toolbox/storage acceptance; production ML remains outside this repository.
-- The Gold dataset is not present yet. Provider storage must be generic and empty until a later reviewed integration.
+- **Autonomous Git:** one task/branch/PR. Open a draft early; commit/push tested milestones and update the PR continuously. No routine permission requests; merge only when authorized.
+- **Simplicity:** smallest complete solution. No speculative features, rewrites, thin wrappers or unnecessary abstractions.
+- **Mandatory reuse:** reuse existing code; factor duplicated logic into focused functions/modules. Separate providers; share only equivalent behavior.
+- **Security:** least privilege, temporary native cloud identities, private encrypted storage, non-root execution. Validate inputs, use safe argument passing, verify downloads, redact secrets. No static cloud keys or secrets in source/bootstrap/plans/state/logs.
 
-## Working rules
+## Boundaries
 
-- Do not spawn subagents unless the user explicitly asks.
-- Do not resolve material ambiguity yourself; stop and ask.
-- On broad or long-running work, provide reviewable evidence at important milestones and continue within the user's authorized scope without repeated approval requests.
-- On a long-running script, report only success or failure and create a bounded monitoring command or script instead of continuously polling.
-- Prefer the smallest implementation that satisfies the accepted cross-cloud contract.
-- Keep provider implementations separate. Share contracts, templates, validation, and documentation only where semantics are genuinely equivalent.
+- Follow `goal/README.md`. Infrastructure only; external repos own ML/dependencies/data. Bounded acceptance examples are allowed; dataset integration requires authorization.
+- Continue within authorized scope; clarify material ambiguity or expanded account/cost/destruction. Source-only stays source-only. No subagents unless requested.
+- Use `rtk`; report milestones and bounded monitoring, not continuous polling.
+- **Test disk hygiene:** check free space before downloads/builds and track exact task-owned resources. After every test (success, failure or interruption), delete its containers, images, volumes, build caches, extracted downloads, temporary runtimes and scratch files; use traps/finally for cleanup. Keep only small logs/receipts and explicitly required deployment evidence. Do not leave large test payloads in `evidence/`.
+- Delete only resources verified as created by this task and no longer in use; preserve pre-existing/shared resources, running services, user-installed tools and real state/plans/authorizations. Never run global Docker/cache pruning. Record exact deleted paths/IDs and verify cleanup and reclaimed space. This instruction authorizes routine cleanup of disposable resources created solely for tests; ask only when ownership or retention is uncertain.
+- Preserve unrelated work and resource ownership. Keep state/backups/plans/authorizations/receipts in ignored `evidence/`; track only layout docs. Deletion needs exact authorization and verified receipt. No permanent `legacy/`.
+- Separate provider bootstrap/platform/runner roots and state/workload storage. Configure providers only in roots; keep composition flat. Pin OpenTofu/providers and commit lockfiles.
+- Inspect immutable saved plans; bind scope/hash to existing task authorization before apply. No repeated prompts.
+- Require provider-side maximum lifetime covering partial failures; budget alerts are insufficient. Run relevant checks; routine tests stay offline/mocked.
 
-## Cloud safety
+## Git hygiene
 
-- Read-only account, quota, inventory, and plan checks are allowed when relevant.
-- Use the user's task instruction as authorization for the cloud actions it reasonably entails. Inspect and record each exact mutation scope before execution; do not request separate approval for every plan or routine step within that scope.
-- Stop and ask when an action materially expands the authorized scope, account, cost commitment, or destructive effect. A source-only request remains source-only.
-- Preserve local state, state backups, plans, authorization ledgers, receipts, and evidence unless their exact deletion is separately authorized.
-- Local state, plans, receipts, authorization ledgers, and evidence belong under the repository-local, Git-ignored `evidence/` root. Keep only its layout documentation tracked. Remove obsolete or rebuildable material only through an explicitly reviewed cleanup with a verified migration/pruning receipt.
-- Do not create a permanent `legacy/` tree inside this repository.
-- Do not silently orphan or destroy existing resources during the pivot. Record whether each resource will be adopted or decommissioned.
-- State storage and workload storage are separate resources.
-- Workload identities use temporary/provider-native credentials. Do not create long-lived access keys or embed secrets in OpenTofu, cloud-init, plans, state, examples, or documentation.
-- Cost controls must include a provider-side maximum-runtime safeguard. Budget alerts alone are not a hard spending cap.
-
-## OpenTofu
-
-- Use separate provider-specific roots for state bootstrap, the persistent platform, and the disposable runner.
-- Root modules own provider configuration. Reusable modules must not configure providers.
-- Keep module composition flat and avoid thin wrappers around individual resources.
-- Pin OpenTofu and provider versions and commit each root's dependency lock file.
-- Routine tests must use validation, plan mode, or mocked providers. Tests must not create real infrastructure by default.
-- Saved plans are immutable review artifacts. Inspect the exact plan before applying it, bind it to the accepted task scope and record the user's task authorization without requiring another confirmation.
-
-## Git
-
-- Keep diffs small, reviewable, and human-readable.
-- One task equals one branch and one pull request unless the user explicitly asks otherwise.
-- Never commit directly to `main` or `master`.
-- Do not use `codex` as a branch prefix; use an industry-standard prefix.
-- Never use `git add .` or `git add -A`; stage files explicitly by path.
-- Before any commit, show `git status --short`, `git diff --stat`, and `git diff --cached --stat`.
-- Prefer one small logical commit. Split broad work into separately reviewable tasks and milestones.
-- Pull request bodies must include Summary, Tests run, and Risk / rollback notes.
+- Use `feat/`, `fix/`, `refactor/`, `docs/`; never commit on `main`/`master` or use `codex/`. Isolate unrelated work.
+- Stage explicit paths; never `git add .` or `git add -A`.
+- Before committing: `git status --short`, `git diff --stat`, `git diff --cached --stat`.
+- Small reviewable diffs. PR bodies: Summary, Tests run, Risk / rollback notes.

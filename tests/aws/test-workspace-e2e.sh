@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 ROOT = Path.cwd()
+sys.path.insert(0, str(ROOT/'scripts/aws'))
 OUT = ROOT/'evidence/aws/tests/e2e'/dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
 OUT.mkdir(parents=True)
 
@@ -27,7 +28,7 @@ def load(path):
     exec(compile(text, path, 'exec'), namespace)
     return namespace
 
-L = load('scripts/aws/workspace-lifecycle.sh')
+L = load('scripts/aws/workspace_lifecycle.py')
 E = load('scripts/aws/workspace-e2e.py')
 G = load('scripts/aws/workspace-job.sh')
 T = dt.datetime(2026, 10, 9, 12, tzinfo=dt.timezone.utc)
@@ -215,7 +216,7 @@ class CommandBoundary(unittest.TestCase):
         content={'schemaVersion':'2.2'}; policy={'Statement':[]}
         L['write'](launch/'plan.json',{'planned_values':{'root_module':{'resources':[
             {'address':'aws_ssm_document.job','values':{'content':json.dumps(content)}},
-            {'address':'aws_iam_user_policy.operator','values':{'policy':json.dumps(policy)}}]}}})
+            {'address':'aws_iam_user_policy.operator[0]','values':{'policy':json.dumps(policy)}}]}}})
         calls=[]
         ssm=types.SimpleNamespace(
             get_document=lambda **_: {'Content':json.dumps(content),'DocumentType':'Command','DocumentVersion':'1'},
@@ -229,7 +230,7 @@ class CommandBoundary(unittest.TestCase):
         ssm.send_command=send
         iam=types.SimpleNamespace(get_user_policy=lambda **_: {'PolicyDocument':policy})
         with patch.dict(L,{'role_name':lambda _: 'offline','bound_instance':lambda *_:None}):
-            E['run_command'](L,None,lambda _,service: {'ssm':ssm,'iam':iam}[service],TARGET,{},launch,INSTANCE,E['payload'](VALUE,TARGET,'a'*32),directory)
+            E['run_command'](L,None,lambda _,service: {'ssm':ssm,'iam':iam}[service],TARGET,{'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/sposhfi-admin']}}},launch,INSTANCE,E['payload'](VALUE,TARGET,'a'*32),directory)
         self.assertEqual(calls[0]['InstanceIds'],[INSTANCE]); self.assertEqual(calls[0]['DocumentVersion'],'1')
         self.assertEqual(calls[0]['DocumentHash'],'d'*64); self.assertEqual(calls[0]['DocumentHashType'],'Sha256')
         self.assertNotIn('PRIVATE KEY',json.dumps(calls))

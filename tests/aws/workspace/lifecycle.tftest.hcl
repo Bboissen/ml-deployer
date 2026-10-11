@@ -6,6 +6,10 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::000000000000:role/offline-role" } }
 }
 
+mock_provider "aws" {
+  alias = "operator"
+}
+
 run "preparation_arms_deadline_without_compute" {
   command = plan
   assert {
@@ -15,6 +19,16 @@ run "preparation_arms_deadline_without_compute" {
   assert {
     condition     = jsondecode(aws_scheduler_schedule.workspace_deadline.target[0].input).lease_id == var.lease.id && aws_scheduler_schedule.workspace_deadline.target[0].arn == var.guard.function_arn && jsondecode(aws_ssm_document.terminal.content).inputs.runAsDefaultUser == "workspace"
     error_message = "Deadline must target the pinned guard and terminal must use non-root workspace."
+  }
+  assert {
+    condition = anytrue([
+      for statement in jsondecode(aws_iam_user_policy.operator[0].policy).Statement : try(
+        contains(statement.Action, "ssmmessages:OpenDataChannel") &&
+        statement.Resource == "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:session/$${aws:userid}-*",
+        false,
+      )
+    ])
+    error_message = "The operator must be able to open the data channel for their own interactive session."
   }
 }
 
@@ -47,7 +61,7 @@ run "unattended_job_drops_privileges_and_scopes_send_command" {
     error_message = "The bounded job document must clear the environment and drop privileges before repository access."
   }
   assert {
-    condition     = length([for s in jsondecode(aws_iam_user_policy.operator.policy).Statement : s if s.Action == "ssm:SendCommand" && s.Condition.StringEquals["ssm:resourceTag/LeaseId"] == var.lease.id && s.Condition.StringEquals["ssm:resourceTag/WorkspaceId"] == local.id && s.Condition.StringEquals["ssm:resourceTag/GuardId"] == var.guard.guard_id]) == 1
+    condition     = length([for s in jsondecode(aws_iam_user_policy.operator[0].policy).Statement : s if s.Action == "ssm:SendCommand" && s.Condition.StringEquals["ssm:resourceTag/LeaseId"] == var.lease.id && s.Condition.StringEquals["ssm:resourceTag/WorkspaceId"] == local.id && s.Condition.StringEquals["ssm:resourceTag/GuardId"] == var.guard.guard_id]) == 1
     error_message = "Command execution must be scoped to the current workspace lease and guard."
   }
 }

@@ -33,7 +33,7 @@ resource "aws_iam_role_policy" "launch" {
   role = aws_iam_role.launch.name
   policy = jsonencode({ Version = "2012-10-17", Statement = concat(var.phase == "retire" ? [{ Effect = "Deny", Action = "ec2:RunInstances", Resource = "*" }] : [], [
     { Effect = "Deny", Action = "ec2:RunInstances", Resource = "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*", Condition = { ArnNotEquals = { "ec2:InstanceProfile" = "arn:aws:iam::${var.aws_account_id}:instance-profile/${local.role_name}" } } },
-    { Effect = "Allow", Action = ["ec2:Describe*", "iam:GetUserPolicy", "iam:ListUserTags", "iam:GetPolicy", "iam:GetPolicyVersion", "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:GetInstanceProfile", "iam:ListInstanceProfilesForRole", "scheduler:GetSchedule", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:ListTagsForResource"], Resource = "*" },
+    { Effect = "Allow", Action = ["ec2:Describe*", "iam:GetUserPolicy", "iam:ListUserTags", "iam:GetRolePolicy", "iam:ListRoleTags", "iam:GetPolicy", "iam:GetPolicyVersion", "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:GetInstanceProfile", "iam:ListInstanceProfilesForRole", "scheduler:GetSchedule", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:ListTagsForResource"], Resource = "*" },
     { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation"], Resource = var.state_bucket_arn },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = ["${var.state_bucket_arn}/aws/${var.aws_account_id}/${var.aws_region}/runner/${local.id}.tfstate", "${var.state_bucket_arn}/aws/${var.aws_account_id}/${var.aws_region}/runner/${local.id}.tfstate.tflock"] },
     { Effect = "Allow", Action = "iam:PassRole", Resource = aws_iam_role.workspace[local.id].arn, Condition = { StringEquals = { "iam:PassedToService" = "ec2.amazonaws.com" } } },
@@ -100,7 +100,7 @@ resource "aws_instance" "workspace" {
     workspace_id       = local.id, toolbox_zip_base64 = filebase64(var.toolbox_zip_path),
     toolbox_zip_sha256 = var.toolbox_zip_sha256, region = var.aws_region
   }))
-  depends_on = [aws_scheduler_schedule.workspace_deadline, aws_iam_role_policy.launch, aws_iam_instance_profile.workspace, aws_ssm_document.terminal, aws_ssm_document.job, aws_iam_user_policy.operator]
+  depends_on = [aws_scheduler_schedule.workspace_deadline, aws_iam_role_policy.launch, aws_iam_instance_profile.workspace, aws_ssm_document.terminal, aws_ssm_document.job, aws_iam_user_policy.operator, aws_iam_role_policy.operator]
   lifecycle {
     precondition {
       condition = try(var.guard_observation.guard_id == var.guard.guard_id &&

@@ -18,6 +18,8 @@ import time
 sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
 BASE = ROOT / "evidence/aws"
+spec = importlib.util.spec_from_file_location("aws_workspace_config", ROOT / "scripts/aws/workspace-config.py")
+project_config = importlib.util.module_from_spec(spec); spec.loader.exec_module(project_config)
 
 
 class Failure(ValueError):
@@ -77,7 +79,7 @@ def source_binding():
     revision = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10)
     require(revision.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", revision.stdout.strip()), "source revision unavailable")
     paths = [path for directory in (ROOT / "infra/aws", ROOT / "scripts/aws")
-             for path in directory.rglob("*") if path.is_file() and path.suffix in (".tf", ".tftpl", ".hcl", ".sh")]
+             for path in directory.rglob("*") if path.is_file() and path.suffix in (".tf", ".tftpl", ".hcl", ".sh", ".py", ".json", ".lock", ".tsv", ".in")]
     paths += [ROOT / name for name in ("scripts/workspace/validate.py", "shared/workspace/schema.json", "shared/workspace/toolbox.json")]
     require(not any(path.is_symlink() for path in paths), "source symlink rejected")
     manifest = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(paths)}
@@ -170,13 +172,8 @@ def main():
                               aws_region=t["region"], review_sha256=review_hash, protections=receipt["protections"])
         require(args.storage_mode != "existing" or assignment is not None, "existing mode requires an inspected assignment")
         require(args.storage_mode != "create" or assignment is None or (assignment["ownership"] == "platform-managed" and assignment["resource_address"] == f'aws_s3_bucket.project["{slug}"]'), "create cannot adopt existing external/historical storage")
-        suffix = hashlib.sha256(f'{t["account_id"]}/{t["region"]}/{slug}'.encode()).hexdigest()[:16]
-        bucket = assignment["bucket_name"] if assignment else f"ml-{slug}-{suffix}"
-        storage = {
-            "data_uri": f"s3://{bucket}/projects/{slug}/data/",
-            "output_uri": f"s3://{bucket}/projects/{slug}/workspaces/{workspace_id}/output/",
-            "state_uri": f's3://{t["backend"]["bucket"]}/{t["backend"]["runner_prefix"]}{workspace_id}.tfstate',
-        }
+        bucket = assignment["bucket_name"] if assignment else project_config.workload_bucket(t["account_id"], t["region"], slug)
+        storage = project_config.storage_uris(bucket, slug, workspace_id, t['backend']['bucket'], t['backend']['runner_prefix'])
         receipt = dict(binding, workspace_id=workspace_id, storage_mode=args.storage_mode, storage=storage,
                        storage_action="reference-assignment" if assignment else "plan-new-empty-bucket",
                        cloud_resources_observed=False, compute_enabled=False, deployment_authorized=False,

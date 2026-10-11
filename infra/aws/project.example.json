@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "provider": "aws",
+  "profile": "reviewed-temporary",
+  "region": "us-east-1",
+  "project": "demand-forecast",
+  "workspace": "experiment-01",
+  "dataset": {"source": "./dataset"},
+  "repository": {"url": "https://github.com/owner/project.git", "ref": "main"},
+  "commands": {"setup": ["make", "setup"], "run": ["make", "train"]},
+  "outputs": {"paths": ["outputs"]},
+  "resources": {"policy": "ram-first"},
+  "maximum_runtime_minutes": 60
+}

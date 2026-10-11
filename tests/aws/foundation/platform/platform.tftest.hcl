@@ -23,6 +23,15 @@ run "independent_workspace_platform" {
     error_message = "Fresh routine identity must be distinct and cannot launch EC2 directly."
   }
   assert {
+    condition = length([
+      for statement in data.aws_iam_policy_document.deployer.statement : statement
+      if statement.sid == "DenyReviewedOperatorPolicyMutation" && statement.effect == "Deny" &&
+      toset(statement.actions) == toset(["iam:*"]) &&
+      toset(statement.resources) == toset(var.deployer_principal_arns)
+    ]) == 1
+    error_message = "The routine deployer must not grant itself broader permissions through its operator principal."
+  }
+  assert {
     condition     = length([for s in data.aws_iam_policy_document.deployer.statement : s if s.sid == "AssumeReceiptPublisherForControlPublication" || s.sid == "UseReviewedRunnerLaunchDependencies"]) == 0 && alltrue([for s in data.aws_iam_policy_document.deployer.statement : alltrue([for a in s.actions : a != "ec2:StartInstances" || s.effect == "Deny"])])
     error_message = "Fresh deployer must omit historical launch and receipt interfaces."
   }

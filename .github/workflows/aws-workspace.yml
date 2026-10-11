@@ -1,0 +1,74 @@
+name: AWS workspace offline acceptance
+"on":
+  pull_request:
+  push:
+    branches: [main, 'feat/aws-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  supported-hosts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install pinned tools and run offline journey
+        shell: bash
+        env:
+          AWS_EC2_METADATA_DISABLED: 'true'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          test_runtime="$(mktemp -d "$RUNNER_TEMP/aws-workspace-ci.XXXXXX")"
+          cleanup() {
+            result=$?
+            rm -rf "$test_runtime"
+            test ! -e "$test_runtime"
+            df -Pk "$RUNNER_TEMP"
+            exit "$result"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          df -Pk "$RUNNER_TEMP"
+          export WORKSPACE_TOOLS_DIR="$test_runtime/tools"
+          bash scripts/aws/workstation-setup.sh --github
+          export PATH="$WORKSPACE_TOOLS_DIR/current/bin:$WORKSPACE_TOOLS_DIR/current/sdk/bin:$PATH"
+          export WORKSPACE_PYTHON="$WORKSPACE_TOOLS_DIR/current/sdk/bin/python"
+          "$WORKSPACE_PYTHON" -B tests/aws/run-offline.py
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            bash scripts/check-repository.sh
+          fi
+      - name: Preserve small logs and exact cleanup receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: offline-receipts-${{ matrix.os }}
+          path: evidence/aws/test-receipts/
+          retention-days: 7
+  release-package:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build committed source archive and integrity metadata
+        run: |
+          set -euo pipefail
+          df -Pk .
+          mkdir -p evidence/aws/releases
+          python3 -B scripts/aws/package-release.py evidence/aws/releases/candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aws-workspace-release-candidate
+          path: evidence/aws/releases/candidate/
+          retention-days: 7

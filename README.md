@@ -7,12 +7,26 @@ external ML repository and installs its project dependencies; that repository
 owns scripts, datasets, transformations, training and results.
 
 Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
-is deployed; EC2 provisioning/bootstrap and automatic expiry were verified.
-Interactive access, clone and S3 result acceptance remain incomplete. Follow the
-[single-configuration AWS workflow](docs/operations/aws-workspace.md).
+is deployed; a bounded private SSH/Make job, versioned S3 verification and compute
+teardown passed native acceptance in [PR24](https://github.com/Bboissen/Ray_terraform/pull/24).
+The AWS deployer now implements short configuration, scoped foundation/access
+onboarding, streamed local/S3/public HTTPS ingestion, generic non-root setup/run,
+declared output persistence and one reviewed Deploy with durable recovery.
+See the [deployer quickstart](docs/operations/aws-deployer-quickstart.md),
+[operation and recovery behavior](docs/operations/aws-deploy-operation.md) and
+[native acceptance scope](docs/operations/aws-native-acceptance.md).
+
+The repository is a release candidate for a clean installation, with
+production acceptance still pending. Linux/macOS tooling and versioned source packaging have offline coverage. Generic
+native deployment, clean macOS installation, real IAM/alarm behavior and controller
+loss acceptance remain pending. Release publication is also pending. The native
+fixture receipt does not establish the complete generic journey.
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
+
+The [AWS first-use guide](docs/aws-setup-guide.html) explains prerequisites and access;
+the deployer quickstart above describes the current commands.
 
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
@@ -23,15 +37,31 @@ selected account's remaining regional/family quotas, then prefer more vCPUs.
 Review the exact size, image/zone compatibility and costs; do not increase quotas
 or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
 
-Install the small hash-locked Python 3.13 test environment, then validate:
+Start from the [short project configuration](infra/aws/project.example.json),
+authenticate your AWS profile, then review and launch from the checkout:
+
+```bash
+./workspace /absolute/path/project.json
+./workspace /absolute/path/project.json --authorization 'Approved deployment scope'
+```
+
+The first command resolves the account, capacity, repository revision and dataset
+into an immutable review. The second launches that reviewed scope. Pinned local
+tools install automatically when needed; `./workspace --help` needs no installation.
+Use the same config with `status`, `connect`, `logs`, `resume` or `cancel`.
+The original `scripts/aws/workspace.sh` command remains compatible.
+
+For repository development, install the separate hash-locked Python 3.13 test
+environment, then validate:
 
 ```bash
 make workspace-test-setup  # package downloads; no cloud account operation
-make check                 # workspace tests and nine existing provider roots
+make check                 # complete controller, workspace and provider checks
 make historical-check      # explicit preserved batch/demo regression suite
 ```
 
-Routine tests query no cloud accounts or APIs. Backend-disabled OpenTofu init
+The [deployer audit](docs/deployer-audit.md) records fixes and remaining acceptance
+limits. Routine tests query no cloud accounts or APIs. Backend-disabled OpenTofu init
 may download pinned providers. Offline passing results are not live readiness.
 The acceptance example checks tiny `1, 2, 3, 4` bucket fixture values for count 4,
 sum 10, mean 2.5 and stable JSON round-trip bytes. Its offline transfers are

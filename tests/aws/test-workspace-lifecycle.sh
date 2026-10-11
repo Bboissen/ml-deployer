@@ -20,19 +20,20 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode=True
 ROOT=Path.cwd()
+sys.path.insert(0, str(ROOT/'scripts/aws'))
 OUT=ROOT/'evidence/aws/tests/cd'/ (dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'-'+str(os.getpid()))
 OUT.mkdir(parents=True)
 
 def module(path):
     text=(ROOT/path).read_text()
     if path.endswith('.sh'): text=text.split("<<'PY'\n",1)[1].rsplit('\nPY',1)[0]
-    ns={'__name__':'offline_test'}; exec(compile(text,path,'exec'),ns); return ns
+    ns={'__name__':'offline_test','__file__':str(ROOT/path)}; exec(compile(text,path,'exec'),ns); return ns
 
 fake_boto=types.ModuleType('boto3'); fake_cfg=types.ModuleType('botocore.config'); fake_cfg.Config=lambda **kwargs:kwargs
 with patch.dict(sys.modules,{'boto3':fake_boto,'botocore.config':fake_cfg}):
     GUARD=module('infra/aws/runner/workspace/watchdog.py.tftpl')
-LIFE=module('scripts/aws/workspace-lifecycle.sh')
-WORKSPACE=module('scripts/aws/workspace.sh')
+LIFE=module('scripts/aws/workspace_lifecycle.py')
+WORKSPACE=module('scripts/aws/workspace.py')
 T=dt.datetime(2026,10,8,12,tzinfo=dt.timezone.utc)
 OWN={'GuardId':'a'*32,'Project':'ml-infra','Root':'runner','ManagedBy':'opentofu'}
 TAGS={**OWN,'WorkspaceId':'fraud-detection-dev-01','LeaseId':'b'*32,'LeaseStart':'2026-10-08T11:00:00Z','LaunchBefore':'2026-10-08T11:05:00Z','ExpiresAt':'2026-10-08T12:00:00Z'}
@@ -154,7 +155,8 @@ class HeartbeatObservation(unittest.TestCase):
     def setUp(self):
         account='000000000000'; prefix='ml-infra'
         self.config={'aws_account_id':account,'aws_region':'us-east-1','resource_prefix':prefix,'project_name':prefix,
-                     'workspace_identity':{'ml_project_name':'demo','request':{'workspace_id':'demo-dev-01'},
+                     'deployer_role_arn':f'arn:aws:iam::{account}:role/{prefix}-workspace-deployer',
+                     'workspace_identity':{'ml_project_name':'demo','request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'},
                      'permissions_boundary_arn':f'arn:aws:iam::{account}:policy/{prefix}-ws-demo-boundary',
                      'session_policy_arn':f'arn:aws:iam::{account}:policy/{prefix}-session-manager-minimal'},
                      'lease':{'id':'b'*32,'starts_at':LIFE['stamp'](T),'expires_at':LIFE['stamp'](T+dt.timedelta(hours=1))},
@@ -173,6 +175,10 @@ class HeartbeatObservation(unittest.TestCase):
         boundaries={names[2]:config['workspace_identity']['permissions_boundary_arn'],names[3]:f'arn:aws:iam::{account}:policy/{prefix}-workspace-launch-boundary'}
         policies={names[0]:{'invoke-pinned-watchdog':invoker},names[1]:{'guard-owned-termination-only':execution},
                   names[2]:{'workspace-storage':{}},names[3]:{'immutable-lease-launch':{}}}
+        self.deployer_policy={'Version':'2012-10-17','Statement':[
+            {'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':'iam:*',
+             'Resource':config['workspace_identity']['request']['operators']}]}
+        policies[prefix+'-workspace-deployer']={'workspace-deployer':self.deployer_policy}
         def get_role(RoleName):
             value={'AssumeRolePolicyDocument':trusts[RoleName]}
             if RoleName in boundaries: value['PermissionsBoundary']={'PermissionsBoundaryArn':boundaries[RoleName]}
@@ -225,6 +231,14 @@ class HeartbeatObservation(unittest.TestCase):
     def test_single_page_complete_heartbeat(self):
         observation,_=self.observe([{'events':[self.event()]}])
         self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),1)
+    def test_retained_foundation_without_operator_denial_cannot_launch(self):
+        denial=copy.deepcopy(self.deployer_policy['Statement'][0])
+        for change in ({'Effect':'Allow'},{'Action':'iam:PutUserPolicy'},{'Resource':'arn:aws:iam::000000000000:user/other'},
+                       {'Condition':{'Bool':{'aws:MultiFactorAuthPresent':'true'}}}):
+            self.deployer_policy['Statement']=[{**denial,**change}]
+            with self.subTest(change=change),self.assertRaisesRegex(LIFE['Failure'],'reviewed workspace-access IAM migration'):
+                self.observe([])
+            self.assertEqual(self.calls,[])
     def test_sdk_schedule_dates_in_local_time_are_serialized_as_utc(self):
         original=self.clients['scheduler'].get_schedule
         for offset in (2,-6,14):
@@ -306,7 +320,7 @@ class ProjectConfiguration(unittest.TestCase):
         self.value['foundation']={'plan_directory':str(foundation),'outputs_file':str(foundation/'outputs.json'),
                                  'outputs_sha256':LIFE['sha']((foundation/'outputs.json').read_bytes())}
         members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'):
+        for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'):
             members[name]=(ROOT/name).read_bytes()
         zip_path=self.directory/'toolbox.zip'; hash=LIFE['archive'](zip_path,members)
         LIFE['write'](self.directory/'artifacts.json',{'source':LIFE['source'](),'toolbox_zip_path':str(zip_path),'toolbox_zip_sha256':hash})
@@ -379,6 +393,49 @@ class ProjectConfiguration(unittest.TestCase):
             self.assertIn(package+'=='+LIFE['TOOLBOX']['sdk_version']+' ',lock)
 
 class Boundary(unittest.TestCase):
+    def test_operator_access_migration_cannot_grant_new_permissions(self):
+        document={'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:GetDocument'],
+                  'Resource':'arn:aws:ssm:us-east-1:000000000000:document/reviewed-terminal'}
+        for kind in ('user','role'):
+            principal='arn:aws:iam::000000000000:'+kind+'/reviewed-operator'
+            actions=['iam:'+action+kind.title()+suffix for action,suffix in
+                     (('Put','Policy'),('Delete','Policy'),('Get','Policy'),('List','Tags'))]
+            before={'Version':'2012-10-17','Statement':[document,
+                {'Sid':'ManageReviewedNamedOperatorWorkspaceGrant','Effect':'Allow','Action':actions,'Resource':principal}]}
+            denial={'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':'iam:*','Resource':principal}
+            variables={'deployer_principal_arns':{'value':[principal]}}
+            for expand_document in (False,True):
+                updated=copy.deepcopy(document)
+                if expand_document: updated['Resource']=[document['Resource'],document['Resource'].removesuffix('-terminal')+'-job']
+                after={**before,'Statement':[updated,denial]}
+                LIFE['deployer_access_scope'](before,after,variables)
+                change={'actions':['update'],'before':{'policy':json.dumps(before)},'after':{'policy':json.dumps(after)}}
+                item={'address':'aws_iam_role_policy.deployer','mode':'managed','change':change}
+                plan={'variables':{**variables,'workspace_git_secret_arns':{'value':{}}},'resource_changes':[item]}
+                self.assertEqual(LIFE['plan_scope'](plan,'workspace-access'),[{'address':item['address'],'actions':['update']}])
+                item['address']='aws_iam_policy.project_workspace_boundary["unselected"]'
+                with self.assertRaisesRegex(LIFE['Failure'],'exact project boundary'):
+                    LIFE['plan_scope'](plan,'workspace-access')
+                for change in ({'Effect':'Allow'},{'Resource':principal+'-other'},{'Action':'iam:PutRolePolicy'}):
+                    changed={**after,'Statement':[updated,{**denial,**change}]}
+                    with self.subTest(kind=kind,change=change), self.assertRaises(LIFE['Failure']):
+                        LIFE['deployer_access_scope'](before,changed,variables)
+                with self.assertRaises(LIFE['Failure']): LIFE['deployer_access_scope'](before,after,{})
+
+    def test_operator_alias_cannot_run_compute_or_assume_the_deployer(self):
+        alias={'alias':'operator','expressions':{'region':{'references':['var.aws_region']},
+                                              'allowed_account_ids':{'references':['var.aws_account_id']}}}
+        resources=[{'mode':'managed','type':'aws_iam_user_policy','address':'aws_iam_user_policy.operator','provider_config_key':'aws.operator'},
+                   {'mode':'managed','type':'aws_instance','address':'aws_instance.workspace','provider_config_key':'aws'}]
+        plan={'configuration':{'provider_config':{'aws.operator':alias},'root_module':{'resources':resources}}}
+        LIFE['runner_provider_scope'](plan)
+        for resource in resources:
+            original=resource['provider_config_key']; resource['provider_config_key']='aws' if original=='aws.operator' else 'aws.operator'
+            with self.assertRaises(LIFE['Failure']): LIFE['runner_provider_scope'](plan)
+            resource['provider_config_key']=original
+        alias['expressions']['assume_role']={'constant_value':{'role_arn':'unreviewed'}}
+        with self.assertRaises(LIFE['Failure']): LIFE['runner_provider_scope'](plan)
+
     def test_credential_planning_targets_one_existing_project(self):
         config={'ml_projects':{'demo':{}},'workspace_git_secret_arns':{'demo':['reviewed-arn']}}
         self.assertEqual(LIFE['credential_plan_target'](config),'-target=aws_iam_policy.project_workspace_boundary["demo"]')
@@ -445,7 +502,7 @@ class Boundary(unittest.TestCase):
     def test_changed_schedule_timezone_or_end_closes_guard(self):
         config={'guard':{'guard_id':'a'*32,'function_arn':'function','invoker_role_arn':'role','failure_queue_arn':'queue'},
                 'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra',
-                'workspace_identity':{'ml_project_name':'demo','request':{'workspace_id':'demo-dev-01'}}}
+                'workspace_identity':{'ml_project_name':'demo','request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'}}}
         value={'State':'ENABLED','ScheduleExpression':'rate(1 minute)','ScheduleExpressionTimezone':'UTC','ActionAfterCompletion':'NONE',
                'FlexibleTimeWindow':{'Mode':'OFF'},'Target':{'Arn':'function','RoleArn':'role',
                'Input':json.dumps({'kind':'sweep','guard_id':'a'*32}),'RetryPolicy':{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':3},
@@ -492,6 +549,11 @@ class Boundary(unittest.TestCase):
         return {'target_name':'offline','target':target,'dependencies':edge},folder
     def test_targeted_access_chain_recovers_exact_full_platform(self):
         preparation,_=self.platform_chain()
+        plan,bindings=LIFE['reviewed_platform_plan'](preparation)
+        self.assertEqual(plan['planned_values']['root_module']['resources'],[{'address':'retained-platform'}])
+        self.assertEqual(len(bindings),3)
+    def test_iam_only_access_chain_needs_no_git_secret(self):
+        preparation,_=self.platform_chain(lambda _name,config:config.update(workspace_git_secret_arns={}))
         plan,bindings=LIFE['reviewed_platform_plan'](preparation)
         self.assertEqual(plan['planned_values']['root_module']['resources'],[{'address':'retained-platform'}])
         self.assertEqual(len(bindings),3)
@@ -589,7 +651,7 @@ class Boundary(unittest.TestCase):
         snapshot=LIFE['snapshot'](None,lambda *a:fake,target,'owned.tfstate')
         self.assertEqual(snapshot,{'key':'owned.tfstate','version':'native-version','lineage':'offline-lineage','serial':7,'sha256':hashlib.sha256(raw).hexdigest()})
     def test_cleanup_refuses_live_pending_and_stopped_compute(self):
-        config={'guard':{'guard_id':OWN['GuardId']},'workspace_identity':{'request':{'workspace_id':TAGS['WorkspaceId']}},'lease':{'id':TAGS['LeaseId']}}
+        config={'guard':{'guard_id':OWN['GuardId']},'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':TAGS['WorkspaceId']}},'lease':{'id':TAGS['LeaseId']}}
         for state in ('running','pending','stopped','shutting-down'):
             fake=EC2([instance(state)])
             with self.assertRaises(LIFE['Failure']): LIFE['inventory'](None,lambda *a:fake,config)
@@ -605,9 +667,107 @@ class Boundary(unittest.TestCase):
         LIFE['write'](directory/'review.json',m); LIFE['authorize'](directory,LIFE['sha'](LIFE['canon'](m)),'Explicit offline approval')
         called=[]
         with patch.dict(LIFE,{'context':lambda *a:(m['target'],{},None,None,m['identities'],{'serial':2}),
+                             'runner_provider_scope':lambda *a:None,
                              'run':lambda *a:called.append(a)}):
             with self.assertRaises(LIFE['Failure']): LIFE['apply'](directory)
         self.assertEqual(called,[]); self.assertFalse((directory/'apply-started.json').exists())
+
+class AccessRecovery(unittest.TestCase):
+    def setUp(self):
+        self.directory=OUT/self.id().rsplit('.',1)[1]; self.directory.mkdir()
+        self.principal='arn:aws:iam::000000000000:user/operator'
+        self.address='aws_iam_role_policy.deployer'
+        document={'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:GetDocument'],
+                  'Resource':'arn:aws:ssm:us-east-1:000000000000:document/owned-terminal'}
+        self.before={'Version':'2012-10-17','Statement':[document,
+            {'Sid':'ManageReviewedNamedOperatorWorkspaceGrant','Effect':'Allow',
+             'Action':['iam:PutUserPolicy','iam:DeleteUserPolicy','iam:GetUserPolicy','iam:ListUserTags'],'Resource':self.principal}]}
+        self.after={'Version':'2012-10-17','Statement':[document,
+            {'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':['iam:*'],'Resource':[self.principal]}]}
+        self.config={'deployer_principal_arns':[self.principal],'workspace_git_secret_arns':{}}
+        self.target={'account_id':'000000000000','backend':{'bucket':'owned-state'}}
+        attributes={'id':'deployer:deployer','name':'deployer','role':'deployer','policy':json.dumps(self.before)}
+        self.plan={'variables':{k:{'value':v} for k,v in self.config.items()},
+            'resource_changes':[{'address':self.address,'mode':'managed','change':{'actions':['update'],
+                'before':attributes,'after':{**attributes,'policy':json.dumps(self.after)}}}],
+            'planned_values':{'root_module':{'resources':[{'address':self.address,'mode':'managed',
+                'values':{**attributes,'policy':json.dumps(self.after)}}]}}}
+        self.baseline={'lineage':'owned-lineage','serial':7,'resources':[
+            {'mode':'managed','type':'aws_iam_role_policy','name':'deployer','instances':[{'attributes':attributes}]},
+            {'mode':'managed','type':'aws_s3_bucket','name':'project','instances':[{'index_key':'demo',
+                'attributes':{'id':'owned-workload','bucket':'owned-workload'}}]}]}
+        self.current=copy.deepcopy(self.baseline); self.current['serial']=8
+        self.baseline_raw=LIFE['canon'](self.baseline)
+        self.original={'key':'platform.tfstate','version':'before','lineage':'owned-lineage','serial':7,
+                       'sha256':LIFE['sha'](self.baseline_raw)}
+        LIFE['write'](self.directory/'plan.json',self.plan); LIFE['write'](self.directory/'config.tfvars.json',self.config)
+        (self.directory/'saved.tfplan').write_bytes(b'original access plan')
+        self.review={'stage':'workspace-access','target_name':'offline','target':self.target,'source':LIFE['source'](),
+            'root':str(LIFE['stage_root']('workspace-access')),'backend':{'key':'platform.tfstate'},'state':self.original,
+            'config_sha256':LIFE['sha'](LIFE['canon'](self.config)),'scope':LIFE['plan_scope'](self.plan,'workspace-access'),
+            'plan_sha256':LIFE['sha'](b'original access plan'),
+            'plan_json_sha256':LIFE['sha']((self.directory/'plan.json').read_bytes())}
+        LIFE['write'](self.directory/'review.json',self.review)
+        digest=LIFE['sha'](LIFE['canon'](self.review))
+        LIFE['authorize'](self.directory,digest,'Authorized exact offline IAM migration')
+        LIFE['write'](self.directory/'apply-started.json',{'review_sha256':digest})
+    def recover(self):
+        raw=LIFE['canon'](self.current)
+        state={**self.original,'version':'after','serial':self.current['serial'],'lineage':self.current['lineage'],
+               'sha256':LIFE['sha'](raw)}
+        api=types.SimpleNamespace(get_object=lambda **kw:{'Body':io.BytesIO(self.baseline_raw if kw['VersionId']=='before' else raw)})
+        with patch.dict(LIFE,{'platform_compute_absent':lambda *_:None}):
+            return LIFE['recovery_context'](self.directory,'offline','workspace-access',self.config,self.target,
+                                            state,None,lambda *_:api)
+    def completed_plan(self):
+        plan=copy.deepcopy(self.plan); change=plan['resource_changes'][0]['change']
+        change['actions']=['no-op']; change['before']=copy.deepcopy(change['after'])
+        return plan
+    def test_targeted_recovery_preserves_full_foundation_and_finishes_only_original_policy(self):
+        recovery=self.recover()
+        self.assertEqual(recovery['owned'],[self.address,'aws_s3_bucket.project["demo"]'])
+        self.assertEqual(LIFE['plan_scope'](self.plan,'workspace-access',recovery),self.review['scope'])
+        self.current['resources'][0]['instances'][0]['attributes']['policy']=json.dumps(self.after)
+        recovery=self.recover()
+        self.assertEqual(LIFE['plan_scope'](self.completed_plan(),'workspace-access',recovery),[])
+    def test_access_recovery_rejects_unrelated_state_or_ownership_changes(self):
+        original=copy.deepcopy(self.current)
+        for mutate in (
+            lambda s:s['resources'].pop(),
+            lambda s:s['resources'].append(copy.deepcopy(s['resources'][1])),
+            lambda s:s['resources'][1]['instances'][0]['attributes'].update(bucket='foreign'),
+            lambda s:s['resources'][0]['instances'][0]['attributes'].update(role='foreign'),
+            lambda s:s['resources'][0]['instances'][0].update(status='tainted'),
+            lambda s:s.update(lineage='foreign'),lambda s:s.update(serial=6)):
+            self.current=copy.deepcopy(original); mutate(self.current)
+            with self.subTest(state=self.current), self.assertRaises(LIFE['Failure']): self.recover()
+    def test_access_recovery_rejects_foreign_policy_and_changed_original_state_version(self):
+        self.current['resources'][0]['instances'][0]['attributes']['policy']='{"Statement":[]}'
+        with self.assertRaisesRegex(LIFE['Failure'],'unreviewed policy'):self.recover()
+        self.current=copy.deepcopy(self.baseline)
+        self.baseline_raw+=b' '
+        with self.assertRaisesRegex(LIFE['Failure'],'state version changed'):self.recover()
+    def test_recovered_plan_cannot_expand_or_omit_reviewed_changes(self):
+        recovery=self.recover()
+        for mutate in (
+            lambda p:p['resource_changes'][0].update(address='aws_iam_role_policy.foreign'),
+            lambda p:p['resource_changes'][0]['change'].update(actions=['delete','create']),
+            lambda p:p['resource_changes'][0]['change']['after'].update(policy='{"Statement":[]}'),
+            lambda p:p['resource_changes'][0]['change']['after'].update(role='foreign'),
+            lambda p:p.update(resource_changes=[])):
+            plan=copy.deepcopy(self.plan); mutate(plan)
+            with self.subTest(plan=plan),self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan,'workspace-access',recovery)
+    def test_successful_noop_recovery_retains_full_platform_ancestry(self):
+        preparation,folder=Boundary().platform_chain()
+        directory=folder/'access-two'; plan=self.completed_plan()
+        (directory/'plan.json').write_bytes(LIFE['canon'](plan))
+        review=LIFE['read'](directory/'review.json')
+        review.update(scope=[],recovery=self.recover(),plan_json_sha256=LIFE['sha']((directory/'plan.json').read_bytes()))
+        (directory/'review.json').write_bytes(LIFE['canon'](review))
+        preparation['dependencies'][0]['review_sha256']=LIFE['sha'](LIFE['canon'](review))
+        full,bindings=LIFE['reviewed_platform_plan'](preparation)
+        self.assertEqual(full['planned_values']['root_module']['resources'],[{'address':'retained-platform'}])
+        self.assertEqual(len(bindings),3)
 
 class Foundation(unittest.TestCase):
     F=LIFE['foundation']
@@ -647,7 +807,7 @@ class Foundation(unittest.TestCase):
                 self.assertFalse(LIFE['prior_source']({'revision':'a'*40,'working_tree_sha256':LIFE['sha'](b'')}))
     def test_partial_recovery_binds_owned_state_and_consumed_plan(self):
         directory=OUT/'partial-recovery'; directory.mkdir()
-        config={'workspace_identity':{'request':{'workspace_id':'demo-dev-01'}},'lease':{'id':'old'}}
+        config={'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'demo-dev-01'}},'lease':{'id':'old'}}
         address='aws_iam_role.launch'
         planned=[{'address':a,'mode':'managed','values':{'name':'owned-launch'} if a==address else {}}
                  for a in LIFE['prepared_addresses'](config)]
@@ -700,6 +860,18 @@ class Foundation(unittest.TestCase):
         with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items[:-1]})
         items[0]['change']['actions']=['update']
         with self.assertRaises(LIFE['Failure']):self.F['bootstrap_scope']({'resource_changes':items})
+    def test_partial_foundation_scopes_allow_only_original_missing_creates(self):
+        owned='aws_s3_bucket.state'; missing='aws_s3_bucket_versioning.state'
+        items=[{'address':owned,'mode':'managed','change':{'actions':['update']}},
+               {'address':missing,'mode':'managed','change':{'actions':['create']}}]
+        self.assertEqual(len(self.F['bootstrap_scope']({'resource_changes':items},{'owned':[owned]})),2)
+        for address,actions in [(owned,['create']),(owned,['delete']),(missing,['update']),('aws_instance.foreign',['create'])]:
+            with self.assertRaises(LIFE['Failure']): self.F['bootstrap_scope']({'resource_changes':[{'address':address,'mode':'managed','change':{'actions':actions}}]},{'owned':[owned]})
+        recovery={'owned':['aws_iam_role.deployer'],'expected':['aws_iam_role.deployer','aws_sns_topic.workspace_alerts[0]']}
+        planned={'resource_changes':[{'address':'aws_sns_topic.workspace_alerts[0]','mode':'managed','change':{'actions':['create']}}]}
+        self.assertEqual(len(LIFE['plan_scope'](planned,'fresh-platform',recovery)),1)
+        planned['resource_changes'][0]['address']='aws_instance.foreign'
+        with self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](planned,'fresh-platform',recovery)
     def test_unknown_or_existing_names_never_count_as_absent(self):
         class Error(Exception):
             def __init__(self,code):self.response={'Error':{'Code':code}}
@@ -718,7 +890,7 @@ class Foundation(unittest.TestCase):
         def missing(**kw):raise Missing()
         api=types.SimpleNamespace(get_role=missing,get_instance_profile=missing,get_user_policy=lambda **kw:{'PolicyDocument':{'old':'grant'}})
         with patch.dict(LIFE,{'role_name':lambda _: 'offline-new-workspace'}):
-            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{'workspace_identity':{'request':{'workspace_id':'offline'}}})
+            with self.assertRaises(LIFE['Failure']):self.F['prepare_absent'](None,lambda *_:api,{'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/operator'],'workspace_id':'offline','operators':['arn:aws:iam::000000000000:user/operator']}}})
     def test_bootstrap_plan_binds_local_state_and_never_applies(self):
         directory=OUT/'bootstrap-offline-plan';config_path=OUT/'bootstrap-offline-config.json';calls=[]
         selected={'account_id':'000000000000','region':'us-east-1','profile':'offline','operator_arn':'arn:aws:iam::000000000000:user/offline',
@@ -857,7 +1029,7 @@ def tofu_tests():
            'recurring_schedule_name':'ml-infra-workspace-watchdog-sweep','log_group':'/aws/lambda/ml-infra-workspace-watchdog',
            'failure_queue_arn':'arn:aws:sqs:us-east-1:000000000000:ml-infra-workspace-watchdog-failures','alarm_names':['offline-alarm']}
     members={p.name:p.read_bytes() for p in (ROOT/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh'): members[name]=(ROOT/name).read_bytes()
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'): members[name]=(ROOT/name).read_bytes()
     toolbox_sha=LIFE['archive'](OUT/'toolbox.zip',members)
     config={'aws_account_id':'000000000000','aws_region':'us-east-1','resource_prefix':'ml-infra','project_name':'ml-infra',
             'backend_bucket_name':'replace-ml-infra-aws-state-unique','state_bucket_arn':'arn:aws:s3:::replace-ml-infra-aws-state-unique',
@@ -886,6 +1058,7 @@ def tofu_tests():
     fresh_addresses={r['address'] for r in fresh['planned_values']['root_module']['resources'] if r['mode']=='managed'}
     if fresh_addresses!=LIFE['foundation']['FRESH_ADDRESSES']:raise AssertionError('fresh root creates unexpected/missing resources')
     runner=plans['runner']['guarded_launch_is_encrypted_disposable_and_tagged']
+    LIFE['runner_provider_scope'](runner)
     # Validate the entire production handoff against rendered OpenTofu user-data,
     # rather than splicing one command into a prevalidated handoff fixture.
     request=config['workspace_identity']['request']

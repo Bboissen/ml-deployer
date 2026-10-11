@@ -6,9 +6,10 @@ owns the machine, bucket, toolbox, access and safe lifetime. The external repo
 owns project dependencies, data content, ML scripts and results.
 
 Shared foundation 2.0.0 is implemented and checked offline. AWS workspace code
-is implemented on the task branch and the fresh persistent foundation is deployed,
-but end-to-end acceptance is incomplete. Native launches and automatic expiry
-were verified; terminal, clone and S3 result acceptance remain pending. Google Cloud and Azure workspace
+is merged and the fresh persistent foundation is deployed. A bounded private
+SSH/Make job, versioned S3 verification and compute teardown passed native
+acceptance in PR24. Generic onboarding, dataset ingestion and interactive terminal
+acceptance remain pending. Google Cloud and Azure workspace
 implementation remain pending. Historical batch workflows are retained as
 reference and compatibility evidence.
 
@@ -19,7 +20,10 @@ reference and compatibility evidence.
 | [Shared foundation](workspace/05_FOUNDATION_AND_HANDOFF.md) | Versioned interface, bounded example, ownership and independent task prompts | Offline complete |
 | [Scope and cleanup](workspace/00_SCOPE_AND_CLEANUP.md) | Reconcile state and remove obsolete demo/application scope | Reviewed prior AWS test resources removed; IAM, alerts and evidence retained |
 | [Toolbox contract](workspace/01_TOOLBOX_CONTRACT.md) | Clone-ready workspace, native storage, bounded lifetime and a small deterministic example | Shared implementation; provider acceptance pending |
-| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Source implemented; persistent foundation deployed; live acceptance incomplete |
+| [AWS](workspace/02_AWS.md) | EC2 toolbox, S3 and Session Manager | Bounded unattended job accepted; generic and interactive acceptance pending |
+| [AWS controller configuration](../docs/operations/aws-project-configuration.md) | Short inputs, resolved intent and local operation records | Implemented in the consolidated deployer; generic native acceptance pending |
+| [AWS workstation setup](../docs/operations/aws-workstation-setup.md) | Pinned operator installation, managed runtime and assisted login | Pinned installer and assisted login implemented; clean-host macOS/arm64 and generic onboarding acceptance pending |
+| [AWS automation](workspace/07_AWS_AUTOMATION.md) | Pinned tools, project configuration, onboarding, ingestion and reviewed Deploy | Implemented offline; generic native acceptance and release publication pending; [handoff](workspace/08_AWS_AUTOMATION_HANDOFF.md) |
 | [Google Cloud](workspace/03_GCP.md) | Compute Engine toolbox, GCS and reviewed IAP/OS Login | Planned |
 | [Azure](workspace/04_AZURE.md) | Linux VM toolbox, Blob and reviewed interactive access | Planned |
 
