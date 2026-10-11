@@ -1,3 +1,7 @@
+variable "availability_zone" {
+  type    = string
+  default = "us-east-1a"
+}
 variable "aws_account_id" { type = string }
 variable "aws_region" { type = string }
 variable "resource_prefix" { type = string }
@@ -43,8 +47,8 @@ variable "instance_type" {
   type    = string
   default = "r8i.2xlarge"
   validation {
-    condition     = var.instance_type == "r8i.2xlarge"
-    error_message = "This accepted source profile pins r8i.2xlarge; another target/SKU needs capacity and source review."
+    condition     = contains(keys(jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes), var.instance_type)
+    error_message = "Select a discovered SKU from the supported cpu-python-v1 catalog."
   }
 }
 variable "ami_id" {
@@ -76,10 +80,10 @@ resource "terraform_data" "lease" {
   input = { lease = var.lease, request_sha256 = sha256("${jsonencode(var.workspace_identity.request)}\n") }
   lifecycle {
     precondition {
-      condition = (var.workspace_identity != null && var.workspace_identity.request.resources.cpus <= 8 &&
-        var.workspace_identity.request.resources.memory_mb <= 60000 && var.workspace_identity.request.resources.disk_gb <= 25
+      condition = (var.workspace_identity != null && var.workspace_identity.request.resources.cpus <= jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes[var.instance_type].cpus &&
+        var.workspace_identity.request.resources.memory_mb <= jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes[var.instance_type].memory_mb && var.workspace_identity.request.resources.disk_gb <= 25
       )
-      error_message = "Request exceeds reviewed usable-capacity ceilings (8 CPUs, 60000 MiB RAM, 25 GiB disk)."
+      error_message = "Request exceeds the selected supported SKU usable capacity."
     }
     precondition {
       condition = (timecmp(var.lease.expires_at, timeadd(var.lease.starts_at, "${var.workspace_identity.request.maximum_runtime_minutes}m")) <= 0 &&

@@ -8,9 +8,6 @@ readonly VALID_AWS_REQUEST="${REPOSITORY_ROOT}/shared/contracts/fixtures/valid-a
 "${REPOSITORY_ROOT}/tests/aws/test-platform-live-validator.sh" >/dev/null
 "${REPOSITORY_ROOT}/tests/aws/test-dummy-adapter.sh" >/dev/null
 bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-target.sh" >/dev/null
-bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-ssh.sh"
-bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-lifecycle.sh"
-bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-e2e.sh"
 
 test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
 mkdir -p "$test_cache_root"

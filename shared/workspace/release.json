@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "version": "0.1.0-rc.1",
+  "provider": "aws",
+  "supported_hosts": ["linux-x86_64", "linux-aarch64", "darwin-x86_64", "darwin-aarch64"],
+  "native_acceptance": "pending"
+}

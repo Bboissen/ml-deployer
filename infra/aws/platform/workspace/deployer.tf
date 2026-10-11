@@ -36,10 +36,10 @@ data "aws_iam_policy_document" "deployer" {
   dynamic "statement" {
     for_each = local.workspace_guards
     content {
-      sid       = "ManageReviewedNamedOperatorWorkspaceGrant"
-      effect    = "Allow"
-      actions   = ["iam:PutUserPolicy", "iam:DeleteUserPolicy", "iam:GetUserPolicy", "iam:ListUserTags"]
-      resources = ["arn:aws:iam::${var.aws_account_id}:user/sposhfi-admin"]
+      sid       = "DenyReviewedOperatorPolicyMutation"
+      effect    = "Deny"
+      actions   = ["iam:*"]
+      resources = var.deployer_principal_arns
     }
   }
   dynamic "statement" {

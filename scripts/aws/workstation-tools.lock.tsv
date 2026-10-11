@@ -1,0 +1,25 @@
+# platform	tool	version	url	sha256
+linux-x86_64	uv	0.12.23	https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz	9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6
+linux-x86_64	python	3.13.16	https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz	24801ea31c7d406d559a17e2226325c723d50c56900b9c0da7b62adaae2affc9
+linux-x86_64	tofu	1.12.3	https://github.com/opentofu/opentofu/releases/download/v1.12.3/tofu_1.12.3_linux_amd64.zip	46b48c3438c65cf479fc076c9281422ffa2f493548d1e813d154c835c5986a08
+linux-x86_64	aws	2.36.14	https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.36.14.zip	43b34875482244039716cc3725d1f60e7d47ef3cfb2a19e114759a46db24dc30
+linux-x86_64	ssm	1.2.835.0	https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.835.0/ubuntu_64bit/session-manager-plugin.deb	7c6dcad12518571cc7959a713e6a8ae1bdf6ed66fd9bee37dc189e39ca58ae03
+linux-x86_64	gh	2.102.0	https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz	bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+linux-aarch64	uv	0.12.23	https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-unknown-linux-gnu.tar.gz	6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f
+linux-aarch64	python	3.13.16	https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz	52c6993abd6ac687cceb787ecee83b166271bc06ad80ac9cac82c5d28d3c00bc
+linux-aarch64	tofu	1.12.3	https://github.com/opentofu/opentofu/releases/download/v1.12.3/tofu_1.12.3_linux_arm64.zip	b2110d1ce46e366ce861b7f53d293dad99080075629aed7fb50d7328916d91c2
+linux-aarch64	aws	2.36.14	https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.36.14.zip	61e2fb72b36dc0ad98912b3a7b7469c886b90ea703f1096428a152ab09babd8a
+linux-aarch64	ssm	1.2.835.0	https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.835.0/ubuntu_arm64/session-manager-plugin.deb	0add94c4c8b6ca63f26e44fd655d662b0f6455a268b5b9ebebee0f462214e928
+linux-aarch64	gh	2.102.0	https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_arm64.tar.gz	7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484
+darwin-x86_64	uv	0.12.23	https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-apple-darwin.tar.gz	960da44cb4b73685206ddd250b19e0a117fa41095710c1038f081f5cb613efb4
+darwin-x86_64	python	3.13.16	https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-x86_64-apple-darwin-install_only_stripped.tar.gz	bd085c51e960f00ee33b630e2b13ac90fe90cdc3da25a0f0bc0719b1294920bf
+darwin-x86_64	tofu	1.12.3	https://github.com/opentofu/opentofu/releases/download/v1.12.3/tofu_1.12.3_darwin_amd64.zip	0898350dcc5b2ae31ad104cf4882228d08f858ba28f4e8bea693b51d1b267c57
+darwin-x86_64	aws	2.36.14	https://awscli.amazonaws.com/AWSCLIV2-2.36.14.pkg	dc85003087a3d60299bdd3992bf6ff322c7f53a209a575d4906c1aa57f4cfaf6
+darwin-x86_64	ssm	1.2.835.0	https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.835.0/mac/sessionmanager-bundle.zip	03be79726bbf30ad2a26177d6531636ab6a42f574e0e3326dfb146585cedf260
+darwin-x86_64	gh	2.102.0	https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_macOS_amd64.zip	b245f24eb2bf5f75b426b4c26da3651a107f8d5b6f4fddfbfccc5679041378b3
+darwin-aarch64	uv	0.12.23	https://github.com/astral-sh/uv/releases/download/0.12.23/uv-aarch64-apple-darwin.tar.gz	50487ae565ccd96e499056b4674d438f4c53170202617b4c759defe0c6a1b544
+darwin-aarch64	python	3.13.16	https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-aarch64-apple-darwin-install_only_stripped.tar.gz	11785155d0f70e634178219c20925d8f20be00a3da4684fc4f5019dd15602ef7
+darwin-aarch64	tofu	1.12.3	https://github.com/opentofu/opentofu/releases/download/v1.12.3/tofu_1.12.3_darwin_arm64.zip	2b81c065cdcf5e573cfb5d9e0c663ac4cfc32512927078b645b58ef81cec2474
+darwin-aarch64	aws	2.36.14	https://awscli.amazonaws.com/AWSCLIV2-2.36.14.pkg	dc85003087a3d60299bdd3992bf6ff322c7f53a209a575d4906c1aa57f4cfaf6
+darwin-aarch64	ssm	1.2.835.0	https://s3.amazonaws.com/session-manager-downloads/plugin/1.2.835.0/mac_arm64/sessionmanager-bundle.zip	7287f20d41eef91643b72dcf28b5f135de49090dd297216a408dc18729e70272
+darwin-aarch64	gh	2.102.0	https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_macOS_arm64.zip	da922c20d1792e5b2cbf375593d7a658acf034c12c84e007e71c76ef959c337e

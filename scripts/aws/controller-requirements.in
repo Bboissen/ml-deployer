@@ -1,0 +1,4 @@
+# Match the reviewed native engine SDK; validation belongs in the controller.
+boto3[crt]==1.43.109
+botocore==1.43.109
+jsonschema==4.25.1
