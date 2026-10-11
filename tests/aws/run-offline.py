@@ -17,6 +17,7 @@ DEFAULT_TESTS = [
     'tests/aws/test-workstation-setup.py',
     'tests/aws/test-workspace-config.py',
     'tests/aws/test-workspace-onboarding.py',
+    'tests/aws/test-workspace-access-recovery.py',
     'tests/aws/test-workspace-ingest.py',
     'tests/aws/test-workspace-generic-job.py',
     'tests/aws/test-workspace-deploy.py',

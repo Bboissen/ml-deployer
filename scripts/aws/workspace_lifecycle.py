@@ -839,9 +839,13 @@ def reviewed_platform_plan(preparation):
         require(len(projects)<=1,'credential dependency must select at most one project')
         allowed={'aws_iam_role_policy.deployer'} | {
             'aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']' for project in projects}
-        require(review['stage']=='workspace-access' and access_scope==review['scope'] and access_scope and
+        recovery=review.get('recovery')
+        require(review['stage']=='workspace-access' and access_scope==review['scope'] and (access_scope or recovery) and
                 all(s['address'] in allowed and s['actions']==['update'] for s in access_scope),
                 'platform dependency is not a closed credential access plan')
+        if recovery:
+            require(plan_scope(plan,'workspace-access',recovery)==access_scope,
+                    'recovered access dependency exceeds its original policy changes')
         newer=config; edge=review['dependencies']
     raise Failure('platform evidence dependency bound exhausted')
 
@@ -1078,10 +1082,48 @@ def runner_provider_scope(plan):
         require(resource['provider_config_key']==expected, 'operator grant and runner provider identities must remain separate')
 
 
+def verify_access_policies(plan, base, client):
+    """A saved plan must not overwrite IAM changes absent from backend state."""
+    iam=client(base,'iam')
+    for item in plan.get('resource_changes',[]):
+        address=item['address']
+        if item.get('mode')!='managed' or item['change']['actions'] not in (['update'],['no-op']): continue
+        before=item['change']['before']
+        if address=='aws_iam_role_policy.deployer':
+            observed=iam.get_role_policy(RoleName=before['role'],PolicyName=before['name'])
+            require(observed['RoleName']==before['role'] and observed['PolicyName']==before['name'],
+                    'live access policy identity differs')
+            policy=observed['PolicyDocument']
+        elif address.startswith('aws_iam_policy.project_workspace_boundary['):
+            observed=iam.get_policy(PolicyArn=before['arn'])['Policy']
+            require(observed['Arn']==before['arn'], 'live access boundary identity differs')
+            version=iam.get_policy_version(PolicyArn=before['arn'],VersionId=observed['DefaultVersionId'])['PolicyVersion']
+            require(version['IsDefaultVersion'], 'live access boundary default version changed')
+            policy=version['Document']
+        else: continue
+        require(policy==json.loads(before['policy']), 'live access policy changed after planning; replan and review')
+
+
 def plan_scope(plan, stage, recovery=None):
     mutations=[]
     for item in plan.get('resource_changes',[]):
         actions=item['change']['actions']; address=item['address']
+        if stage=='workspace-access' and recovery:
+            changes=recovery['access_changes']
+            if address in changes:
+                require(actions in (['update'],['no-op']) and
+                        json.loads(item['change']['after']['policy'])==changes[address]['after'],
+                        'access recovery must finish the exact original policy update')
+            if actions==['update']:
+                require(address in changes and item.get('mode')=='managed' and
+                        json.loads(item['change']['before']['policy']) in
+                        (changes[address]['before'],changes[address]['after']) and
+                        {k:v for k,v in item['change']['before'].items() if k!='policy'}==
+                        {k:v for k,v in item['change']['after'].items() if k!='policy'},
+                        'access recovery changes unreviewed policy or resource attributes')
+                mutations.append({'address':address,'actions':actions})
+                continue
+            require(actions in (['no-op'],['read']), 'access recovery cannot create or delete resources')
         if actions in (['no-op'],['read']): continue
         require(item.get('mode')=='managed','unexpected mutation')
         if stage=='workspace-access':
@@ -1147,13 +1189,71 @@ def plan_scope(plan, stage, recovery=None):
         else:
             require(item['type'] in ('terraform_data','aws_iam_role','aws_iam_role_policy','aws_iam_role_policy_attachment','aws_iam_instance_profile','aws_iam_user_policy','aws_ssm_document','aws_scheduler_schedule') and actions==['delete'],'cleanup cannot delete storage, guard or compute')
         mutations.append({'address':address,'actions':actions})
+    if stage=='workspace-access' and recovery:
+        require(recovery['access_changes'].keys()<={r['address'] for r in plan.get('resource_changes',[])},
+                'access recovery plan omitted original policy resources')
     require(mutations or recovery,'empty plan has no mutation scope')
     return mutations
+
+def recovery_state(base, client, target, state):
+    require(state['version'], 'recovery requires a retained state version')
+    response=client(base,'s3').get_object(Bucket=target['backend']['bucket'],Key=state['key'],
+        VersionId=state['version'],ExpectedBucketOwner=target['account_id'])
+    try: raw=response['Body'].read(2*1024*1024+1)
+    finally: response['Body'].close()
+    require(len(raw)<=2*1024*1024 and sha(raw)==state['sha256'], 'recovery state version changed')
+    return json.loads(raw)
+
+
+def access_recovery_changes(plan, review, current, state, target, base, client):
+    """Prove a targeted IAM apply preserved the complete retained foundation."""
+    original=review['state']
+    require(original['lineage'] and current['lineage']==original['lineage']==state['lineage'] and
+            current['serial']==state['serial'] and state['serial']>=original['serial'],
+            'access recovery state lineage/serial differs')
+    before=recovery_state(base,client,target,original)
+    require(before['lineage']==original['lineage'] and before['serial']==original['serial'],
+            'access recovery baseline metadata differs')
+    require(plan_scope(plan,'workspace-access',review.get('recovery'))==review['scope'],
+            'original access recovery scope differs')
+    changes=(review.get('recovery') or {}).get('access_changes')
+    if changes is None:
+        changes={r['address']:{side:json.loads(r['change'][side]['policy']) for side in ('before','after')}
+                 for r in plan['resource_changes'] if r['change']['actions']==['update']}
+    require(changes, 'access recovery has no original reviewed policy changes')
+
+    def resources(value):
+        result={}
+        for resource in value['resources']:
+            if resource['mode']!='managed': continue
+            require(not resource.get('module'), 'nested recovery state rejected')
+            for instance in resource['instances']:
+                index=instance.get('index_key')
+                address=resource['type']+'.'+resource['name']+('['+json.dumps(index)+']' if index is not None else '')
+                require(address not in result and not instance.get('deposed') and instance.get('status')!='tainted',
+                        'duplicate, replaced or tainted access recovery resource')
+                result[address]=instance['attributes']
+        return result
+
+    baseline,retained=resources(before),resources(current)
+    require(baseline.keys()==retained.keys() and changes.keys()<=baseline.keys(),
+            'access recovery changed retained resource ownership')
+    for address,attributes in retained.items():
+        previous=baseline[address]
+        if address in changes:
+            for candidate in (previous,attributes):
+                require(json.loads(candidate['policy']) in (changes[address]['before'],changes[address]['after']),
+                        'access recovery contains an unreviewed policy')
+            attributes={k:v for k,v in attributes.items() if k!='policy'}
+            previous={k:v for k,v in previous.items() if k!='policy'}
+        require(attributes==previous, 'access recovery changed retained resource attributes: '+address)
+    return sorted(retained),changes
+
 
 def recovery_context(directory, target_name, stage, config, target, state, base, client):
     directory=checked_path(directory)
     m=read(directory/'review.json'); authorization=read(directory/'authorization.json'); started=read(directory/'apply-started.json')
-    require(stage in ('fresh-platform','prepare','cleanup') and m['stage'] in ({'launch','prepare'} if stage=='cleanup' else {stage}) and m['target_name']==target_name and m['target']==target,
+    require(stage in ('fresh-platform','workspace-access','prepare','cleanup') and m['stage'] in ({'launch','prepare'} if stage=='cleanup' else {stage}) and m['target_name']==target_name and m['target']==target,
             'recovery target/root/stage differs')
     require(m['root']==str(stage_root(stage)) and prior_source(m['source']) and
             authorization['review_sha256']==started['review_sha256']==sha(canon(m)) and
@@ -1163,7 +1263,7 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
             sha((directory/'plan.json').read_bytes())==m['plan_json_sha256'], 'recovery plan/authorization/source drift')
     previous=read(directory/'config.tfvars.json')
     require(sha(canon(previous))==m['config_sha256'], 'recovery config drift')
-    if stage=='fresh-platform':
+    if stage in ('fresh-platform','workspace-access'):
         require(previous==config,'foundation recovery requires its exact original configuration')
         expected={r['address'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}
     else:
@@ -1177,12 +1277,13 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
                 'recovery reference contains unexpected controls/compute')
     require(state['version'] and state['key']==m['backend']['key'] and
             (m['state']['lineage'] is None or state['lineage']==m['state']['lineage']), 'recovery state lineage/key differs')
-    response=client(base,'s3').get_object(Bucket=target['backend']['bucket'], Key=state['key'],
-        VersionId=state['version'], ExpectedBucketOwner=target['account_id'])
-    try: raw=response['Body'].read(2*1024*1024+1)
-    finally: response['Body'].close()
-    require(sha(raw)==state['sha256'], 'recovery state version changed')
-    current=json.loads(raw); owned=set()
+    current=recovery_state(base,client,target,state); owned=set()
+    result={'directory':str(directory),'review_sha256':sha(canon(m)), 'authorization_sha256':sha(canon(authorization)),
+            'started_sha256':sha(canon(started)), 'state':state}
+    if stage=='workspace-access':
+        owned,changes=access_recovery_changes(read(directory/'plan.json'),m,current,state,target,base,client)
+        platform_compute_absent(base,client,config)
+        return {**result,'owned':owned,'expected':owned,'access_changes':changes}
     planned={r['address']:r['values'] for r in read(directory/'plan.json')['planned_values']['root_module']['resources'] if r.get('mode')=='managed'}
     for resource in current['resources']:
         if resource['mode']!='managed': continue
@@ -1198,8 +1299,7 @@ def recovery_context(directory, target_name, stage, config, target, state, base,
             owned.add(address)
     require(owned, 'recovery state contains no verified owned resources')
     platform_compute_absent(base,client,config)
-    return {'directory':str(directory),'review_sha256':sha(canon(m)), 'authorization_sha256':sha(canon(authorization)),
-            'started_sha256':sha(canon(started)), 'owned':sorted(owned), 'expected':sorted(expected), 'state':state}
+    return {**result,'owned':sorted(owned),'expected':sorted(expected)}
 
 def context(target_name, stage, config):
     ts=boundary['targets'](); require(target_name in ts,'unknown target')
@@ -1280,8 +1380,9 @@ def credential_plan_target(config):
     require(project in config['ml_projects'],'credential project must exist in the retained foundation')
     return '-target=aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']'
 
-def native_plan(target_name,stage,config_path,directory,dependency=None,recover_from=None):
+def native_plan(target_name,stage,config_path,directory,dependency=None,recover_from=None,deployer_only=False):
     directory=checked_path(directory); require(not directory.exists(),'plan directory already exists')
+    require(not deployer_only or stage=='workspace-access','deployer-only targeting requires an access plan')
     config=read(config_path)
     if stage=='fresh-platform':foundation['config'](config,foundation['target'](boundary['targets']()[target_name]))
     dependencies=[]
@@ -1354,7 +1455,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     # Limit access changes to the selected boundary and the exact additional
     # job-document resource in the deployer grant. The policy scope stays closed.
     if stage=='workspace-access':
-        if config.get('workspace_git_secret_arns'): command.append(credential_plan_target(config))
+        if config.get('workspace_git_secret_arns') and not deployer_only: command.append(credential_plan_target(config))
         command.append('-target=aws_iam_role_policy.deployer')
     # Native readbacks above and below verify preparation independently. Avoid
     # asking the restricted launch identity to refresh unrelated control-plane
@@ -1457,6 +1558,7 @@ def apply(directory):
             owned=read(Path(m['dependencies'][0]['directory'])/'launched-owned.json')
             require(owned['lease_id']==config['lease']['id'],'launch ownership lease mismatch')
         write(directory/'retired-owned.json',owned)
+    if m['stage']=='workspace-access': verify_access_policies(plan,base,client)
     write(directory/'apply-started.json',{'review_sha256':authorization['review_sha256'],'started_at':stamp()})
     # Never replan, autoapprove a fresh plan, destroy directly, or replay after
     # interruption. Raw provider diagnostics stay out of terminal/chat logs.

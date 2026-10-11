@@ -106,13 +106,15 @@ def prepare(W,config,directory=None):
     provisional=O.target(deployment,deployment['operator_arn']); base,client,_=L['sessions'](provisional)
     operator=O.canonical_operator(L,{'Account':deployment['account_id'],'Arn':deployment['operator_arn']},client(base,'iam'))
     selected=O.target(deployment,operator)
-    capacity=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'))
+    registry=L['REPO']/'evidence/aws/projects'/deployment['names']['resource_prefix']
+    retained=L['read'](registry/'foundation.json') if (registry/'foundation.json').exists() else None
+    platform=O.verify_retained(L,retained,selected) if retained else None
+    migration=O.iam_migration(L,retained,selected) if retained else None
+    capacity=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'),
+                        availability_zone=platform['availability_zone'] if platform else None)
     adapter=I.source_adapter({**deployment['dataset'],'maximum_bytes':project['dataset'].get('maximum_bytes',640*1024**3)},client(base,'s3'),project['region'])
     records=adapter.inventory(time.monotonic()+3600); total=sum(r['bytes'] for r in records)
     L['require'](total<=project['dataset'].get('maximum_bytes',total),'dataset exceeds configured transfer ceiling')
-    registry=L['REPO']/'evidence/aws/projects'/deployment['names']['resource_prefix']
-    retained=L['read'](registry/'foundation.json') if (registry/'foundation.json').exists() else None
-    if retained: O.verify_retained(L,retained,selected)
     reference_path=registry/(deployment['names']['workspace_id']+'-repository.json')
     reference=L['read'](reference_path) if reference_path.exists() else None
     if reference: L['require'](reference['url']==deployment['repository']['url'],'retained repository differs; review rotation separately')
@@ -120,7 +122,7 @@ def prepare(W,config,directory=None):
         'configuration_sha256':L['sha'](L['canon'](project)),'deployment_sha256':L['sha'](L['canon'](deployment)),
         'target':selected,'capacity':capacity,'repository':deployment['repository'],
         'dataset':{'inventory':records,'total_bytes':total,'source':deployment['dataset']},
-        'foundation':retained,'registry_directory':str(registry),'repository_reference':reference,
+        'foundation':retained,'foundation_iam_migration':migration,'registry_directory':str(registry),'repository_reference':reference,
         'retained_resources':['encrypted versioned state bucket','encrypted versioned workload bucket','no-ingress VPC/subnet/IGW',
             'deployer/project boundaries','provider watchdog/schedules/alarms/queue/logs','encrypted SNS topic/customer-managed rotating KMS key'],
         'new_private_access':deployment['repository']['url'].startswith('git@') and not reference,
@@ -218,6 +220,15 @@ def execute(W,config,directory,scope,task,resume=False):
                 return O.provision(L,name,packet,authorization,scope['foundation'])
             binding=journal.stage('foundation',foundation,foundation)
             atomic(L,registry/'foundation.json',binding)
+            if 'foundation_iam_migration' not in scope:
+                L['require'](not O.iam_migration(L,binding,selected)['required'],
+                             'retained IAM migration is outside this authorization; prepare a new deploy review')
+            migration=scope.get('foundation_iam_migration')
+            if migration and migration['required']:
+                def migrate():
+                    return O.migrate_iam(L,name,binding,selected,migration,directory/'foundation-iam',authorization)
+                binding=journal.stage('foundation-iam',migrate,migrate)
+                atomic(L,registry/'foundation.json',binding)
             def repository():
                 reference=scope['repository_reference']
                 if reference: return reference['credential']
@@ -266,7 +277,8 @@ def execute(W,config,directory,scope,task,resume=False):
             if not job:
                 job=E.payload(value,selected,directory.name); job['mode']=project['mode']; L['write'](directory/'job.json',job)
             L['require'](len(base64.b64encode(L['canon'](job)))<=16384,'job arguments exceed reviewed SSM document bound')
-            current=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'))
+            current=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'),
+                               availability_zone=runner['availability_zone'])
             L['require'](any(c['instance_type']==runner['instance_type'] and c['hourly_usd']<=scope['capacity']['selected']['hourly_usd'] for c in current['candidates']),
                          'selected capacity/price no longer fits reviewed scope')
             def applied(stage,dep=None):
@@ -303,7 +315,7 @@ def execute(W,config,directory,scope,task,resume=False):
                         result['status']='success'
                     if (control/'prepare/apply-started.json').exists() and result['cleanup_status']=='success': active.unlink()
                     elif not (control/'prepare/apply-started.json').exists():
-                        uncertain_access=any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown') for stage in ('repository','access'))
+                        uncertain_access=any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown') for stage in ('foundation-iam','repository','access'))
                         completed=journal.latest('foundation') and journal.latest('foundation')['state']=='completed'
                         uncertain_foundation=not completed and any(p.name=='apply-started.json' and not (p.parent/'apply-result.json').exists() for p in (directory/'foundation').rglob('apply-started.json'))
                         if not uncertain_access and not uncertain_foundation: active.unlink()

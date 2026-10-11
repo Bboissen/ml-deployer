@@ -672,6 +672,103 @@ class Boundary(unittest.TestCase):
             with self.assertRaises(LIFE['Failure']): LIFE['apply'](directory)
         self.assertEqual(called,[]); self.assertFalse((directory/'apply-started.json').exists())
 
+class AccessRecovery(unittest.TestCase):
+    def setUp(self):
+        self.directory=OUT/self.id().rsplit('.',1)[1]; self.directory.mkdir()
+        self.principal='arn:aws:iam::000000000000:user/operator'
+        self.address='aws_iam_role_policy.deployer'
+        document={'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:GetDocument'],
+                  'Resource':'arn:aws:ssm:us-east-1:000000000000:document/owned-terminal'}
+        self.before={'Version':'2012-10-17','Statement':[document,
+            {'Sid':'ManageReviewedNamedOperatorWorkspaceGrant','Effect':'Allow',
+             'Action':['iam:PutUserPolicy','iam:DeleteUserPolicy','iam:GetUserPolicy','iam:ListUserTags'],'Resource':self.principal}]}
+        self.after={'Version':'2012-10-17','Statement':[document,
+            {'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':['iam:*'],'Resource':[self.principal]}]}
+        self.config={'deployer_principal_arns':[self.principal],'workspace_git_secret_arns':{}}
+        self.target={'account_id':'000000000000','backend':{'bucket':'owned-state'}}
+        attributes={'id':'deployer:deployer','name':'deployer','role':'deployer','policy':json.dumps(self.before)}
+        self.plan={'variables':{k:{'value':v} for k,v in self.config.items()},
+            'resource_changes':[{'address':self.address,'mode':'managed','change':{'actions':['update'],
+                'before':attributes,'after':{**attributes,'policy':json.dumps(self.after)}}}],
+            'planned_values':{'root_module':{'resources':[{'address':self.address,'mode':'managed',
+                'values':{**attributes,'policy':json.dumps(self.after)}}]}}}
+        self.baseline={'lineage':'owned-lineage','serial':7,'resources':[
+            {'mode':'managed','type':'aws_iam_role_policy','name':'deployer','instances':[{'attributes':attributes}]},
+            {'mode':'managed','type':'aws_s3_bucket','name':'project','instances':[{'index_key':'demo',
+                'attributes':{'id':'owned-workload','bucket':'owned-workload'}}]}]}
+        self.current=copy.deepcopy(self.baseline); self.current['serial']=8
+        self.baseline_raw=LIFE['canon'](self.baseline)
+        self.original={'key':'platform.tfstate','version':'before','lineage':'owned-lineage','serial':7,
+                       'sha256':LIFE['sha'](self.baseline_raw)}
+        LIFE['write'](self.directory/'plan.json',self.plan); LIFE['write'](self.directory/'config.tfvars.json',self.config)
+        (self.directory/'saved.tfplan').write_bytes(b'original access plan')
+        self.review={'stage':'workspace-access','target_name':'offline','target':self.target,'source':LIFE['source'](),
+            'root':str(LIFE['stage_root']('workspace-access')),'backend':{'key':'platform.tfstate'},'state':self.original,
+            'config_sha256':LIFE['sha'](LIFE['canon'](self.config)),'scope':LIFE['plan_scope'](self.plan,'workspace-access'),
+            'plan_sha256':LIFE['sha'](b'original access plan'),
+            'plan_json_sha256':LIFE['sha']((self.directory/'plan.json').read_bytes())}
+        LIFE['write'](self.directory/'review.json',self.review)
+        digest=LIFE['sha'](LIFE['canon'](self.review))
+        LIFE['authorize'](self.directory,digest,'Authorized exact offline IAM migration')
+        LIFE['write'](self.directory/'apply-started.json',{'review_sha256':digest})
+    def recover(self):
+        raw=LIFE['canon'](self.current)
+        state={**self.original,'version':'after','serial':self.current['serial'],'lineage':self.current['lineage'],
+               'sha256':LIFE['sha'](raw)}
+        api=types.SimpleNamespace(get_object=lambda **kw:{'Body':io.BytesIO(self.baseline_raw if kw['VersionId']=='before' else raw)})
+        with patch.dict(LIFE,{'platform_compute_absent':lambda *_:None}):
+            return LIFE['recovery_context'](self.directory,'offline','workspace-access',self.config,self.target,
+                                            state,None,lambda *_:api)
+    def completed_plan(self):
+        plan=copy.deepcopy(self.plan); change=plan['resource_changes'][0]['change']
+        change['actions']=['no-op']; change['before']=copy.deepcopy(change['after'])
+        return plan
+    def test_targeted_recovery_preserves_full_foundation_and_finishes_only_original_policy(self):
+        recovery=self.recover()
+        self.assertEqual(recovery['owned'],[self.address,'aws_s3_bucket.project["demo"]'])
+        self.assertEqual(LIFE['plan_scope'](self.plan,'workspace-access',recovery),self.review['scope'])
+        self.current['resources'][0]['instances'][0]['attributes']['policy']=json.dumps(self.after)
+        recovery=self.recover()
+        self.assertEqual(LIFE['plan_scope'](self.completed_plan(),'workspace-access',recovery),[])
+    def test_access_recovery_rejects_unrelated_state_or_ownership_changes(self):
+        original=copy.deepcopy(self.current)
+        for mutate in (
+            lambda s:s['resources'].pop(),
+            lambda s:s['resources'].append(copy.deepcopy(s['resources'][1])),
+            lambda s:s['resources'][1]['instances'][0]['attributes'].update(bucket='foreign'),
+            lambda s:s['resources'][0]['instances'][0]['attributes'].update(role='foreign'),
+            lambda s:s['resources'][0]['instances'][0].update(status='tainted'),
+            lambda s:s.update(lineage='foreign'),lambda s:s.update(serial=6)):
+            self.current=copy.deepcopy(original); mutate(self.current)
+            with self.subTest(state=self.current), self.assertRaises(LIFE['Failure']): self.recover()
+    def test_access_recovery_rejects_foreign_policy_and_changed_original_state_version(self):
+        self.current['resources'][0]['instances'][0]['attributes']['policy']='{"Statement":[]}'
+        with self.assertRaisesRegex(LIFE['Failure'],'unreviewed policy'):self.recover()
+        self.current=copy.deepcopy(self.baseline)
+        self.baseline_raw+=b' '
+        with self.assertRaisesRegex(LIFE['Failure'],'state version changed'):self.recover()
+    def test_recovered_plan_cannot_expand_or_omit_reviewed_changes(self):
+        recovery=self.recover()
+        for mutate in (
+            lambda p:p['resource_changes'][0].update(address='aws_iam_role_policy.foreign'),
+            lambda p:p['resource_changes'][0]['change'].update(actions=['delete','create']),
+            lambda p:p['resource_changes'][0]['change']['after'].update(policy='{"Statement":[]}'),
+            lambda p:p['resource_changes'][0]['change']['after'].update(role='foreign'),
+            lambda p:p.update(resource_changes=[])):
+            plan=copy.deepcopy(self.plan); mutate(plan)
+            with self.subTest(plan=plan),self.assertRaises(LIFE['Failure']): LIFE['plan_scope'](plan,'workspace-access',recovery)
+    def test_successful_noop_recovery_retains_full_platform_ancestry(self):
+        preparation,folder=Boundary().platform_chain()
+        directory=folder/'access-two'; plan=self.completed_plan()
+        (directory/'plan.json').write_bytes(LIFE['canon'](plan))
+        review=LIFE['read'](directory/'review.json')
+        review.update(scope=[],recovery=self.recover(),plan_json_sha256=LIFE['sha']((directory/'plan.json').read_bytes()))
+        (directory/'review.json').write_bytes(LIFE['canon'](review))
+        preparation['dependencies'][0]['review_sha256']=LIFE['sha'](LIFE['canon'](review))
+        full,bindings=LIFE['reviewed_platform_plan'](preparation)
+        self.assertEqual(full['planned_values']['root_module']['resources'],[{'address':'retained-platform'}])
+        self.assertEqual(len(bindings),3)
+
 class Foundation(unittest.TestCase):
     F=LIFE['foundation']
     def test_guard_default_environment_decryption_keeps_termination_scope(self):

@@ -19,6 +19,106 @@ def module(name):
 W=module('workspace.py'); O=module('workspace-onboarding.py'); R=module('workspace_ram.py'); L=W.L
 
 class Onboarding(unittest.TestCase):
+    def test_iam_migration_reviews_only_exact_operator_tightening(self):
+        operator='arn:aws:iam::111111111111:user/operator'; role='demand-workspace-deployer'
+        target={'operator_arn':operator,'deployment_role_arn':'arn:aws:iam::111111111111:role/'+role}
+        old={'Version':'2012-10-17','Statement':[
+            {'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:GetDocument'],
+             'Resource':['arn:aws:ssm:us-east-1:111111111111:document/demand-terminal']},
+            {'Sid':'ManageReviewedNamedOperatorWorkspaceGrant','Effect':'Allow',
+             'Action':['iam:PutUserPolicy','iam:DeleteUserPolicy','iam:GetUserPolicy','iam:ListUserTags'],'Resource':[operator]}]}
+        observed={'RoleName':role,'PolicyName':role,'PolicyDocument':old}
+        iam=types.SimpleNamespace(get_role_policy=lambda **kwargs:observed)
+        with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+            directory=Path(temporary); L['write'](directory/'config.tfvars.json',{'deployer_principal_arns':[operator]})
+            binding={'plan_directory':str(directory)}
+            with patch.dict(L,{'sessions':lambda _: (None,lambda *args:iam,None)}):
+                review=O.iam_migration(L,binding,target)
+                self.assertTrue(review['required'])
+                self.assertEqual(review['operator_arns'],[operator])
+                self.assertEqual(review['before_policy_sha256'],L['sha'](L['canon'](old)))
+                bad=copy.deepcopy(old); bad['Statement'][-1]['Resource']=['arn:aws:iam::111111111111:user/other']
+                observed['PolicyDocument']=bad
+                with self.assertRaisesRegex(L['Failure'],'unrelated permissions'): O.iam_migration(L,binding,target)
+                new=copy.deepcopy(old); new['Statement'][-1]={'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':'iam:*','Resource':operator}
+                observed['PolicyDocument']=new
+                self.assertFalse(O.iam_migration(L,binding,target)['required'])
+                new['Statement'][-1]['Resource']='arn:aws:iam::111111111111:user/other'
+                with self.assertRaisesRegex(L['Failure'],'separately reviewed'): O.iam_migration(L,binding,target)
+
+    def test_iam_migration_rejects_policy_drift_before_saving_plan(self):
+        target={'operator_arn':'arn:aws:iam::111111111111:user/operator',
+                'deployment_role_arn':'arn:aws:iam::111111111111:role/demand-workspace-deployer'}
+        reviewed={'required':True,'operator_arns':[target['operator_arn']],'role_arn':target['deployment_role_arn'],
+                  'before_policy_sha256':'a'*64}
+        with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+            with patch.object(O,'iam_migration',return_value={**reviewed,'before_policy_sha256':'b'*64}),\
+                 patch.object(O,'apply_access',side_effect=AssertionError('planned unreviewed drift')):
+                with self.assertRaisesRegex(L['Failure'],'changed after review'):
+                    O.migrate_iam(L,'target',{},target,reviewed,Path(temporary)/'migration','approved bounded migration')
+
+    def test_iam_saved_plan_preserves_git_inputs_and_binds_refreshed_before_policy(self):
+        before={'Statement':[{'Sid':'retained'}]}
+        reviewed={'before_policy_sha256':L['sha'](L['canon'](before))}
+        platform={'deployer_principal_arns':['operator'],'workspace_git_secret_arns':{'project':['secret']}}
+        for fault in (None,'policy-drift','boundary-change'):
+            with self.subTest(fault=fault),tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+                root=Path(temporary); folder=root/'foundation-iam'; applies=[]; targeted=[]
+                binding={'plan_directory':str(root/'retained-platform')}
+                def plan(name,stage,inputs,directory,dependency,**options):
+                    targeted.append(options)
+                    self.assertEqual(L['read'](inputs),platform)
+                    self.assertEqual(dependency,binding['plan_directory'])
+                    Path(directory).mkdir()
+                    prior=before if fault!='policy-drift' else {'Statement':[{'Sid':'changed'}]}
+                    changes=[{'mode':'managed','address':'aws_iam_role_policy.deployer',
+                              'change':{'actions':['update'],'before':{'policy':json.dumps(prior)}}}]
+                    if fault=='boundary-change':
+                        changes.append({'mode':'managed','address':'aws_iam_policy.project_workspace_boundary["project"]',
+                                        'change':{'actions':['update']}})
+                    L['write'](Path(directory)/'plan.json',{'resource_changes':changes})
+                    L['write'](Path(directory)/'review.json',{'scope':[{'address':r['address'],'actions':['update']} for r in changes]})
+                def apply(_L,directory,authorization):
+                    applies.append(directory); L['write'](directory/'apply-result.json',{'status':'success'})
+                with patch.dict(L,{'native_plan':plan}),patch.object(O,'bind_plan',side_effect=apply),\
+                     patch.object(O,'capture',return_value={'plan_directory':str(folder)}):
+                    if fault:
+                        with self.assertRaisesRegex(L['Failure'],'saved plan differs'):
+                            O.apply_access(L,'target',binding,platform,folder,'approved bounded migration',iam_review=reviewed)
+                        self.assertEqual(applies,[])
+                    else:
+                        result=O.apply_access(L,'target',binding,platform,folder,'approved bounded migration',iam_review=reviewed)
+                        self.assertEqual(result['plan_directory'],str(folder)); self.assertEqual(applies,[folder])
+                self.assertEqual(targeted,[{'deployer_only':True}])
+
+    def test_access_recovery_uses_new_plans_and_preserves_consumed_attempts(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+            root=Path(temporary); initial=root/'access'; initial.mkdir()
+            L['write'](initial/'apply-started.json',{'review_sha256':'a'*64})
+            binding={'plan_directory':str(root/'original-platform')}; platform={'deployer_principal_arns':['operator']}
+            plans=[]; applies=[]
+            def plan(name,stage,inputs,folder,dependency,recover_from=None):
+                plans.append({'directory':folder,'dependency':dependency,'recover_from':recover_from,'stage':stage})
+                Path(folder).mkdir()
+            def apply(_L,folder,authorization):
+                applies.append(folder); L['write'](folder/'apply-started.json',{'review_sha256':'b'*64})
+                if len(applies)==1: raise TimeoutError('lost recovery response')
+                L['write'](folder/'apply-result.json',{'status':'success'})
+            def capture(_L,name,folder,output):
+                L['write'](output,{'workspace_platform':{}})
+                return {'plan_directory':str(folder),'outputs_file':str(output),'outputs_sha256':L['sha'](output.read_bytes())}
+            with patch.dict(L,{'native_plan':plan}),patch.object(O,'bind_plan',side_effect=apply),patch.object(O,'capture',side_effect=capture):
+                with self.assertRaises(TimeoutError): O.apply_access(L,'target',binding,platform,initial,'approved bounded migration')
+                first=O.recovered_folder(L,root,'access')
+                result=O.apply_access(L,'target',binding,platform,initial,'approved bounded migration')
+                again=O.apply_access(L,'target',binding,platform,initial,'approved bounded migration')
+            self.assertEqual(result,again)
+            self.assertEqual(len(plans),2); self.assertEqual(len(applies),2)
+            self.assertEqual(plans[0]['recover_from'],str(initial)); self.assertEqual(plans[1]['recover_from'],str(first))
+            self.assertTrue(all(p['dependency']==binding['plan_directory'] and p['stage']=='workspace-access' for p in plans))
+            self.assertNotEqual(result['plan_directory'],str(initial))
+            self.assertTrue((initial/'apply-started.json').exists()); self.assertTrue((first/'apply-started.json').exists())
+
     def test_interruption_after_authorization_reuses_exact_plan_binding(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
             directory=Path(temporary); review={'plan_sha256':'a'*64,'scope':[]}
@@ -76,6 +176,15 @@ class Onboarding(unittest.TestCase):
         self.assertEqual(O.capacity(L,None,client,'us-east-1')['selected']['instance_type'],'r8i.8xlarge')
         self.assertEqual(O.capacity(L,None,client,'us-east-1',1)['selected']['instance_type'],'r8i.2xlarge')
         with self.assertRaises(L['Failure']): O.capacity(L,None,client,'us-east-1',0.1)
+        ec2.describe_availability_zones=lambda: {'AvailabilityZones':[{'ZoneName':zone,'State':'available'} for zone in ('us-east-1a','us-east-1b')]}
+        ec2.describe_instance_type_offerings=lambda **_: {'InstanceTypeOfferings':[{'InstanceType':s,'Location':zone} for s in catalog for zone in ('us-east-1a','us-east-1b')]}
+        self.assertEqual(O.capacity(L,None,client,'us-east-1')['selected']['availability_zone'],'us-east-1a')
+        self.assertEqual(O.capacity(L,None,client,'us-east-1',availability_zone='us-east-1b')['selected']['availability_zone'],'us-east-1b')
+        with self.assertRaisesRegex(L['Failure'],'availability zone'):
+            O.capacity(L,None,client,'us-east-1',availability_zone='us-east-1c')
+        ec2.describe_instance_type_offerings=lambda **_: {'InstanceTypeOfferings':[{'InstanceType':s,'Location':'us-east-1a'} for s in catalog]}
+        with self.assertRaisesRegex(L['Failure'],'no supported'):
+            O.capacity(L,None,client,'us-east-1',availability_zone='us-east-1b')
     def test_repeated_pagination_stops(self):
         api=types.SimpleNamespace(list=lambda **_: {'Items':[],'NextToken':'same'})
         with self.assertRaises(L['Failure']): O.pages(L,api,'list','Items')

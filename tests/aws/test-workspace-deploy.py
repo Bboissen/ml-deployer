@@ -68,7 +68,7 @@ class Operations(unittest.TestCase):
         with patch.object(D,'validate_operation',return_value=(self.directory,{},{})),patch.object(D,'execute',return_value=result) as execute:
             self.assertEqual(D.resume({'L':L},'config',self.directory),result)
             execute.assert_called_once()
-    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None):
+    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None,migration=False,migration_failure=False,legacy_scope=False):
         directory=self.directory; calls=[]; project=json.loads((ROOT/'infra/aws/project.example.json').read_text()); project['mode']=mode
         target={'profile':'offline','account_id':'111111111111','region':'us-east-1','operator_arn':'arn:aws:iam::111111111111:user/operator',
             'deployment_role_arn':'arn:aws:iam::111111111111:role/deployer','backend':{},'inventory':{'resource_prefix':self.prefix,'buckets':['workload']}}
@@ -77,12 +77,24 @@ class Operations(unittest.TestCase):
             'dataset':{'adapter':'local','source':'unused'}}
         size={**L['supported_sizes']()['r8i.2xlarge'],'policy':'ram-first','instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1}
         scope={'target':target,'registry_directory':str(registry),'capacity':{'selected':size,'candidates':[size]},'foundation':None,
-            'repository_reference':None,'new_private_access':False,'outputs':{'paths':['outputs'],'maximum_bytes':100},'dataset':{'inventory':[]}}
+            'foundation_iam_migration':None,'repository_reference':None,'new_private_access':False,'outputs':{'paths':['outputs'],'maximum_bytes':100},'dataset':{'inventory':[]}}
+        if legacy_scope: del scope['foundation_iam_migration']
         task={'scope_sha256':'b'*64,'authorization':'authorized bounded mocked operation'}
         if cancelled: L['write'](directory/'cancel.json',{'requested_at':L['stamp']()})
         artifacts={'toolbox_zip_sha256':'c'*64}; binding={'plan_directory':str(directory/'foundation/platform')}
+        migrated={'plan_directory':str(directory/'foundation-iam')}
+        if migration:
+            scope['foundation']=binding
+            scope['foundation_iam_migration']={'required':True,'before_policy_sha256':'e'*64,
+                'role_arn':target['deployment_role_arn'],'operator_arns':[target['operator_arn']]}
+        def migrate(*args):
+            calls.append('iam-migration')
+            self.assertEqual(args[2],binding)
+            self.assertEqual(args[4],scope['foundation_iam_migration'])
+            if migration_failure: raise TimeoutError('uncertain IAM migration')
+            return migrated
         O=types.SimpleNamespace(prepare=lambda *a:calls.append('foundation-inputs'),provision=lambda *a:calls.append('foundation') or binding,
-            capacity=lambda *a,**kw: {'candidates':[size]})
+            capacity=lambda *a,**kw: {'candidates':[size]},migrate_iam=migrate,iam_migration=lambda *a:{'required':True})
         def ingest(*a,**kw):
             calls.append('ingestion')
             if ingest_failure: raise ValueError('failed transfer')
@@ -99,7 +111,7 @@ class Operations(unittest.TestCase):
         L['write'](directory/'project.json',project); L['write'](directory/'deployment.json',deployment)
         def build(*a): calls.append('build'); return artifacts
         def render(value,selected,control,starts):
-            control=Path(control); control.mkdir(); L['write'](control/'runner.json',{'lease':{'starts_at':'2000-01-01T00:00:00Z'},'instance_type':'r8i.2xlarge'})
+            control=Path(control); control.mkdir(); L['write'](control/'runner.json',{'lease':{'starts_at':'2000-01-01T00:00:00Z'},'instance_type':'r8i.2xlarge','availability_zone':size['availability_zone']})
         def apply_stage(_L,name,stage,inputs,folder,auth,dependency=None,recover_from=None):
             calls.append(stage); folder.mkdir(parents=True,exist_ok=True); L['write'](folder/'apply-started.json',{})
             if stage=='launch' and unknown_launch: raise TimeoutError('lost launch response')
@@ -123,6 +135,25 @@ class Operations(unittest.TestCase):
     def test_failed_ingestion_launches_no_compute(self):
         result,calls=self.pipeline(ingest_failure=True)
         self.assertEqual(result['status'],'failure'); self.assertNotIn('launch',calls); self.assertNotIn('job',calls)
+    def test_public_retained_foundation_migrates_before_ingestion_and_updates_binding(self):
+        result,calls=self.pipeline(migration=True)
+        self.assertEqual(result['status'],'success',result)
+        self.assertLess(calls.index('foundation'),calls.index('iam-migration'))
+        self.assertLess(calls.index('iam-migration'),calls.index('ingestion'))
+        updated={'plan_directory':str(self.directory/'foundation-iam')}
+        self.assertEqual(L['read'](self.directory/'registry/foundation.json'),updated)
+        self.assertEqual(L['read'](self.directory/'runtime.json')['foundation'],updated)
+    def test_uncertain_iam_migration_blocks_ingestion_launch_and_retains_operation_ownership(self):
+        result,calls=self.pipeline(migration=True,migration_failure=True)
+        self.assertEqual(result['status'],'failure')
+        self.assertNotIn('ingestion',calls); self.assertNotIn('launch',calls)
+        self.assertEqual(len(list((self.directory/'registry').glob('*-active.json'))),1)
+        self.assertEqual(D.Journal(L,self.directory,'b'*64).latest('foundation-iam')['state'],'unknown')
+    def test_legacy_authorization_requires_new_migration_review_before_ingestion(self):
+        result,calls=self.pipeline(legacy_scope=True)
+        self.assertEqual(result['status'],'failure')
+        self.assertIn('prepare a new deploy review',result['error']['reason'])
+        self.assertNotIn('iam-migration',calls); self.assertNotIn('ingestion',calls); self.assertNotIn('launch',calls)
     def test_uncertain_launch_is_journaled_and_never_retried(self):
         result,calls=self.pipeline(unknown_launch=True)
         self.assertEqual(calls.count('launch'),1); self.assertNotIn('job',calls)

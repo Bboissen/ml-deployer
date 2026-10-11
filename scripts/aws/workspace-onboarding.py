@@ -53,7 +53,7 @@ def pages(L, api, operation, result, **arguments):
     raise ValueError('provider inventory pagination exhausted')
 
 
-def capacity(L, base, client, region, maximum_hourly_usd=None):
+def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone=None):
     catalog = L['supported_sizes'](); ec2 = client(base, 'ec2')
     images = ec2.describe_images(ImageIds=[L['TOOLBOX']['ami_id']], Owners=['137112412989'])['Images']
     L['require'](len(images) == 1 and images[0]['State'] == 'available' and images[0]['Architecture'] == 'x86_64'
@@ -72,6 +72,9 @@ def capacity(L, base, client, region, maximum_hourly_usd=None):
     used = sum(observed[i['InstanceType']]['VCpuInfo']['DefaultVCpus'] for i in instances)
     zones = sorted(z['ZoneName'] for z in ec2.describe_availability_zones()['AvailabilityZones']
                    if z['State'] == 'available' and z.get('OptInStatus') in (None, 'opt-in-not-required', 'opted-in'))
+    if availability_zone:
+        L['require'](availability_zone in zones,'retained foundation availability zone is unavailable')
+        zones=[availability_zone]
     offerings = pages(L, ec2, 'describe_instance_type_offerings', 'InstanceTypeOfferings',
                       LocationType='availability-zone', Filters=[{'Name':'instance-type','Values':list(catalog)}])
     prices = {}; pricing = client(base, 'pricing')
@@ -181,6 +184,42 @@ def verify_retained(L, binding, selected):
                  platform['deployer_role_arn']==selected['deployment_role_arn'], 'retained output scope differs')
     L['platform_compute_absent'](base, client, config)
     return config
+
+
+def iam_migration(L, binding, selected):
+    """Review the exact retained operator-policy tightening without mutation."""
+    platform=L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
+    operators=platform['deployer_principal_arns']
+    L['require'](operators==[selected['operator_arn']], 'retained IAM operators differ')
+    role=selected['deployment_role_arn'].rsplit('/',1)[-1]
+    base,client,_=L['sessions'](selected)
+    observed=client(base,'iam').get_role_policy(RoleName=role,PolicyName=role)
+    L['require'](observed['RoleName']==role and observed['PolicyName']==role,'retained deployer policy identity differs')
+    before=observed['PolicyDocument']; after=copy.deepcopy(before)
+    former='ManageReviewedNamedOperatorWorkspaceGrant'
+    denial={'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':['iam:*'],'Resource':operators}
+    required=any(s.get('Sid')==former for s in before['Statement'])
+    if required:
+        after['Statement']=[s for s in after['Statement'] if s.get('Sid')!=former]+[denial]
+    else:
+        actual=[s for s in before['Statement'] if s.get('Sid')==denial['Sid']]
+        L['require'](len(actual)==1 and set(actual[0])==set(denial) and actual[0]['Effect']=='Deny' and
+                     actual[0]['Action'] in ('iam:*',['iam:*']) and
+                     (actual[0]['Resource'] if isinstance(actual[0]['Resource'],list) else [actual[0]['Resource']])==operators,
+                     'retained deployer needs a separately reviewed IAM policy repair')
+    L['deployer_access_scope'](before,after,{'deployer_principal_arns':{'value':operators}})
+    return {'required':required,'role_arn':selected['deployment_role_arn'],'operator_arns':operators,
+            'before_policy_sha256':L['sha'](L['canon'](before))}
+
+
+def migrate_iam(L, target_name, binding, selected, reviewed, directory, authorization):
+    directory=L['checked_path'](directory)
+    L['require'](reviewed['required'] is True and reviewed['role_arn']==selected['deployment_role_arn'] and
+                 reviewed['operator_arns']==[selected['operator_arn']], 'IAM migration does not match reviewed scope')
+    if not directory.exists():
+        L['require'](iam_migration(L,binding,selected)==reviewed,'retained IAM changed after review; prepare a new operation')
+    platform=L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
+    return apply_access(L,target_name,binding,platform,directory,authorization,iam_review=reviewed)
 
 
 def onboard_key(L, deployment, selected, directory, authorization):
@@ -326,14 +365,39 @@ def access(L, target_name, binding, project, reference, directory, authorization
     if platform.get('workspace_git_secret_arns',{}).get(project)==[reference['secret_arn']]: return binding
     platform = copy.deepcopy(platform)
     platform.setdefault('workspace_git_secret_arns',{})[project] = [reference['secret_arn']]
+    return apply_access(L,target_name,binding,platform,directory,authorization)
+
+
+def apply_access(L, target_name, binding, platform, directory, authorization,iam_review=None):
+    """Apply or reconcile one exact IAM update, preserving every consumed plan."""
     directory = L['checked_path'](directory)
-    inputs = directory.parent/'access.tfvars.json'
+    packet,stage=directory.parent,directory.name
+    inputs = packet/(stage+'.tfvars.json')
     if not inputs.exists(): L['write'](inputs, platform)
     L['require'](L['read'](inputs)==platform,'access inputs drift')
-    if not directory.exists(): L['native_plan'](target_name,'workspace-access',str(inputs),str(directory),binding['plan_directory'])
-    if (directory/'apply-result.json').exists():
-        L['require'](L['read'](directory/'apply-result.json')['status']=='success','access apply failed')
-    else: bind_plan(L, directory, authorization)
-    output=directory.parent/'access-outputs.json'
-    if output.exists(): return {'plan_directory':str(directory),'outputs_file':str(output),'outputs_sha256':L['sha'](output.read_bytes())}
-    return capture(L, target_name, directory, output)
+    folder=recovered_folder(L,packet,stage)
+    options={'deployer_only':True} if iam_review else {}
+    if not (folder/'apply-result.json').exists():
+        if (folder/'apply-started.json').exists():
+            recovery=packet/(stage+'-recovery-'+uuid.uuid4().hex)
+            L['native_plan'](target_name,'workspace-access',str(inputs),str(recovery),binding['plan_directory'],str(folder),**options)
+            folder=recovery
+            recovery_pointer(L,packet,stage,folder)
+        if not folder.exists(): L['native_plan'](target_name,'workspace-access',str(inputs),str(folder),binding['plan_directory'],**options)
+    if iam_review:
+        original=L['read'](directory/'plan.json')
+        changed=[item for item in original['resource_changes'] if item.get('mode')=='managed' and item['change']['actions']!=['no-op']]
+        L['require'](len(changed)==1 and changed[0]['address']=='aws_iam_role_policy.deployer' and
+                     changed[0]['change']['actions']==['update'] and
+                     L['sha'](L['canon'](json.loads(changed[0]['change']['before']['policy'])))==iam_review['before_policy_sha256'],
+                     'IAM migration saved plan differs from reviewed source policy')
+        scope=L['read'](folder/'review.json')['scope']
+        L['require'](scope==[{'address':'aws_iam_role_policy.deployer','actions':['update']}] or
+                     (folder!=directory and scope==[]),'IAM migration changes unrelated resources')
+    if not (folder/'apply-result.json').exists():
+        bind_plan(L,folder,authorization)
+    else:
+        L['require'](L['read'](folder/'apply-result.json')['status']=='success','access apply failed')
+    output=packet/(stage+'-outputs.json')
+    if output.exists(): return {'plan_directory':str(folder),'outputs_file':str(output),'outputs_sha256':L['sha'](output.read_bytes())}
+    return capture(L,target_name,folder,output)
