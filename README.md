@@ -16,17 +16,21 @@ See the [deployer quickstart](docs/operations/aws-deployer-quickstart.md),
 [operation and recovery behavior](docs/operations/aws-deploy-operation.md) and
 [native acceptance scope](docs/operations/aws-native-acceptance.md).
 
-The repository is a release candidate for a clean installation, with
-production acceptance still pending. Linux/macOS tooling and versioned source packaging have offline coverage. Generic
-native deployment, clean macOS installation, real IAM/alarm behavior and controller
-loss acceptance remain pending. Release publication is also pending. The native
-fixture receipt does not establish the complete generic journey.
+The repository is a release candidate (`0.1.0-rc.1`) for a clean installation,
+with native generic acceptance still pending: a real generic job with durable
+outputs, clean macOS/arm64 installation with browser login, real IAM/alarm
+behavior and controller-loss drills. Offline mocked suites and a clean Ubuntu
+container install without preinstalled Python pass. The earlier native fixture
+receipt does not establish the complete generic journey, and no release is
+published yet.
 Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
 
-The [AWS first-use guide](docs/aws-setup-guide.html) explains prerequisites and access;
-the deployer quickstart above describes the current commands.
+Start with the [first-use checklist](docs/aws-setup-guide.html); the
+[deployer quickstart](docs/operations/aws-deployer-quickstart.md) lists the same
+commands on one page. [CONTRIBUTING.md](CONTRIBUTING.md) covers development
+setup, the pending license decision and releases.
 
 Read the [workspace interface and validation guide](docs/workspace.md),
 [goals](goal/README.md), [baseline and independent provider prompts](goal/workspace/05_FOUNDATION_AND_HANDOFF.md)
@@ -37,19 +41,23 @@ selected account's remaining regional/family quotas, then prefer more vCPUs.
 Review the exact size, image/zone compatibility and costs; do not increase quotas
 or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
 
-Start from the [short project configuration](infra/aws/project.example.json),
-authenticate your AWS profile, then review and launch from the checkout:
+Install, sign in, copy the [short project configuration](infra/aws/project.example.json),
+check readiness, then review and Deploy from the checkout:
 
 ```bash
-./workspace /absolute/path/project.json
-./workspace /absolute/path/project.json --authorization 'Approved deployment scope'
+./workspace setup                                   # pinned local tools; no login, no cloud calls
+./workspace login --profile my-workspace --region us-east-1
+./workspace doctor /path/project.json               # Ready / Action needed / Unknown with the next command
+./workspace /path/project.json                      # readable scope, one confirmation, then Deploy
+./workspace /path/project.json status --wait 30
 ```
 
-The first command resolves the account, capacity, repository revision and dataset
-into an immutable review. The second launches that reviewed scope. Pinned local
-tools install automatically when needed; `./workspace --help` needs no installation.
-Use the same config with `status`, `connect`, `logs`, `resume` or `cancel`.
-The original `scripts/aws/workspace.sh` command remains compatible.
+Deploy resolves the account, capacity, repository revision and dataset into an
+immutable review and asks once; `--authorization TEXT` replaces the prompt for
+automation. `./workspace --help` and `doctor` need no installation. Use the same
+config with `logs`, `connect`, `resume` or `cancel`; `./workspace setup --fresh`
+rebuilds the tools without touching logins, configuration or evidence. The
+original `scripts/aws/workspace.sh` command remains compatible.
 
 For repository development, install the separate hash-locked Python 3.13 test
 environment, then validate:

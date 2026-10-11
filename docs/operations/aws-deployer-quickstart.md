@@ -1,132 +1,140 @@
-# AWS deployer release candidate
+# AWS deployer quickstart
 
-The source implements the AWS journey. Native generic acceptance and release
-publication remain pending. Historical PR24 native receipts establish only the
-bounded private fixture route. GCP/Azure adapters and hosted execution are future
-work. Do not use a draft source implementation as evidence of production readiness.
+The short version of the [first-use checklist](../aws-setup-guide.html): the
+exact commands, in order. Native generic acceptance and release publication
+remain pending; see [native acceptance scope](aws-native-acceptance.md).
 
-## Install and authenticate
-
-Supported first-release hosts are Linux with glibc 2.35+ and macOS 13+, x86_64
-or arm64. Linux needs curl, tar, unzip, Git, OpenSSH and dpkg; macOS needs Apple
-Command Line Tools. The installer reports the exact missing prerequisites.
-Account setup, MFA, billing and organization permissions remain owner actions.
-
-Until a release is published, check out the accepted source branch and run:
+## 1. Install
 
 ```sh
 git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
-git switch refactor/deployer-audit
-./workspace setup --github
+./workspace setup --system-packages   # Linux; macOS: ./workspace setup
 ```
 
-After an approved `v0.1.0-rc.1` release is published, its standalone installer
-supports this path without a source Git checkout:
+Linux with glibc (x86_64/arm64) and macOS (Intel/Apple Silicon) are supported;
+there is no distribution or OS-version gate. The installer downloads hash-pinned
+tools into a user-owned directory, edits no shell files and makes no cloud
+calls. `./workspace --help` and `./workspace doctor` work before installation.
+
+Once a release is published, its standalone installer replaces the clone:
 
 ```sh
 curl -fsSL --proto '=https' --proto-redir '=https' \
-  https://github.com/Bboissen/Ray_terraform/releases/download/v0.1.0-rc.1/install.sh \
-  -o install-aws-workspace.sh
-bash install-aws-workspace.sh --github
-rm install-aws-workspace.sh
+  https://github.com/Bboissen/Ray_terraform/releases/download/vVERSION/install.sh -o install.sh
+bash install.sh            # add --github for private repositories
+rm install.sh
 ```
 
-The archive checksum comes from the same versioned official GitHub release over
-TLS; it provides corruption detection within that publisher trust, not an
-independent signature. Tool archives and Python wheels use the committed hash
-locks. Installation changes no shell profile and makes no account API calls.
-Use `$HOME/.local/share/aws-workspace/bin/aws-workspace` for a published install,
-or `./workspace` for a source checkout, as the CLI below.
+The archive checksum comes from the same official GitHub release over TLS; tool
+archives and Python wheels use the committed hash locks. Then use
+`$HOME/.local/share/aws-workspace/bin/aws-workspace` wherever `./workspace`
+appears below.
+
+## 2. Sign in
 
 ```sh
-./workspace login --profile temporary --region us-east-1
+./workspace login --profile my-workspace --region us-east-1      # add --method sso for Identity Center
+./workspace auth-check --profile my-workspace --region us-east-1
+```
+
+Use a profile name other than `default` and temporary native identities, never
+static keys. Login shows the account and ARN; it does not prove infrastructure
+permissions, which Deploy checks against its saved plans. Ambient `AWS_PROFILE`
+or `AWS_REGION` shell defaults are overridden by the project file.
+
+## 3. Private GitHub access, only when needed
+
+Public repositories use an `https://github.com/owner/project.git` URL and need
+no login. Private repositories use `git@github.com:owner/project.git`, the
+managed GitHub CLI and one browser login; Deploy then registers a read-only
+deploy key (repository admin permission required) and stores the private key
+only in Secrets Manager.
+
+```sh
+./workspace setup --github
 ./workspace github-login
-./workspace auth-check --profile temporary --region us-east-1
 ```
 
-Use temporary native identities, not permanent AWS keys. The source operator
-needs existing permission to manage its own scoped terminal grant. The routine
-deployer cannot change operator IAM policies; it cannot grant that authority
-to itself. An ordinary IAM user
-with temporary credentials or owner-managed role can be resolved; reserved SSO
-roles need the owner-managed role route. AWS login and GitHub login do not prove
-VM repository grants. Private repositories require permission to register a
-scoped read-only deploy key and create its native secret, or an already recorded
-matching owned credential. Private keys stay in Linux tmpfs/macOS RAM disks and
-Secrets Manager, outside OpenTofu inputs/state and logs.
-
-## Configure, review and Deploy
-
-Copy `infra/aws/project.example.json` to a project directory outside the source
-tree (a published copy lives in `releases/VERSION/infra/aws/`). Set the explicit
-profile, credential-free repository/ref, dataset path/URI, setup/run argv, output
-paths and lifetime. The supported toolbox is `cpu-python-v1` in `us-east-1`;
-selection keeps the most RAM within supported sizes, current regional quota,
-offering and the optional `resources.maximum_hourly_usd`. Reusing a foundation
-keeps its existing subnet and availability zone; review and pre-launch capacity
-checks both stay in that zone. Set byte ceilings for dataset transfer and output
-persistence. Dataset paths are relative to the JSON
-file, and may contain spaces. Local directories, same-region S3 object/prefixes
-and public HTTPS files with strong ETags and known size are supported. Signed
-URLs, private HTTP, symlinks, special files and cross-region S3 are rejected.
+## 4. Configure
 
 ```sh
-./workspace /absolute/project/project.json
+mkdir -p ~/aws-workspace/demo
+cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
+"${EDITOR:-nano}" ~/aws-workspace/demo/project.json
 ```
 
-Review the displayed account/operator, region/zone, repository commit, source
-bytes/hash, target namespaces, retained resources, any required operator-policy
-tightening, selected EC2 quote, additional fee categories and absolute lifetime
-policy. Without authorization this command makes no mutation. To bind that saved scope and proceed:
+Set the profile, project/workspace names, dataset (local path relative to the
+JSON file, `s3://` prefix or public HTTPS file), repository URL and ref, the
+external project's setup/run argument arrays, output paths and a 15–60 minute
+lifetime. Field reference: [project configuration](aws-project-configuration.md).
+
+## 5. Doctor
 
 ```sh
-./workspace /absolute/project/project.json \
+./workspace doctor ~/aws-workspace/demo/project.json
+```
+
+Each line is `Ready`, `Action needed` or `Unknown` with the next command. Repeat
+until the last line is `Ready: review and deploy with …`. `--debug` adds
+bounded, redacted diagnostics.
+
+## 6. Review and Deploy
+
+```sh
+./workspace ~/aws-workspace/demo/project.json
+./workspace ~/aws-workspace/demo/project.json status --wait 30
+```
+
+The command resolves account, zone, commit, dataset bytes, machine, price
+estimate, retained resources and lifetime into an immutable scope, prints it and
+asks once: type `deploy` to launch exactly that scope, or press Enter to stop
+with no cloud change. For automation:
+
+```sh
+./workspace ~/aws-workspace/demo/project.json \
   --authorization 'Approve the displayed account, resources, access, bytes, cost and lifetime scope'
-./workspace /absolute/project/project.json status --wait 30
-./workspace /absolute/project/project.json logs
 ```
 
-Deploy is the default command; an explicit `deploy` verb remains supported.
-`./workspace --help` runs without downloading tools.
-No ARNs, secret versions, foundation hashes or state paths need to be copied.
-Saved plans are still inspected and individually bound to that task before
-apply. Changes outside the selected scope stop. Dataset ingestion and exact
-version/checksum verification finish before compute. Job mode runs setup and
-entrypoint every time as `workspace`, then transfers declared outputs and bounded
-logs. The repository owns reading the selected dataset manifest and its exact
-versions using `DATA_MANIFEST_URI`, `DATA_MANIFEST_VERSION_ID` and
-`DATA_MANIFEST_SHA256`; output declarations do not imply checkpoint guarantees.
+Nothing launches without the confirmation or an explicit `--authorization`.
+Every saved OpenTofu plan is inspected and bound to that one authorization; no
+ARN, hash or state path is copied. Stage progress prints as artifacts,
+foundation, repository, ingestion, prepare, launch, job, verify and cleanup
+complete. A changed configuration or source needs a new review.
 
-Success requires independent output verification after compute teardown. Setup,
-job, output transfer and cleanup remain separate fields. A second Deploy with
-the same data verifies and reuses retained native versions. Workspace mode runs
-setup only; `connect` opens the non-root terminal, and `cancel` or the absolute
-provider expiry ends it. `cancel` records intent; `resume` reconciles recorded
-ownership and never repeats an uncertain launch/command. See
-[operation recovery](aws-deploy-operation.md) for bounded behavior and gaps.
+## 7. Outputs and cleanup
 
-## Existing foundation IAM update
+```sh
+./workspace ~/aws-workspace/demo/project.json logs
+```
 
-When an owned foundation still lets the deployer change operator permissions,
-Deploy includes the exact policy tightening in its review. The authorized journey
-applies that IAM update before repository access or compute, removes the former
-operator-management grant and adds an explicit denial for those principals.
-Public repositories need no Git secret for this update. It preserves resource
-addresses, Git inputs and all other foundation inputs.
+The outcome reports infrastructure, setup exit, job exit, output persistence
+and compute cleanup separately, with `output_uri` pointing at your declared
+outputs and bounded logs in S3. `compute cleanup: success` plus
+`outputs verified after compute deletion: True` confirms teardown. A second
+Deploy with the same data reuses the retained versions without another upload.
+Dataset, output and state buckets, the network, IAM boundaries and the expiry
+guard are retained and may continue to cost money; deleting them is a separate
+reviewed decision. Workspace mode keeps the machine until `cancel` or expiry;
+`connect` opens its non-root terminal.
 
-No manual plan command, review-hash copy or output rebinding is needed. An older
-saved deployment scope that omits a required migration stops and requires a new
-deployment review. Policy changes after review also stop. If the IAM apply is
-interrupted, `resume` verifies retained state and creates a fresh plan limited to
-the original policy update; it preserves consumed plans and their authorizations.
-Unrelated drift or ownership uncertainty still stops for reconciliation. These
-paths have offline coverage; the retained live foundation has not been migrated
-by this source audit.
+## Repair
 
-## Release and evidence retention
+```sh
+./workspace setup --fresh                                   # rebuild managed tools; keeps logins, config, evidence
+./workspace doctor ~/aws-workspace/demo/project.json --debug
+./workspace ~/aws-workspace/demo/project.json resume        # interrupted deployment; never repeats a launch
+```
 
-Build only from clean committed source:
+A broken source checkout: `git checkout -- workspace scripts`. A broken
+published install: rerun the same version's `install.sh --restore`. Details in
+[workstation setup](aws-workstation-setup.md) and
+[deploy operation](aws-deploy-operation.md).
+
+## Release candidate
+
+`shared/workspace/release.json` names `0.1.0-rc.1`. Build only from clean
+committed source:
 
 ```sh
 mkdir -p evidence/aws/releases
@@ -134,17 +142,9 @@ python3 -B scripts/aws/package-release.py evidence/aws/releases/candidate
 ```
 
 The deterministic archive includes source hashes, commit ancestry and pinned
-locks; it excludes `.git`, tools, caches, state, plans and credentials. The
-standalone installer selects the version from that same committed release
-manifest. The installer keeps each version and its evidence. Reinstalling the
-same version preserves state and receipts. Changing versions selects another code/evidence
-directory: recover older operations with the same original version before any
-upgrade. Automatic migration/adoption of another version's evidence is deferred;
-the controller refuses same-name unowned foundation reuse. Never delete release
-directories with real evidence or active expiry responsibilities.
-
-CI installs the pinned workstation runtime on Ubuntu 24.04 and macOS 14, runs
-the default mocked journey/policy suites and optionally builds candidate assets.
-CI has read-only repository permissions and no cloud credential/OIDC grants.
-The current source checks are recorded in the draft PR; new CI jobs and native
-clean-host campaigns must pass before publishing or advertising acceptance.
+locks, and excludes `.git`, tools, caches, state, plans and credentials. The
+installer keeps each version and its evidence; reinstalling the same version
+preserves state and receipts. CI installs the pinned runtime on Ubuntu 24.04 and
+macOS 14 and runs the mocked suites with read-only permissions and no cloud
+credentials. Publishing a release is an owner decision after the named native
+acceptance cases pass.

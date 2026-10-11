@@ -5,8 +5,8 @@
 1. repository layout, Markdown links, JSON parsing, shell syntax, and diff
    whitespace checks;
 2. workspace request/handoff/readiness, toolbox and deterministic fixture checks;
-3. the complete AWS controller, installer, ingestion, job, recovery and release
-   regression suites, each in a disposable source snapshot;
+3. the complete AWS controller, installer, doctor, ingestion, job, recovery and
+   release regression suites, each in a disposable source snapshot;
 4. AWS, GCP, and Azure scaffold tests, including locked
    `tofu init -backend=false` and `tofu validate` for all nine roots;
 5. recursive OpenTofu formatting checks.

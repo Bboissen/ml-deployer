@@ -1,66 +1,54 @@
 # AWS workstation setup
 
-This installer extends the existing Python controller. Bash bootstraps a machine
-without Python; Python retains configuration, immutable plans, expiry and cleanup.
-This milestone builds on PR27. It installs local tools and assists native login.
-Generic project deployment remains under implementation.
+Bash bootstraps a machine without Python; Python then owns configuration,
+immutable plans, expiry and cleanup. Users follow the
+[first-use checklist](../aws-setup-guide.html); this page records how the
+installer behaves, which checks it keeps, and how to repair it.
 
-## Install and check
-
-From this checkout, run:
+## Commands
 
 ```bash
-bash scripts/aws/workspace.sh setup
-bash scripts/aws/workspace.sh setup --check
+./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
+./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
+./workspace setup --fresh           # rebuild the managed tools even when they verify
+./workspace setup --github          # also install the GitHub CLI (private repositories)
+./workspace setup --system-packages # Ubuntu/Debian: apt-get the missing OS tools with sudo first
+./workspace setup --debug           # print bounded, redacted diagnostics before acting
+./workspace doctor [PROJECT.json] [--debug]
 ```
 
-Ordinary CLI commands install missing managed tools automatically and select
-them for that process. `setup --check` checks the installed pins without downloads,
-package installation or login. A different AWS CLI/OpenTofu on the host PATH is
-preserved; the controller selects its own tools. Nothing edits shell startup files.
+Ordinary commands install missing managed tools automatically and select them
+for that process only. The default prefix is `.tools/aws-workstation` inside
+the checkout; `WORKSPACE_TOOLS_DIR` or `--prefix` chooses another user-owned
+absolute directory. Spaces in paths are fine. Nothing edits shell startup files,
+and a different AWS CLI or OpenTofu on the host PATH is left alone.
 
-The default user-owned prefix is `.tools/aws-workstation` in this checkout. For a
-checkout/home path containing spaces, choose a prefix without whitespace:
+A new runtime becomes current only after every pinned binary ran and reported
+its version and every Python package matched the hash lock. Failure leaves the
+previously selected runtime in place. A rerun of a healthy installation
+downloads nothing.
 
-```bash
-export WORKSPACE_TOOLS_DIR=/absolute/user-owned/path/aws-workstation
-bash scripts/aws/workspace.sh setup
-```
+## Checks and flags inventory
 
-AWS's vendor installers do not support whitespace in installation paths. A
-foreign prefix, symlink ancestor or concurrent install stops with a repair
-message. Downloads and failed installation directories stay in the owned prefix.
-A new runtime becomes current only after every tool and Python package passes
-its version check. Failure preserves the previously selected runtime. A rerun
-of a healthy installation does not download or replace it.
-
-## Host matrix and prerequisites
-
-| Host | Architectures | Required native tools |
+| Check | Purpose | Decision |
 | --- | --- | --- |
-| Linux, glibc >= 2.35; Ubuntu 22.04/24.04 and Debian 12/13 are reference distributions | x86_64, aarch64 | Bash, curl, tar, unzip, Git, OpenSSH client, dpkg-deb, SHA-256 utility |
-| macOS >= 13 | Intel x86_64, Apple arm64 | Bash, curl, tar, unzip, Git, OpenSSH client, installer, pkgutil, shasum; Apple Command Line Tools |
-
-Linux requires Debian package extraction for the pinned Session Manager plugin;
-musl/Alpine and Windows are unsupported. RTK is optional for end users. Guest
-toolbox dependencies are separate from workstation dependencies.
-
-On Ubuntu/Debian, missing native tools can be installed through the signed OS
-repositories when explicitly requested:
-
-```bash
-bash scripts/aws/workspace.sh setup --system-packages
-```
-
-This runs `sudo apt-get update` and installs only `curl ca-certificates git
-openssh-client unzip tar dpkg coreutils` when prerequisites are missing. The package manager may
-need the user's sudo password. Without sudo, the installer gives the exact
-package list for the administrator. Native OS packages follow that distribution's
-security updates; they are not portable binary pins.
-
-On macOS, run `xcode-select --install` if the installer reports missing Command
-Line Tools, finish Apple's native dialog and rerun setup. The managed downloads
-use the user prefix; AWS CLI uses Apple's current-user package installation.
+| glibc 2.35+, Ubuntu/Debian list | Guess binary compatibility | Removed. Requires only glibc (the pinned AWS CLI and Python are glibc builds); the binaries are run after extraction and a non-running tool names the host libc in its error |
+| macOS 13+ | Guess binary compatibility | Removed; same run-and-verify capability check |
+| Apple Command Line Tools, `xcode-select` | Provide git/curl | Removed; only missing tools are reported |
+| `git`, `ssh` as installer prerequisites | Later controller needs | Advisory: `doctor` reports git for branch/tag resolution and ssh-keygen for private deploy keys when the project needs them |
+| `curl`, `tar`, `unzip`, `dpkg-deb` (Linux) / `installer`, `pkgutil` (macOS) | Download and unpack | Retained with the exact package list and the `--system-packages` route |
+| Prefix without spaces | Vendor AWS install script limitation | Removed; the bundle's `dist` directory is copied directly |
+| Prefix ancestors not symlinks | Avoid writing through foreign links | Replaced by physical path resolution; the real directory is then owned and checked |
+| Prefix owner marker, `current` inside `releases/` | Never overwrite a user's unrelated directory | Retained, actionable message |
+| 2 GiB free | Downloads and venv | Retained |
+| Download SHA-256 against the committed lock, HTTPS only, macOS pkg signature | Download integrity | Retained |
+| `install.lock` | One installer at a time | Retained; the lock records its owner process and host, an exited owner on the same host is recovered automatically, a live or unverifiable owner is never removed |
+| Version/package verification before activation | Working runtime | Retained; `--check` reports `run ./workspace setup --fresh` when a tool is corrupt |
+| Release source compared to the verified archive (`install.sh`) | Installed code integrity | Retained; `--restore` writes back only changed files from the verified archive |
+| `AWS_*` environment conflicts | Protect the selected account | Narrowed: `AWS_PROFILE`, `AWS_REGION` and other selection defaults are overridden by the project profile; credential, endpoint and role variables still conflict |
+| Non-default profile, temporary credentials, no root | Protect the selected account | Retained |
+| Interactive TTY for login | Browser consent/MFA | Retained |
+| Help and `doctor` | Must work with nothing installed | Both run without tools or credentials |
 
 ## Managed versions and integrity
 
@@ -76,98 +64,104 @@ use the user prefix; AWS CLI uses Apple's current-user package installation.
 | GitHub CLI, optional | 2.102.0 |
 
 Every platform archive URL and SHA-256 is committed in
-[`workstation-tools.lock.tsv`](../../scripts/aws/workstation-tools.lock.tsv).
-Downloads use HTTPS only, ignore user curl configuration and verify the committed
-hash before extraction or execution, including cached downloads. macOS AWS CLI
-also runs `pkgutil --check-signature` before Apple's installer. Tool hashes come
-from official release metadata or the version-specific official AWS artifact;
-installer execution never trusts a downloaded checksum file alone.
+[`workstation-tools.lock.tsv`](../../scripts/aws/workstation-tools.lock.tsv)
+for linux-x86_64, linux-aarch64, darwin-x86_64 and darwin-aarch64. Downloads
+use HTTPS only, ignore user curl configuration and verify the committed hash
+before anything is extracted or executed. macOS AWS CLI also passes
+`pkgutil --check-signature` before Apple's installer. The
+[controller dependency lock](../../scripts/aws/controller-requirements.lock)
+pins every Python package with hashes and binary wheels only.
 
-The [controller dependency lock](../../scripts/aws/controller-requirements.lock)
-pins every Python package and allows binary wheels only with required hashes.
-It includes the CRT extra needed by Boto3 for console login. Validation/example
-dependencies remain in `shared/workspace/requirements.lock`; they are not installed
-as project dependencies. External repositories still own their setup/run commands.
-
-Official installation references: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html),
+Official references: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html),
 [Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html),
 [OpenTofu](https://opentofu.org/docs/intro/install/standalone/),
-[standalone Python](https://github.com/astral-sh/python-build-standalone/releases/tag/20261009),
-[Boto3 console login and CRT](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html).
+[standalone Python](https://github.com/astral-sh/python-build-standalone/releases/tag/20261009).
+
+## Doctor
+
+`./workspace doctor PROJECT.json` prints one line per check with `Ready`,
+`Action needed` or `Unknown` and the exact next command:
+
+- Managed tools: the same verification as `setup --check`.
+- AWS identity: the project's profile. No profile yet gives the login command;
+  an existing profile is checked with a bounded STS call through the CLI and the
+  SDK. Ready states the account and ARN and notes that login does not prove
+  infrastructure permissions.
+- GitHub access: public HTTPS repositories resolve the ref with `git ls-remote`
+  and need no login. Private `git@github.com:` repositories need the managed
+  `gh`, `ssh-keygen` and an active GitHub login.
+- Project config: schema, region, dataset path and size.
+- Last operation: a saved review, a completed result with its output location,
+  or an interrupted operation that needs `resume`.
+
+Doctor never installs, logs in, registers keys or creates resources. Without a
+project file it reports the tools and marks the rest `Unknown`.
+
+## Repair
+
+`./workspace setup --fresh` rebuilds the managed runtime even when it verifies.
+It reuses the committed pins, builds the replacement in a new directory, verifies
+it, switches `current`, then removes the previous release. A failed rebuild
+leaves the previous runtime selected. Logins, AWS profiles, GitHub credentials,
+project files, shell settings, user-installed tools, state, saved plans,
+authorizations, journals and receipts are not touched: they live outside the
+tools prefix, under the AWS CLI's own directories or ignored `evidence/`.
+
+Interrupted installations leave directories without a completion marker under
+`releases/`; the next setup removes them. A lock left by a setup that exited is
+recovered automatically on the same host. A lock whose owner is still running
+is reported with its process ID; one with no verifiable owner is left in place
+with the exact path to inspect.
+
+If the launcher itself is broken in a source checkout, restore the tracked files:
+
+```bash
+git status --short
+git checkout -- workspace scripts
+./workspace setup --check
+```
+
+For a published release, rerun the same version's installer with `--restore`:
+it downloads and verifies the archive checksum again, writes back only changed
+release files, keeps `evidence/`, tools and other versions, then runs setup.
+Older operations stay recoverable with their original version's launcher under
+`releases/VERSION/`.
+
+Repairing the installation is separate from an interrupted deployment. An
+uncertain launch is reconciled with `./workspace PROJECT.json resume` or
+`cancel`; fresh setup never repeats or alters an operation.
+
+## Debug mode
+
+`--debug` on `setup` or `doctor` prints bounded diagnostics to stderr: platform,
+libc or macOS version, prefix, `current` target, whether the pins match, the
+first version line of each tool, lock owner and liveness, free disk, the names
+of `AWS_*`/`TF_*`/`GH_*` variables present (never their values), AWS profile
+names (never their contents) and the last operation directory. Credentials,
+private keys, tokens and raw browser login output are never captured.
 
 ## Assisted login
 
-Choose an explicit non-default profile. For console credentials:
-
 ```bash
-bash scripts/aws/workspace.sh login --profile personal-dev --region us-east-1
+./workspace login --profile personal-dev --region us-east-1            # console browser login
+./workspace login --profile team-dev --region us-east-1 --method sso   # IAM Identity Center
+./workspace auth-check --profile personal-dev --region us-east-1
+./workspace github-login                                               # private repositories only
 ```
 
-The native `aws login` command opens the browser; the user selects the account
-and completes MFA/consent. Use `--remote` when authentication happens on another
-device. Existing console profiles are renewed; the AWS CLI manages its native
-login cache. No static access-key setup is offered.
+Native `aws login` or `aws sso login` runs in your terminal and browser; the
+controller never records credentials. `--remote` selects the device-code flow.
+An existing console profile cannot silently become SSO; a credential-process or
+source-profile profile is renewed with its own native login and then accepted
+by `auth-check`. Ambient GitHub tokens are rejected by the assisted GitHub login.
 
-For an IAM Identity Center account:
+## Verification
 
-```bash
-bash scripts/aws/workspace.sh login --profile team-dev --region us-east-1 --method sso
-```
-
-A new SSO profile starts native `aws configure sso`; an existing SSO profile goes
-straight to `aws sso login`. The AWS CLI asks for the account owner's start URL,
-SSO region and permitted account/role. `--remote` selects native device-code flow.
-Login cannot silently change a console profile into SSO or renew a credential
-process/source-role profile through the wrong authentication method. Renew those
-profiles through their original native login.
-
-After login, or to check a returning session:
-
-```bash
-bash scripts/aws/workspace.sh auth-check --profile personal-dev --region us-east-1
-```
-
-The check reuses the existing profile/environment boundary and compares bounded
-STS principal observations from the CLI and SDK (independent sessions of the
-same assumed role are equivalent). Conflicting credentials/endpoints,
-static-key profiles, expired sessions, root identity and mismatches stop clearly.
-Only account/ARN metadata is returned; raw credential-process or provider errors
-are redacted. Browser/device URLs stay in the interactive native login terminal.
-The installer never records login output or exports credentials into evidence.
-
-This check reports backend/provider identity as pending: the existing native
-deployment checks them during foundation/saved-plan preflight. Login success
-does not grant infrastructure permissions or authorize a deployment. SSO policy
-generalization and macOS RAM-backed key preflight remain separate controller work.
-
-Optional GitHub browser authorization:
-
-```bash
-bash scripts/aws/workspace.sh setup --github
-bash scripts/aws/workspace.sh github-login
-```
-
-The optional CLI is installed automatically by `github-login`. Native GitHub CLI
-owns browser consent and credential storage. Ambient GitHub tokens are rejected
-by this assisted route. Private runtime access/deploy-key registration remains
-the next onboarding milestone; a workstation login alone does not grant the VM
-repository access.
-
-## Verification and remaining acceptance
-
-`make aws-workstation-test WORKSPACE_PYTHON=/path/to/validation/python` exercises
-the four platform paths and failure boundaries offline. Existing scaffold checks
-include this suite. `WORKSPACE_PYTHON` is an explicit developer/test runtime
-override that bypasses automatic workstation installation; normal users omit it.
-
-Verified locally: real Linux x86_64 installation; clean Ubuntu 24.04 container
-installation as a non-root user without prior Python/AWS CLI/OpenTofu; rerun and
-check-only behavior; optional GitHub CLI; preserved profile and shell settings.
-Offline checks cover both architectures on Linux/macOS, bad download hashes,
-failed signatures/upgrades, foreign prefixes, missing privileges, concurrency,
-expired login, identity mismatch and login-method conflicts.
-
-Native macOS/arm64 installation, browser login and the complete generic AWS Deploy
-journey remain acceptance work. This milestone performs no cloud provisioning,
-project dependency execution or dataset transfer. Next controller work is
-foundation/access onboarding, dataset ingestion and generic execution/results.
+`make aws-automation-test` runs the installer, doctor and release suites offline
+with mocked downloads for all four platforms, corrupt archives, non-running
+binaries, failed rebuilds, spaces in paths, symlinked ancestors, stale, live and
+uncertain locks, debug redaction and doctor states. Clean-host container
+installation without preinstalled Python is recorded in the pull request that
+changed the installer. Native macOS and Linux arm64 installation with real
+browser login remain acceptance work; see the
+[native acceptance scope](aws-native-acceptance.md).

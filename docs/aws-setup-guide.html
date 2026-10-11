@@ -4,352 +4,204 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>AWS automation and setup guide</title>
+  <title>AWS workspace: first-use checklist</title>
   <style>
     :root { color-scheme: light dark; --bg:#f7f8fa; --fg:#1b2838; --sub:#49586a; --panel:#fff; --line:#cbd3dc; --blue:#1753a4; --soft:#eaf1fc; --amber:#81500b; --warm:#fff3dc; --green:#146048; --good:#e7f4ed; }
-    @media(prefers-color-scheme:dark) { :root { --bg:#101720; --fg:#e6edf5; --sub:#bac7d6; --panel:#17212e; --line:#435064; --blue:#9abfff; --soft:#20334d; --amber:#efc577; --warm:#352b1b; --green:#94dcb6; --good:#18362b; } }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    main { max-width:1080px; margin:auto; padding:42px 28px 72px; }
-    a { color:var(--blue); text-underline-offset:3px; overflow-wrap:anywhere; }
-    a:focus-visible,summary:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid var(--blue); outline-offset:4px; }
-    h1,h2,h3,p { margin:0; }
-    h1 { font-size:clamp(2rem,5vw,3.2rem); line-height:1.12; letter-spacing:-.035em; max-width:800px; margin:12px 0 20px; }
-    h2 { font-size:1.5rem; line-height:1.3; margin-bottom:16px; }
-    h3 { font-size:1.05rem; margin-bottom:8px; }
-    p+p { margin-top:12px; }
-    .eyebrow { text-transform:uppercase; letter-spacing:.12em; font-size:.78rem; font-weight:700; color:var(--sub); }
-    .lead { max-width:820px; font-size:1.15rem; }
-    .meta { color:var(--sub); font-size:.88rem; margin-top:16px; }
-    nav { display:flex; gap:12px 24px; flex-wrap:wrap; margin:26px 0 0; padding:18px 0; border-block:1px solid var(--line); }
-    section { margin-top:38px; scroll-margin-top:16px; }
-    .note { border-left:4px solid var(--blue); padding:14px 18px; background:var(--soft); margin-top:20px; }
-    .counts { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:22px; }
-    .count { padding:18px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
-    .number { display:block; font-size:2rem; font-weight:700; line-height:1.2; margin-bottom:5px; }
-    .label { font-weight:600; }
-    .count .label,.count .small { display:block; }
-    .small { font-size:.9rem; color:var(--sub); }
-    .flow { display:grid; grid-template-columns:1fr 1.4fr; gap:24px; margin-top:18px; }
-    .lane { min-width:0; }
-    .lane-label { margin-bottom:10px; font-size:.86rem; font-weight:700; color:var(--sub); }
-    .steps { list-style:none; padding:0; margin:0; display:grid; gap:25px; }
-    .steps li { position:relative; padding:13px 16px; border-radius:8px; background:var(--soft); }
-    .steps li+li::before { content:"↓"; position:absolute; top:-26px; left:24px; color:var(--sub); }
-    .human li { background:var(--warm); }
-    .steps strong { display:block; }
-    .retained { margin-top:18px; padding:14px 18px; border:1px solid var(--green); border-radius:8px; background:var(--good); }
-    .table-wrap { overflow-x:auto; }
-    table { border-collapse:collapse; width:100%; font-size:.94rem; }
-    th,td { padding:12px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
-    th { font-size:.85rem; color:var(--sub); }
-    th:first-child,td:first-child { padding-left:0; }
-    code { font: .9em/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
-    pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--panel); border:1px solid var(--line); padding:16px; border-radius:8px; margin:12px 0; }
-    details { border-bottom:1px solid var(--line); padding:15px 0; }
-    summary { cursor:pointer; font-weight:600; }
-    details p { margin-top:12px; }
-    .milestones { padding-left:22px; }
-    .milestones li { margin-bottom:12px; padding-left:4px; }
-    button,select { font:inherit; color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:9px 12px; }
-    button { cursor:pointer; }
-    .guide-controls { display:flex; flex-wrap:wrap; gap:14px 22px; margin:18px 0; }
-    .guide-controls label { display:grid; gap:6px; min-width:170px; }
-    .interactive-flow { display:grid; grid-template-columns:minmax(230px,.8fr) minmax(0,1.5fr); gap:26px; align-items:start; }
-    .stage-list { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
-    .stage-picker { display:none; gap:6px; }
-    .stage-list button { width:100%; text-align:left; display:grid; gap:3px; }
-    .stage-list button[aria-pressed="true"] { border-color:var(--blue); background:var(--soft); }
-    .stage-list button.pending { border-style:dashed; }
-    .stage-list .kind { color:var(--sub); font-size:.85rem; }
-    .stage-detail { min-width:0; padding:20px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
-    .stage-detail .status { display:block; color:var(--sub); margin-bottom:10px; font-size:.9rem; }
-    .stage-detail h3 { font-size:1.25rem; }
-    .stage-detail ul { padding-left:22px; }
-    .check { display:flex; gap:10px; align-items:flex-start; margin-top:16px; padding-block:8px; }
-    .check input { width:20px; height:20px; margin:3px 0 0; flex-shrink:0; accent-color:var(--blue); }
-    .guide-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:16px; }
-    .guide-result { padding:12px 0; margin-top:12px; border-bottom:1px solid var(--line); }
-    .todo-list { padding-left:22px; }
-    .todo-list li { margin-bottom:8px; }
-    [hidden] { display:none !important; }
-    footer { margin-top:38px; padding-top:20px; border-top:1px solid var(--line); }
-    @media(max-width:680px) { main { padding:26px 18px 50px; } .flow,.counts,.interactive-flow { grid-template-columns:1fr; } .counts { gap:8px; } .count { display:grid; grid-template-columns:46px 1fr; gap:0 12px; } .number { grid-row:1/3; } .guide-controls label { min-width:0; width:100%; } .stage-list { display:none; } .stage-picker { display:grid; } .stage-picker select { width:100%; min-width:0; } .stage-detail { padding:16px; } th,td { padding:10px 6px; } }
-    @media print { body { background:white; color:black; } main { max-width:none; padding:0; } nav { display:none; } section { break-inside:avoid; } .flow,.counts { display:block; } .count,.lane { margin:12px 0; } details { break-inside:avoid; } a { color:inherit; } }
+    @media (prefers-color-scheme: dark) { :root { --bg:#101720; --fg:#e6edf5; --sub:#bac7d6; --panel:#17212e; --line:#435064; --blue:#9abfff; --soft:#20334d; --amber:#efc577; --warm:#352b1b; --green:#94dcb6; --good:#18362b; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 860px; margin: auto; padding: 32px 20px 72px; }
+    h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15; margin: 8px 0 12px; }
+    h2 { font-size: 1.35rem; margin: 40px 0 10px; }
+    h3 { font-size: 1.05rem; margin: 20px 0 6px; }
+    p { margin: 8px 0; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: .78rem; font-weight: 700; color: var(--sub); }
+    .lead { font-size: 1.1rem; max-width: 720px; }
+    a { color: var(--blue); overflow-wrap: anywhere; }
+    .note { border-left: 4px solid var(--blue); background: var(--soft); padding: 12px 16px; margin: 16px 0; }
+    .warn { border-left-color: var(--amber); background: var(--warm); }
+    .good { border-left-color: var(--green); background: var(--good); }
+    ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+    ol.steps > li { counter-increment: step; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 14px 18px; margin: 16px 0; }
+    ol.steps > li > h3 { margin-top: 0; }
+    ol.steps > li > h3::before { content: counter(step) ". "; color: var(--blue); }
+    pre { background: #0f1620; color: #e6edf5; padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .92rem; margin: 10px 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    p code, li code, td code { background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+    .copy { font: inherit; font-size: .85rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+    .copy:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .copied { font-size: .85rem; color: var(--sub); margin-left: 8px; }
+    .variant { display: block; }
+    .variant > .label { font-size: .8rem; font-weight: 700; color: var(--sub); text-transform: uppercase; letter-spacing: .06em; }
+    .pick { display: flex; flex-wrap: wrap; gap: 14px 28px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin: 18px 0; }
+    .pick label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; }
+    select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    label.check { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; color: var(--sub); margin-top: 10px; }
+    label.check input { margin-top: 5px; }
+    table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    .meta { color: var(--sub); font-size: .88rem; }
+    #status { margin-top: 12px; font-size: .92rem; color: var(--sub); }
+    .nojs-only { display: block; }
+    .js .nojs-only { display: none; }
   </style>
 </head>
 <body>
 <main>
-  <header>
-    <div class="eyebrow">AWS first · Linux and macOS · 10 October 2026</div>
-    <h1>From a fresh machine to an AWS job</h1>
-    <p class="lead">Follow the first-use steps, see where your help is needed, and inspect the implementation TODOs. The installer and short configuration now exist in draft PRs; complete generic deployment is still blocked by the gaps below.</p>
-    <p class="meta">Merged <a href="https://github.com/Bboissen/Ray_terraform/pull/24">PR24</a>: bounded private SSH/Make job. Draft <a href="https://github.com/Bboissen/Ray_terraform/pull/27">PR27</a>: short configuration. Draft <a href="https://github.com/Bboissen/Ray_terraform/pull/28">PR28</a>: workstation tools and assisted login. This documentation branch does not contain the draft controller changes.</p>
-    <nav aria-label="Guide sections"><a href="#journey">Interactive setup</a><a href="#migration">Implementation TODOs</a><a href="#inputs">Project inputs</a><a href="#login">Login and tools</a><a href="#automation">Original feasibility audit</a></nav>
-  </header>
+  <p class="eyebrow">AWS · Linux and macOS · updated 11 October 2026</p>
+  <h1>AWS workspace: first-use checklist</h1>
+  <p class="lead">Install the managed tools, sign in, describe your project in one short file, run <code>doctor</code>, review once and Deploy. Afterwards find your outputs, confirm the compute is gone, and repeat with the retained data.</p>
+  <p class="meta">This page is a static file. It runs nothing, stores no credentials and never approves spending. The checkboxes are personal notes only; <code>./workspace doctor</code> is the verified readiness check.</p>
 
-  <section id="journey">
-    <h2>Start with nothing installed or configured</h2>
-    <p>Assumes an existing funded AWS account, internet access and a supported OS with Bash. Select your host and access route, then select a stage. Personal checkmarks are notes only; they do not verify cloud access, approve spending or change implementation status.</p>
-    <div id="setup-guide" hidden>
-      <div class="guide-controls">
-        <label for="guide-host">Workstation<select id="guide-host"><option value="linux">Ubuntu / Debian Linux</option><option value="macos">macOS</option></select></label>
-        <label for="guide-auth">AWS login<select id="guide-auth"><option value="console">Console browser login</option><option value="sso">IAM Identity Center / SSO</option></select></label>
-        <label for="guide-repo">Repository<select id="guide-repo"><option value="private">Private GitHub repository</option><option value="public">Public GitHub repository</option></select></label>
-      </div>
-      <div class="interactive-flow">
-        <div><label for="guide-stage-picker" class="stage-picker">Stage<select id="guide-stage-picker"></select></label><ol id="guide-stages" class="stage-list" aria-label="Setup and deployment stages"></ol></div>
-        <section id="guide-detail" class="stage-detail" aria-label="Selected stage" style="margin-top:0"></section>
-      </div>
-      <p id="guide-checklist" class="guide-result" aria-live="polite"></p>
-      <p><strong>Generic Deploy is not available yet.</strong> Completing this checklist does not remove the onboarding, ingestion or execution gaps. A workstation GitHub login also does not grant the VM private repository access.</p>
-      <p id="guide-storage" class="small" style="margin-top:12px">Only host/access choices and personal checkmarks are saved in this browser. No credentials or project inputs are collected.</p>
-    </div>
-    <noscript><p class="note">Enable JavaScript for the selectable steps and personal checklist. The flow, commands and implementation TODOs below remain readable without it.</p></noscript>
-    <details style="margin-top:18px">
-      <summary>Full target flow and retention policy</summary>
-    <div class="flow" role="group" aria-label="Human setup followed by automatic AWS deployment">
-      <div class="lane">
-        <div class="lane-label">YOU · FIRST USE AND PROJECT CHOICES</div>
-        <ol class="steps human">
-          <li><strong>Install and sign in</strong>Installer handles supported tools. You complete AWS/GitHub consent and MFA.</li>
-          <li><strong>Choose the project</strong>Dataset source, repository/ref, setup command, entrypoint, name, size and lifetime.</li>
-          <li><strong>Review and Deploy</strong>Account, transfer destination/size, resolved commit, resource scope, costs and teardown.</li>
-        </ol>
-      </div>
-      <div class="lane">
-        <div class="lane-label">SOFTWARE · AFTER DEPLOY</div>
-        <ol class="steps">
-          <li><strong>Create or verify the foundation</strong>Use the already resolved scope and apply inspected saved plans for owned state, storage and access.</li>
-          <li><strong>Upload or reuse data</strong>Stream selected bytes and record object versions before starting compute.</li>
-          <li><strong>Prepare guard and launch</strong>Inspect exact saved plans; create one bounded workspace.</li>
-          <li><strong>Clone, install and execute</strong>Pin the revision; run declared commands as a non-root user.</li>
-          <li><strong>Persist output and clean up</strong>Record job and transfer outcomes; delete owned compute and verify retention.</li>
-        </ol>
-      </div>
-    </div>
-    <div class="retained"><strong>Retained after the job:</strong> dataset and output storage, separate infrastructure state, platform controls and operation evidence. Storage and retained platform services can continue to cost money.</div>
-    <p class="small" style="margin-top:12px">Each exact plan remains a separate recorded stage. One task authorization covers routine stages inside the chosen scope. A larger or different scope requires another decision.</p>
-    <p class="small" style="margin-top:12px">After tests, remove their exact owned containers, images, volumes, caches, extracted downloads and temporary runtimes, including after failure/interruption. Keep only small logs/receipts; preserve user-installed tools, unrelated resources and real deployment state/evidence. Verify cleanup; never use global pruning.</p>
-    </details>
-  </section>
+  <div class="pick" id="pick" hidden>
+    <label>Workstation
+      <select id="host"><option value="linux">Ubuntu / Debian Linux</option><option value="macos">macOS</option><option value="all">Show both</option></select>
+    </label>
+    <label>Repository
+      <select id="repo"><option value="public">Public GitHub repository</option><option value="private">Private GitHub repository</option><option value="all">Show both</option></select>
+    </label>
+  </div>
+  <p class="nojs-only meta">JavaScript is off or unavailable: every Linux, macOS, public and private variant is shown below, and commands can be selected and copied by hand.</p>
 
-  <section id="inputs">
-    <h2>What you provide and what the controller resolves</h2>
-    <p>The short configuration records these inputs today. Transfer, infrastructure and generic execution responsibilities in this table describe the target behavior until their TODOs are accepted.</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th scope="col">Detail</th><th scope="col">Where to find it</th><th scope="col">Configurator responsibility</th></tr></thead>
-        <tbody>
-          <tr><td>AWS account / login profile</td><td>Your AWS account or organization access portal. Existing profile names: <code>aws configure list-profiles</code>.</td><td>Offer profiles; discover account ID and identity after sign-in; show the selected account.</td></tr>
-          <tr><td>SSO start URL and SSO region</td><td>Your administrator or AWS access portal credential instructions. See <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html">AWS SSO setup</a>.</td><td>Guide setup once. The SSO directory region can differ from the deployment region.</td></tr>
-          <tr><td>Deployment region</td><td>The current reviewed CPU profile supports <code>us-east-1</code>.</td><td>Refresh quotas, image compatibility, offerings and prices. Additional regions need matched profile and scope validation; do not silently move the workload.</td></tr>
-          <tr><td>Project / workspace name</td><td>A name you choose, such as <code>demand-forecast</code>.</td><td>Normalize names and generate stable unique resource names, state keys and output prefixes.</td></tr>
-          <tr><td>Dataset source</td><td>A local file/folder, <code>s3://bucket/prefix</code> or public HTTPS file URL. First-release scope confirmed.</td><td>Local metadata inspection exists; remote sizes and all transfer adapters remain pending. Ingestion will stream selected data and seal object versions. Private source services are deferred.</td></tr>
-          <tr><td>Repository and ref</td><td>GitHub repository URL plus branch, tag or commit.</td><td>Check access, resolve the full commit and choose public or scoped private checkout.</td></tr>
-          <tr><td>Dependency setup / entrypoint</td><td>The external project's README or Makefile, for example <code>make setup</code> and <code>make train</code>.</td><td>Store explicit argument arrays. Run them automatically on every Deploy; never guess by executing locally.</td></tr>
-          <tr><td>Output locations</td><td>The project's durable output directory or native upload contract.</td><td>Persist declared files or verify declared native objects; record transfer status before normal teardown.</td></tr>
-          <tr><td>Machine and maximum runtime</td><td>Your resource needs and willingness to spend.</td><td>Retain RAM-first selection within supported quota, display estimated costs and enforce the accepted lease.</td></tr>
-          <tr><td>Alarm destination</td><td>An existing authorized notification destination or a destination you choose during foundation setup.</td><td>Wire and verify it. Email-style subscriptions can require your confirmation.</td></tr>
-          <tr><td>Private repository authority</td><td>GitHub owner/admin access or an approved existing credential reference.</td><td>Register scoped access when authorized. It cannot bypass organization restrictions.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p style="margin-top:16px"><strong>Generated for you:</strong> account ID, role ARNs, bucket names, subnet/security-group IDs, state keys, artifact paths, hashes, object versions, run IDs and UTC lease timestamps. Advanced overrides are validated against the chosen scope.</p>
-  </section>
+  <ol class="steps">
+    <li>
+      <h3>Install the managed tools</h3>
+      <p>Get the source and run setup. It downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into a user-owned directory, edits no shell files and makes no cloud calls. Help and <code>doctor</code> work before anything is installed.</p>
+      <div class="variant" data-host="linux"><span class="label">Linux</span>
+<pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
+cd Ray_terraform
+./workspace setup --system-packages   # Ubuntu/Debian: adds curl, unzip, tar, dpkg with sudo only if they are missing</code></pre></div>
+      <div class="variant" data-host="macos"><span class="label">macOS</span>
+<pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
+cd Ray_terraform
+./workspace setup                     # if Git is missing, macOS offers the Command Line Tools dialog first</code></pre></div>
+      <p class="meta">Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon). No distribution or OS-version gate; the pinned binaries are run and verified before they become active. Directories with spaces are fine. Once a release is published, its standalone <code>install.sh</code> replaces the clone.</p>
+      <label class="check"><input type="checkbox" data-note="tools"><span>Personal note: tools installed (not a verification).</span></label>
+    </li>
 
-  <section id="login">
-    <h2>Tools and authentication</h2>
-    <p>PR28 adds a Bash workstation installer around the existing Python controller. It installs and verifies pinned AWS CLI, OpenTofu, standalone Python, uv and Session Manager; GitHub CLI is optional. Normal controller commands install missing managed tools automatically. Native OS prerequisites need explicit assistance, and the installer does not provision AWS.</p>
-    <details open>
-      <summary>AWS login for an existing console identity</summary>
-      <p>From the PR28 checkout, choose a named non-default profile and complete browser sign-in/MFA. Replace <code>my-workspace</code> with your chosen profile name.</p>
-      <pre><code>bash scripts/aws/workspace.sh login --profile my-workspace --region us-east-1
-bash scripts/aws/workspace.sh auth-check --profile my-workspace --region us-east-1</code></pre>
-      <p>Use a permitted non-root operator. CLI/SDK principal comparison exists; backend/provider checks remain part of foundation/saved-plan preflight. Successful login does not grant infrastructure permissions or authorize deployment. <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html">AWS login and compatibility</a>.</p>
-    </details>
-    <details open>
-      <summary>AWS IAM Identity Center</summary>
-      <pre><code>bash scripts/aws/workspace.sh login --profile my-workspace --region us-east-1 --method sso
-bash scripts/aws/workspace.sh auth-check --profile my-workspace --region us-east-1</code></pre>
-      <p>The setup wizard needs your organization's start/issuer URL and directory region, then lets you choose an authorized account/role. This login is supported by AWS; this repo still needs generalized role-based terminal/job grants before claiming its SSO journey is accepted. <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html">Official SSO instructions</a>.</p>
-    </details>
-    <details open>
-      <summary>GitHub access</summary>
-      <pre><code>bash scripts/aws/workspace.sh github-login</code></pre>
-      <p>Public clones do not need GitHub authentication. Private access needs your authorization. The current VM path uses a read-only SSH deploy key in Secrets Manager; a workstation GitHub login does not automatically authenticate the VM. The configurator must wire that separate access route. <a href="https://cli.github.com/manual/gh_auth_login">GitHub CLI login</a>.</p>
-    </details>
-    <details open>
-      <summary>Supported hosts and installer acceptance</summary>
-      <p>Linux: glibc ≥ 2.35, x86_64/arm64; Ubuntu 22.04/24.04 and Debian 12/13 are reference distributions. Missing native Git/OpenSSH/curl/unzip utilities can be installed through <code>setup --system-packages</code> on Ubuntu/Debian, with your sudo password when needed. macOS: 13+, Intel/Apple Silicon, with Apple Command Line Tools. Alpine/musl and Windows are unsupported.</p>
-      <p>Clean Linux x86_64 installation, rerun and check-only passed. Native macOS and Linux arm64 installation plus real browser login still need acceptance; offline platform checks are not native proof. Managed tools are selected only for controller commands; host installations and shell startup files are preserved.</p>
-      <p><a href="https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html">AWS CLI installation</a> · <a href="https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html">Session Manager plugin</a></p>
-    </details>
-    <p class="small" style="margin-top:16px">This HTML file is an offline guide. A future browser Deploy button needs a local controller or hosted backend; this file does not execute tools or collect credentials.</p>
-  </section>
+    <li>
+      <h3>Sign in to AWS</h3>
+      <p>Choose a profile name that is not <code>default</code>. The native AWS CLI login opens your browser for account selection, consent and MFA; the controller never sees or stores a password or key. Use <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device.</p>
+<pre><code>./workspace login --profile my-workspace --region us-east-1
+./workspace auth-check --profile my-workspace --region us-east-1</code></pre>
+      <p class="meta">A successful login shows the account and identity. It does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
+      <label class="check"><input type="checkbox" data-note="aws"><span>Personal note: signed in to AWS.</span></label>
+    </li>
 
-  <section id="migration">
-    <h2>Remaining work, in implementation order</h2>
-    <p>M0 baseline is recorded. M1 short configuration and M2 tools/login have source milestones in PR27/28; full discovery, grants and native platform acceptance remain. The next source task is foundation/access onboarding, reusing the existing roots and guarded Python engine.</p>
-    <ol class="milestones">
-      <li><details open><summary>M3 + remaining M1: foundation, identity and repository access</summary><ul class="todo-list"><li>Generalize account/project/operator bindings in roots and scope validators together. Keep the reviewed region/image profile; discover eligible RAM-first capacity and estimated costs, with an optional chosen price ceiling.</li><li>Drive separate bootstrap/platform roots; capture outputs automatically. Reuse only after exact identity, ownership, state lineage and guard checks. Never adopt a resource just because its name matches.</li><li>Use public HTTPS without credentials. For private GitHub, register a project-scoped read-only deploy key when permitted, store it through the existing secret route and keep private keys out of plans/state/logs. Add portable RAM-backed key handling for macOS.</li><li><strong>Pass when:</strong> no manual ARNs/hashes/secret versions; interrupted onboarding reconciles state; an unrelated resource or unsupported grant stops before compute.</li></ul></details></li>
-      <li><details><summary>M4: ingestion before compute</summary><ul class="todo-list"><li>Separate adapters for confirmed local files/directories, S3 and public HTTPS. No private remote platform or cross-cloud transfer in the first release.</li><li>Stream bounded transfers; seal a manifest with paths, bytes, checksums and native object versions. Reject changed local files and mixed snapshots. Reuse verified completed objects; handle or abort only operation-owned incomplete multipart uploads.</li><li>Show source/destination, transfer limits and fees in the scope. Failed ingestion must launch no VM and must not delete unrelated objects.</li><li><strong>Pass when:</strong> multi-file inputs, spaces, changed files, interruptions, checksums and a non-sensitive file above the old 1 MiB fixture bound are covered. Use bounded tests and remove their owned payloads afterward.</li></ul></details></li>
-      <li><details><summary>M5: ordinary project setup, execution and outputs</summary><ul class="todo-list"><li>Reuse exact-revision checkout and non-root execution. Run the external repository's explicit setup and run argument arrays on every job Deploy; never execute it locally to guess commands.</li><li>Persist only declared output paths and bounded logs. Replace mandatory fixture hashes with separate infrastructure, setup, job, output-transfer and cleanup outcomes; keep tiny deterministic assertions in acceptance tests.</li><li><strong>Pass when:</strong> two small repositories with different entrypoints run without source edits or pre-known output hashes; setup failure, timeout and failed output transfer remain distinct from cleanup success.</li></ul></details></li>
-      <li><details><summary>M6: one Deploy, status and recovery</summary><ul class="todo-list"><li>Compose configuration → scope review → foundation/access → ingestion → guard/launch → execution → output verification → teardown. Bind every inspected immutable plan to the existing task authorization.</li><li>Add a durable operation journal, workspace lock and bounded status/logs/cancel/resume. Reconcile exact remote ownership after interruption; never retry an uncertain launch blindly.</li><li>Keep the provider expiry guard through partial failures and controller loss. Scope expansion or persistent-resource deletion needs a new decision; routine stages do not.</li><li><strong>Pass when:</strong> no manual generated-file edits, no repeated routine prompts, no duplicate VM after retries, and an exact recovery instruction for partial/unknown outcomes.</li></ul></details></li>
-      <li><details><summary>M7 + remaining M2: native acceptance and distribution</summary><ul class="todo-list"><li>Accept clean Linux and macOS install → browser authentication → project configuration → review → job → retained results → verified teardown. Record the exact architectures and operator identities tested.</li><li>Repeat using retained data; cover public/private repos and the supported source routes. Keep offline/mocked checks routine and native trials separately bounded and authorized.</li><li>Publish versioned release artifacts with integrity metadata and a first-download quickstart, replacing manual source checkout. Clean all owned test images, volumes, caches, temporary runtimes and payloads after each trial.</li><li><strong>Pass when:</strong> the journey needs no author's absolute paths, credentials or historical receipts. GCP/Azure and hosted/browser execution remain later independent work.</li></ul></details></li>
-    </ol>
-    <div class="note"><strong>Decisions already settled:</strong> AWS first; Linux and macOS; job mode runs declared dependency setup and entrypoint on every Deploy; local/S3/public HTTPS ingestion first. Continue improving Python, use Bash for initial installation, and retain OpenTofu. Recommended private access: the existing read-only deploy-key route. A browser controller and GitHub App are later options.</div>
-    <p style="margin-top:16px"><strong>Needed for the first live trial:</strong> an explicit permitted AWS profile/account, selected project/repository/ref, non-sensitive dataset, output paths and reviewed cost/lifetime limits. These are concrete deployment inputs, not blockers for the next source milestone.</p>
-  </section>
+    <li>
+      <h3>Connect private GitHub access only when needed</h3>
+      <div class="variant" data-repo="public"><span class="label">Public repository</span>
+        <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>. No GitHub login is required anywhere.</p></div>
+      <div class="variant" data-repo="private"><span class="label">Private repository</span>
+        <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, install the managed GitHub CLI and log in once. You need admin permission on that repository: Deploy registers a read-only deploy key for it and stores the private key only in AWS Secrets Manager.</p>
+<pre><code>./workspace setup --github
+./workspace github-login</code></pre></div>
+      <label class="check"><input type="checkbox" data-note="github"><span>Personal note: repository access settled.</span></label>
+    </li>
 
-  <section id="automation">
-    <h2>Original feasibility audit</h2>
-    <p>These counts describe the 16 steps in the <a href="aws-automation-feasibility.md">9 October audit</a>, assuming a funded account and sufficient access. They describe feasibility, not current completion or every assisted OS setup action.</p>
-    <div class="counts">
-      <div class="count"><span class="number">12</span><span class="label">Automatable steps</span><span class="small">Install, discover, configure, plan, provision, transfer, execute, observe and clean up.</span></div>
-      <div class="count"><span class="number">2</span><span class="label">Assisted access steps</span><span class="small">AWS sign-in and private GitHub access. Browser consent and MFA stay with you.</span></div>
-      <div class="count"><span class="number">2</span><span class="label">User decisions</span><span class="small">Choose project inputs; authorize the displayed deployment scope.</span></div>
-    </div>
-    <div class="note"><strong>Current evidence:</strong> PR24 proved guarded EC2 launch, private checkout, Make execution, S3 verification and compute teardown. PR28 passed clean Linux x86_64 installation without prior Python/AWS CLI/OpenTofu. macOS paths and assisted login have offline checks; native macOS and browser-login acceptance are pending. These results do not establish generic deployment readiness.</div>
-  </section>
+    <li>
+      <h3>Fill a short project configuration</h3>
+      <p>Copy the example anywhere outside the source tree and edit it: your profile, project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), the repository URL and branch/tag/commit, the project's own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
+<pre><code>mkdir -p ~/aws-workspace/demo
+cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
+"${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
+      <p class="meta">Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
+      <label class="check"><input type="checkbox" data-note="project"><span>Personal note: project file written.</span></label>
+    </li>
 
-  <footer>
-    <p><a href="aws-automation-feasibility.md">Full feasibility audit</a> · <a href="../goal/workspace/07_AWS_AUTOMATION.md">Milestones and acceptance criteria</a> · <a href="../goal/workspace/08_AWS_AUTOMATION_HANDOFF.md">Implementation handoff</a> · <a href="operations/aws-workspace.md">Current advanced AWS commands</a></p>
-    <p class="meta">Updated 10 October 2026 against PR27 at 4622a05 and PR28 at d430823. Native job evidence: PR24 on 9 October 2026. This guide update made no cloud, login or data-transfer changes. Checklist notes never establish runtime readiness or deployment authorization.</p>
-  </footer>
+    <li>
+      <h3>Run doctor and resolve remaining actions</h3>
+      <p>Doctor reports <strong>Ready</strong>, <strong>Action needed</strong> or <strong>Unknown</strong> for the managed tools, the AWS identity of your profile, GitHub access (private repositories only), the project file and the last operation, each with the exact next command. It installs nothing, logs in nowhere and creates no resources.</p>
+<pre><code>./workspace doctor ~/aws-workspace/demo/project.json</code></pre>
+      <p class="meta">Repeat until the last line reads <code>Ready: review and deploy with …</code>. Add <code>--debug</code> for bounded, redacted diagnostics (tool versions, lock state, variable names only).</p>
+    </li>
+
+    <li>
+      <h3>Review and Deploy</h3>
+      <p>The first command resolves the account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one immutable scope, prints it, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
+<pre><code>./workspace ~/aws-workspace/demo/project.json
+./workspace ~/aws-workspace/demo/project.json status --wait 30</code></pre>
+      <p class="meta">For automation, pass <code>--authorization 'Approve the displayed scope'</code> instead of the prompt; nothing launches without one of the two. Stage progress (artifacts, foundation, repository, ingestion, prepare, launch, job, verify, cleanup) prints as it happens. Every saved OpenTofu plan is still inspected and bound to that one authorization; no ARN, hash or state path is copied by hand. A changed file or source needs a new review.</p>
+    </li>
+
+    <li>
+      <h3>Locate output and confirm compute cleanup</h3>
+      <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>outputs</code> is the S3 location of your declared output paths; <code>compute cleanup: success</code> together with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable.</p>
+<pre><code>./workspace ~/aws-workspace/demo/project.json status
+./workspace ~/aws-workspace/demo/project.json logs</code></pre>
+      <p class="meta">Both print <code>output_uri</code>, the <code>s3://…/output/</code> prefix holding your declared paths and bounded logs; browse it in the S3 console or with your own AWS CLI. Retained on purpose: the dataset and output buckets, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can continue to cost money; deleting them is a separate reviewed decision. A second Deploy with the same data verifies and reuses the retained versions without uploading again.</p>
+    </li>
+  </ol>
+  <p id="status" class="meta"></p>
+
+  <h2>Installation failed: repair and retry</h2>
+  <div class="note warn">
+    <p><strong>Something is broken or half installed.</strong> Rebuild the managed tools; logins, project files, shell settings, state, saved plans and operation evidence are untouched, and the previous tools stay selected if the rebuild fails.</p>
+<pre><code>./workspace setup --fresh
+./workspace doctor ~/aws-workspace/demo/project.json --debug</code></pre>
+    <p>If setup stops with <code>install.lock</code>: a setup that exited is recovered automatically; a running setup is reported with its process ID. Only when the message says the lock has no verifiable owner and you are sure nothing is running anywhere, remove the exact directory it names.</p>
+    <p><strong>The launcher itself is broken.</strong> Source checkout: <code>git status</code>, then <code>git checkout -- workspace scripts</code> restores the tracked files. Published release: rerun the same version's <code>install.sh --restore</code>; it verifies the archive checksum, puts back only changed release files and keeps evidence, tools and older versions.</p>
+    <p><strong>A Deploy was interrupted.</strong> That is not an installation problem. Run <code>./workspace project.json resume</code> (reconciles owned resources, never repeats a launch) or <code>cancel</code>. Fresh setup never touches operations.</p>
+  </div>
+
+  <h2>What is and is not accepted yet</h2>
+  <div class="note">
+    <p>The complete install → login → configure → Deploy → retained reuse journey has offline, mocked coverage and a clean Ubuntu container install without preinstalled Python. Native acceptance still pending for the generic journey: a clean macOS and Linux arm64 install with real browser login, a real generic job with durable outputs, retained-data reuse against the live account, controller-loss drills and verified teardown. One bounded private SSH/Make job passed natively earlier. Details and the exact authorization needed: <a href="operations/aws-native-acceptance.md">native acceptance scope</a>.</p>
+  </div>
+
+  <h2>More</h2>
+  <table>
+    <tr><th>Topic</th><th>Where</th></tr>
+    <tr><td>Commands in one page</td><td><a href="operations/aws-deployer-quickstart.md">Deployer quickstart</a>, <code>./workspace --help</code></td></tr>
+    <tr><td>Installer details, checks and flags, repair</td><td><a href="operations/aws-workstation-setup.md">Workstation setup</a></td></tr>
+    <tr><td>What Deploy does, recovery behaviour</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
+    <tr><td>Account prerequisites (owner actions)</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
+    <tr><td>Contributing, license status, releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
+  </table>
 </main>
 <script>
 (() => {
   'use strict';
-  const root = document.getElementById('setup-guide');
-  const host = document.getElementById('guide-host');
-  const auth = document.getElementById('guide-auth');
-  const repo = document.getElementById('guide-repo');
-  const list = document.getElementById('guide-stages');
-  const picker = document.getElementById('guide-stage-picker');
-  const detail = document.getElementById('guide-detail');
-  const progress = document.getElementById('guide-checklist');
-  const storage = document.getElementById('guide-storage');
-  const key = 'ray-aws-setup-guide-v1';
-  const steps = [
-    {id:'checkout', title:'Get the deployer code', kind:'YOU · source checkout', status:'Available · release packaging pending', todo:true,
-      text:'Start from the PR28 branch, which includes PR27. On a machine without Git, download its source archive in your browser and extract it using your OS archive tools. Release packaging is still a TODO.',
-      tasks:['Obtain the PR28 checkout, not the older audit checkout.','Open a terminal in the extracted repository root.'],
-      link:['Download PR28 source archive','https://github.com/Bboissen/Ray_terraform/archive/refs/heads/feat/aws-workstation-setup.zip']},
-    {id:'tools', title:'Prepare OS tools and install', kind:'ASSISTED → AUTOMATIC', status:() => host.value === 'linux' ? 'Clean Linux x86_64 install passed; arm64 native acceptance pending' : 'macOS 13+ Intel/Apple Silicon paths exist; native acceptance pending', todo:true,
-      text:() => host.value === 'linux' ? 'On Ubuntu/Debian, explicit system-package setup can install missing native utilities through signed OS repositories. Sudo may ask for your password. Then pinned tools are downloaded, hash-checked and installed in a user-owned prefix.' : 'Install Apple Command Line Tools if missing and finish the native dialog. Then the Bash installer selects verified user-owned AWS CLI, OpenTofu, Python/uv and Session Manager tools.',
-      tasks:['Verify that native prerequisites are available.','Run setup and check-only from the PR28 checkout.'],
-      command:() => host.value === 'linux' ? 'bash scripts/aws/workspace.sh setup --system-packages\nbash scripts/aws/workspace.sh setup --check' : '# Only if Apple Command Line Tools are missing:\nxcode-select --install\n# Finish the native dialog, then:\nbash scripts/aws/workspace.sh setup\nbash scripts/aws/workspace.sh setup --check'},
-    {id:'aws', title:'Sign in to AWS', kind:'ASSISTED · browser / MFA', status:'Login assistant implemented; native browser acceptance pending', todo:true,
-      text:() => auth.value === 'sso' ? 'Use an explicit non-default profile. A new SSO profile invokes native configuration: supply the organization start URL and directory region, then choose an allowed account/role and complete consent. SSO login does not establish generalized deployment grants.' : 'Use an explicit non-default profile and a permitted non-root identity. Complete account selection, consent and MFA in the native browser flow. Do not create static access keys.',
-      tasks:['Complete native login without recording credentials in this guide.','Verify that CLI and SDK resolve the same principal; foundation/provider checks follow later.'],
-      command:() => 'bash scripts/aws/workspace.sh login --profile my-workspace --region us-east-1' + (auth.value === 'sso' ? ' --method sso' : '') + '\nbash scripts/aws/workspace.sh auth-check --profile my-workspace --region us-east-1'},
-    {id:'project', title:'Choose project inputs', kind:'YOU · project decision', status:'Schema and validation implemented in PR27', todo:true,
-      text:'Edit the short JSON configuration using your profile, friendly names, local/S3/public HTTPS source, repository/ref, setup/run argument arrays, output paths and a 15–60 minute runtime. Current deployment profile: us-east-1. Keep credentials out of the file.',
-      tasks:['Supply explicit commands from the external project, rather than guessing.','Choose a non-sensitive first trial dataset and declared output paths.'],
-      command:'mkdir -p evidence/aws/configuration\ncp infra/aws/project.example.json evidence/aws/configuration/project.json\n# Edit project.json before continuing.'},
-    {id:'github', title:'Authorize private GitHub access', kind:'ASSISTED · repository consent', status:'Workstation login implemented; VM access onboarding pending', todo:true,
-      text:'Complete GitHub browser consent. The CLI installs GitHub CLI if needed. This verifies workstation access only: a read-only deploy key and its reviewed secret reference must still be onboarded for the VM, with repository-owner permission.',
-      tasks:['Authorize access to the selected private repository.','Confirm owner/admin permission or an approved existing VM credential route.'],
-      command:'bash scripts/aws/workspace.sh github-login'},
-    {id:'configure', title:'Discover and save configuration', kind:'AUTOMATIC · read-only', status:'configure/status implemented; execution_supported remains false', todo:true,
-      text:'Resolve account identity and advertised Git revision, generate resource names and inspect local dataset metadata. Configuration does not upload, provision or run project commands. Remote dataset sizes, foundation lineage, capacity/prices and VM access remain unresolved.',
-      tasks:['Inspect the returned operation directory, resolved intent and named prerequisites.','Keep the operation receipt; no manual generated ARN/hash editing is needed for configuration.'],
-      command:'bash scripts/aws/workspace.sh evidence/aws/configuration/project.json configure\n# Use the returned operation directory:\nbash scripts/aws/workspace.sh evidence/aws/configuration/project.json status evidence/aws/operations/OPERATION_ID'},
-    {id:'onboard', title:'Prepare foundation and access plans', kind:'IMPLEMENTATION TODO · M3 + M1', status:'Generic first-use onboarding is not implemented',
-      text:'Generalize exact account/operator scope, discover supported capacity and prices, and prepare bootstrap/platform/access plans. Capture outputs and state lineage automatically. Reuse only resources with verified ownership; public and private VM access require their own route.',
-      tasks:['Reuse the existing separate roots and saved-plan validators.','Add scoped deploy-key registration and portable key handling.','Stop on unrelated resources or missing owner grants before compute.']},
-    {id:'review', title:'Review one deployment scope', kind:'YOU · future Deploy decision', status:'Bounded-job authorization exists; short-config Deploy is pending',
-      text:'The review must show account, region, exact resources, repository commit, transfer limits, estimated costs, retained storage and maximum lifetime. One task authorization covers routine stages; every later immutable plan is still inspected and bound to that scope.',
-      tasks:['Accept concrete project/access/transfer/compute scope once composed.','Choose any desired price ceiling; RAM-first remains the sizing policy.','A checklist note is never authorization.']},
-    {id:'ingest', title:'Create or reuse storage and ingest', kind:'IMPLEMENTATION TODO · M3 / M4', status:'No generic provisioning or data transfer from the short config',
-      text:'After approval, create or verify separate state/workload storage and stage selected input before starting compute. Stream local, S3 or public HTTPS bytes; seal checksums and exact object versions. Reuse verified data and abort only operation-owned incomplete uploads.',
-      tasks:['Detect source changes and mixed snapshots.','Keep memory, disk scratch and transfer concurrency bounded.','If ingestion fails, launch no compute.']},
-    {id:'execute', title:'Launch, install and run', kind:'PROVEN CORE + TODO · M5', status:'Bounded private SSH/Make works; generic setup/run remains pending',
-      text:'Reuse the pre-armed provider lifetime guard and EC2 lifecycle. Clone the exact revision, remove clone credentials, then run declared setup/run commands as non-root on every job Deploy. Report project setup and job errors independently.',
-      tasks:['Add public HTTPS and arbitrary explicit command arrays.','Preserve expiry through partial launch and controller failure.','Keep fixture assertions outside generic project success.']},
-    {id:'cleanup', title:'Persist results, clean up and recover', kind:'PROVEN CORE + TODO · M5 / M6', status:'Bounded S3 verification and teardown proven; generic outcomes/journal pending',
-      text:'Persist declared outputs, verify native versions, delete owned compute even after failure and recheck retained results. Add durable stage status, locking and reconciliation so interruption/retry cannot duplicate a VM. Keep datasets, state and small operational receipts.',
-      tasks:['Separate setup/job/output/cleanup outcomes.','Retain expiry until owned-compute absence is verified.','After tests, remove exact owned images, volumes, caches and temporary payloads; preserve unrelated/user-installed resources.']}
-  ];
-  const validIds = new Set(steps.map(step => step.id));
-  let state = {host:'linux', auth:'console', repo:'private', selected:'checkout', checked:{}};
-  let writable = true;
-  try {
-    const saved = JSON.parse(localStorage.getItem(key));
+  document.documentElement.classList.add('js');
+  const host = document.getElementById('host'), repo = document.getElementById('repo'), pick = document.getElementById('pick');
+  const status = document.getElementById('status'); const key = 'aws-workspace-checklist-v2';
+  let state = {host: 'linux', repo: 'public', notes: {}}; let writable = true;
+  try { const saved = JSON.parse(localStorage.getItem(key) || 'null');
     if (saved && typeof saved === 'object') {
-      if (['linux','macos'].includes(saved.host)) state.host = saved.host;
-      if (['console','sso'].includes(saved.auth)) state.auth = saved.auth;
-      if (['private','public'].includes(saved.repo)) state.repo = saved.repo;
-      if (validIds.has(saved.selected)) state.selected = saved.selected;
-      for (const step of steps) if (step.todo && saved.checked && saved.checked[step.id] === true) state.checked[step.id] = true;
-    }
-  } catch { writable = false; }
-  host.value = state.host; auth.value = state.auth; repo.value = state.repo;
-  const value = input => typeof input === 'function' ? input() : input;
-  const visible = () => steps.filter(step => step.id !== 'github' || repo.value === 'private');
+      if (['linux', 'macos', 'all'].includes(saved.host)) state.host = saved.host;
+      if (['public', 'private', 'all'].includes(saved.repo)) state.repo = saved.repo;
+      if (saved.notes && typeof saved.notes === 'object') for (const k of Object.keys(saved.notes)) if (saved.notes[k] === true) state.notes[k] = true;
+    } } catch { writable = false; }
+  const boxes = [...document.querySelectorAll('input[data-note]')];
   function remember() {
-    state.host = host.value; state.auth = auth.value; state.repo = repo.value;
     if (writable) try { localStorage.setItem(key, JSON.stringify(state)); } catch { writable = false; }
-    if (!writable) storage.textContent = 'Browser storage is unavailable; checklist notes last only while this page is open. No credentials or project inputs are collected.';
-  }
-  function element(tag, text, className) {
-    const node = document.createElement(tag);
-    if (text !== undefined) node.textContent = text;
-    if (className) node.className = className;
-    return node;
+    const done = boxes.filter(b => b.checked).length;
+    status.textContent = `Personal notes: ${done} of ${boxes.length} steps marked. These notes are not verified readiness; run ./workspace doctor.` +
+      (writable ? ' Only host/repository choices and these notes are kept in this browser.' : ' Browser storage is unavailable; notes last while this page is open.');
   }
   function render() {
-    const shown = visible();
-    if (!shown.some(step => step.id === state.selected)) state.selected = 'configure';
-    list.replaceChildren(); picker.replaceChildren();
-    for (const [index, step] of shown.entries()) {
-      const option = element('option', `${index + 1}. ${step.title}`); option.value = step.id; picker.append(option);
-      const item = element('li'); const button = element('button');
-      button.type = 'button'; button.dataset.step = step.id;
-      button.setAttribute('aria-pressed', String(step.id === state.selected));
-      button.setAttribute('aria-controls', 'guide-detail');
-      if (!step.todo) button.className = 'pending';
-      button.append(element('span', `${index + 1}. ${step.title}`), element('span', step.kind, 'kind'));
-      button.addEventListener('click', () => { state.selected = step.id; render(); remember(); list.querySelector(`[data-step="${step.id}"]`).focus({preventScroll:true}); });
-      item.append(button); list.append(item);
+    for (const el of document.querySelectorAll('.variant')) {
+      const h = el.dataset.host, r = el.dataset.repo;
+      el.style.display = (h && state.host !== 'all' && h !== state.host) || (r && state.repo !== 'all' && r !== state.repo) ? 'none' : 'block';
     }
-    picker.value = state.selected;
-    const step = shown.find(item => item.id === state.selected);
-    detail.replaceChildren(element('span', value(step.status), 'status'), element('h3', step.title), element('p', value(step.text)));
-    const tasks = element('ul'); step.tasks.forEach(text => tasks.append(element('li', text))); detail.append(tasks);
-    if (step.link) { const link = element('a', step.link[0]); link.href = step.link[1]; detail.append(link); }
-    if (step.command) {
-      const command = value(step.command); const pre = element('pre'); pre.append(element('code', command)); detail.append(pre);
-      const actions = element('div', undefined, 'guide-actions'); const copy = element('button', 'Copy commands'); copy.type = 'button';
-      const result = element('span', '', 'small'); result.setAttribute('aria-live', 'polite');
-      copy.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(command); result.textContent = 'Copied. Run manually in your terminal.'; }
-        catch { result.textContent = 'Clipboard unavailable. Select and copy the command text above.'; }
-      }); actions.append(copy, result); detail.append(actions);
-    }
-    if (step.todo) {
-      const label = element('label', undefined, 'check'); const check = element('input'); check.type = 'checkbox'; check.id = 'guide-note'; check.checked = state.checked[step.id] === true;
-      check.addEventListener('change', () => { state.checked[step.id] = check.checked; updateProgress(); remember(); });
-      label.append(check, element('span', 'Personal note: I completed these setup tasks')); detail.append(label);
-    } else detail.append(element('p', 'Implementation TODO — no automatic command is available for this short-config stage yet.', 'small'));
-    updateProgress();
   }
-  function updateProgress() {
-    const tasks = visible().filter(step => step.todo);
-    const checked = tasks.filter(step => state.checked[step.id] === true).length;
-    progress.textContent = `Personal setup checklist: ${checked} of ${tasks.length} stages noted complete. Generic Deploy remains blocked by implementation TODOs.`;
+  host.value = state.host; repo.value = state.repo; pick.hidden = false;
+  host.addEventListener('change', () => { state.host = host.value; render(); remember(); });
+  repo.addEventListener('change', () => { state.repo = repo.value; render(); remember(); });
+  for (const box of boxes) { box.checked = state.notes[box.dataset.note] === true;
+    box.addEventListener('change', () => { if (box.checked) state.notes[box.dataset.note] = true; else delete state.notes[box.dataset.note]; remember(); }); }
+  for (const pre of document.querySelectorAll('pre')) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'copy'; button.textContent = 'Copy commands';
+    const result = document.createElement('span'); result.className = 'copied'; result.setAttribute('aria-live', 'polite');
+    button.addEventListener('click', async () => {
+      const text = pre.textContent;
+      try { if (!navigator.clipboard) throw new Error('no clipboard'); await navigator.clipboard.writeText(text); result.textContent = 'Copied; run it in your terminal.'; }
+      catch { try { const range = document.createRange(); range.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); result.textContent = 'Clipboard unavailable; the command is selected, copy it with your keyboard.'; }
+             catch { result.textContent = 'Clipboard unavailable; select and copy the command text above.'; } }
+    });
+    pre.insertAdjacentElement('afterend', button); button.insertAdjacentElement('afterend', result);
   }
-  for (const control of [host, auth, repo]) control.addEventListener('change', () => {
-    // Changing an access route or host invalidates the corresponding personal note.
-    if (control === host) delete state.checked.tools;
-    if (control === auth) delete state.checked.aws;
-    if (control === repo) delete state.checked.github;
-    render(); remember();
-  });
-  picker.addEventListener('change', () => { state.selected = picker.value; render(); remember(); });
-  render(); root.hidden = false;
-  if (!writable) storage.textContent = 'Browser storage is unavailable; checklist notes last only while this page is open. No credentials or project inputs are collected.';
+  render(); remember();
 })();
 </script>
 </body>

@@ -48,6 +48,16 @@ owned by their original tasks.
 The AWS Session Manager permission follows the official
 [operator policy examples](https://docs.aws.amazon.com/systems-manager/latest/userguide/getting-started-restrict-access-quickstart.html).
 
+## Setup checks inventory
+
+The user-facing installer and login checks were audited after this source audit.
+The disposition of every gate (removed, replaced by a capability check, advisory,
+or retained with an actionable error) is the inventory table in
+[workstation setup](operations/aws-workstation-setup.md#checks-and-flags-inventory).
+Historical explicit-configuration paths in `workspace_lifecycle.py` still pin the
+original accepted account for their fixture packets; the short-configuration
+Deploy resolves the account from the selected profile instead.
+
 ## Simplification
 
 `./workspace project.json` is the primary review command. Adding

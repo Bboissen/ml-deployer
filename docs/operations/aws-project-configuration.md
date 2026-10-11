@@ -6,10 +6,11 @@ advertised branch/tag commit, generates stable names and storage/backend paths,
 and inspects local dataset metadata. It never uploads data, executes project
 commands, changes credentials, initializes state or provisions infrastructure.
 
-This is the first configuration milestone. Generic deployment from these records
-remains blocked. Continue using the [explicit configuration workflow](aws-workspace.md)
-for the existing bounded AWS job. Its exact plan checks, authorization, expiry,
-failure cleanup and acceptance assertions remain in place.
+Ordinary use never calls `configure` directly: `./workspace project.json`
+prepares this operation as the first step of its review, and
+`./workspace doctor project.json` validates the file beforehand. The historical
+[explicit configuration workflow](aws-workspace.md) remains available for the
+bounded fixture job with its own plan checks, authorization and cleanup.
 
 ## Project input
 
@@ -39,8 +40,8 @@ regular file is valid metadata input. The scan is bounded to 100000 files/30 sec
 records total bytes, count and a metadata fingerprint without reading file content.
 This fingerprint is not a content checksum or immutable upload manifest.
 
-S3 and HTTPS declarations are retained with unknown sizes and pending verification;
-their transfer adapters are not implemented by this command. Other schemes,
+S3 and HTTPS declarations are retained with unknown sizes at configuration time;
+Deploy's ingestion stage reads and verifies them before any compute. Other schemes,
 embedded credentials, signed query strings and fragments are rejected. Keep
 credentials out of project commands and configuration; use owner-managed native
 credential stores for assisted login.
@@ -51,11 +52,11 @@ Run from the repository root. The [workstation installer](aws-workstation-setup.
 provides the locked controller runtime and selected operator tools:
 
 ```bash
-bash scripts/aws/workspace.sh setup
-mkdir -p evidence/aws/configuration
-cp infra/aws/project.example.json evidence/aws/configuration/project.json
+./workspace setup
+mkdir -p ~/aws-workspace/demo
+cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
 # Edit the profile, dataset source, repository/ref and project commands.
-bash scripts/aws/workspace.sh evidence/aws/configuration/project.json configure
+./workspace ~/aws-workspace/demo/project.json configure
 ```
 
 Default discovery makes only STS `GetCallerIdentity` and a bounded `git ls-remote`
@@ -70,8 +71,7 @@ The response gives `operation_directory`, a review document and unresolved
 prerequisites. Substitute the returned directory to inspect the saved preparation:
 
 ```bash
-bash scripts/aws/workspace.sh evidence/aws/configuration/project.json \
-  status evidence/aws/operations/OPERATION_ID
+./workspace ~/aws-workspace/demo/project.json status evidence/aws/operations/OPERATION_ID
 ```
 
 Status is immediate and local. Changed inputs, changed artifacts or evidence
@@ -116,13 +116,10 @@ preparation never becomes a complete registry entry. `deployment.json` versions
 the resolved intent, field provenance, names, selected profile, repository pin,
 dataset metadata, setup/run/output choices and retention/expiry policy.
 
-Every preparation reports `execution_supported: false` and
-`deployment_authorized: false`. Foundation ownership/lineage, fresh quota/image/
-offering/price discovery, runtime repository access, ingestion and generic execution
-remain named prerequisites. Existing native account/operator/profile limits are
-preserved until corresponding roots and scope validators are generalized together.
-Linux and macOS remain first-release installer requirements; this milestone does
-not claim macOS private-key preflight or a workstation installer is accepted.
+Every preparation reports `deployment_authorized: false`; its `pending` list
+names what the Deploy review resolves next (foundation ownership/lineage,
+quota/offering/price discovery, runtime repository access, ingestion and generic
+execution). Configuration alone never authorizes or launches anything.
 
 Run `make aws-project-config-test` for meaningful offline configuration checks.
 The tests also run in the AWS scaffold suite. See the
