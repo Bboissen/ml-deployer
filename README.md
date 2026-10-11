@@ -33,17 +33,31 @@ selected account's remaining regional/family quotas, then prefer more vCPUs.
 Review the exact size, image/zone compatibility and costs; do not increase quotas
 or silently downsize. See the [global sizing policy](goal/README.md#execution-rules).
 
-For AWS operator use, start with `bash scripts/aws/workspace.sh setup`; subsequent
-CLI commands select the managed tools automatically. For repository development,
-install the separate hash-locked Python 3.13 test environment, then validate:
+Start from the [short project configuration](infra/aws/project.example.json),
+authenticate your AWS profile, then review and launch from the checkout:
+
+```bash
+./workspace /absolute/path/project.json
+./workspace /absolute/path/project.json --authorization 'Approved deployment scope'
+```
+
+The first command resolves the account, capacity, repository revision and dataset
+into an immutable review. The second launches that reviewed scope. Pinned local
+tools install automatically when needed; `./workspace --help` needs no installation.
+Use the same config with `status`, `connect`, `logs`, `resume` or `cancel`.
+The original `scripts/aws/workspace.sh` command remains compatible.
+
+For repository development, install the separate hash-locked Python 3.13 test
+environment, then validate:
 
 ```bash
 make workspace-test-setup  # package downloads; no cloud account operation
-make check                 # workspace tests and nine existing provider roots
+make check                 # complete controller, workspace and provider checks
 make historical-check      # explicit preserved batch/demo regression suite
 ```
 
-Routine tests query no cloud accounts or APIs. Backend-disabled OpenTofu init
+The [deployer audit](docs/deployer-audit.md) records fixes and remaining acceptance
+limits. Routine tests query no cloud accounts or APIs. Backend-disabled OpenTofu init
 may download pinned providers. Offline passing results are not live readiness.
 The acceptance example checks tiny `1, 2, 3, 4` bucket fixture values for count 4,
 sum 10, mean 2.5 and stable JSON round-trip bytes. Its offline transfers are

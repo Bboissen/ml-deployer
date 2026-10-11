@@ -17,8 +17,8 @@ Until a release is published, check out the accepted source branch and run:
 ```sh
 git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
-git switch feat/aws-deployer-release
-bash scripts/aws/workspace.sh setup --github
+git switch refactor/deployer-audit
+./workspace setup --github
 ```
 
 After an approved `v0.1.0-rc.1` release is published, its standalone installer
@@ -37,15 +37,18 @@ TLS; it provides corruption detection within that publisher trust, not an
 independent signature. Tool archives and Python wheels use the committed hash
 locks. Installation changes no shell profile and makes no account API calls.
 Use `$HOME/.local/share/aws-workspace/bin/aws-workspace` for a published install,
-or `scripts/aws/workspace.sh` for a source checkout, as the CLI below.
+or `./workspace` for a source checkout, as the CLI below.
 
 ```sh
-scripts/aws/workspace.sh login --profile temporary --region us-east-1
-scripts/aws/workspace.sh github-login
-scripts/aws/workspace.sh auth-check --profile temporary --region us-east-1
+./workspace login --profile temporary --region us-east-1
+./workspace github-login
+./workspace auth-check --profile temporary --region us-east-1
 ```
 
-Use temporary native identities, not permanent AWS keys. An ordinary IAM user
+Use temporary native identities, not permanent AWS keys. The source operator
+needs existing permission to manage its own scoped terminal grant. The routine
+deployer cannot change operator IAM policies; it cannot grant that authority
+to itself. An ordinary IAM user
 with temporary credentials or owner-managed role can be resolved; reserved SSO
 roles need the owner-managed role route. AWS login and GitHub login do not prove
 VM repository grants. Private repositories require permission to register a
@@ -67,7 +70,7 @@ and public HTTPS files with strong ETags and known size are supported. Signed
 URLs, private HTTP, symlinks, special files and cross-region S3 are rejected.
 
 ```sh
-scripts/aws/workspace.sh /absolute/project/project.json deploy
+./workspace /absolute/project/project.json
 ```
 
 Review the displayed account/operator, region/zone, repository commit, source
@@ -76,12 +79,14 @@ fee categories and absolute lifetime policy. Without authorization this command
 makes no mutation. To bind that saved scope and proceed:
 
 ```sh
-scripts/aws/workspace.sh /absolute/project/project.json deploy \
+./workspace /absolute/project/project.json \
   --authorization 'Approve the displayed account, resources, access, bytes, cost and lifetime scope'
-scripts/aws/workspace.sh /absolute/project/project.json status --wait 30
-scripts/aws/workspace.sh /absolute/project/project.json logs
+./workspace /absolute/project/project.json status --wait 30
+./workspace /absolute/project/project.json logs
 ```
 
+Deploy is the default command; an explicit `deploy` verb remains supported.
+`./workspace --help` runs without downloading tools.
 No ARNs, secret versions, foundation hashes or state paths need to be copied.
 Saved plans are still inspected and individually bound to that task before
 apply. Changes outside the selected scope stop. Dataset ingestion and exact
@@ -98,6 +103,24 @@ setup only; `connect` opens the non-root terminal, and `cancel` or the absolute
 provider expiry ends it. `cancel` records intent; `resume` reconciles recorded
 ownership and never repeats an uncertain launch/command. See
 [operation recovery](aws-deploy-operation.md) for bounded behavior and gaps.
+
+## Existing foundation IAM update
+
+Old foundations that allowed the deployer to change operator permissions are
+blocked before compute launch. Keep the generated runtime configuration and
+workspace directory from that operation; prepare the access update with:
+
+```sh
+./workspace /absolute/operation/runtime.json plan /absolute/operation/workspace access
+```
+
+This uses the existing foundation state. Inspect `access/plan.json` and its
+`review.json`, then apply the exact review hash through the existing `apply`
+command. The allowed IAM update removes the operator-management grant and adds
+an explicit denial for those principals. Public repositories need no Git secret
+for this update. It preserves resource addresses and all other foundation inputs.
+Use the resulting captured foundation outputs for the next operation; never
+edit historical reviews, authorization records or saved plans to bypass the gate.
 
 ## Release and evidence retention
 

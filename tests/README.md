@@ -5,9 +5,15 @@
 1. repository layout, Markdown links, JSON parsing, shell syntax, and diff
    whitespace checks;
 2. workspace request/handoff/readiness, toolbox and deterministic fixture checks;
-3. AWS, GCP, and Azure scaffold tests, including locked
+3. the complete AWS controller, installer, ingestion, job, recovery and release
+   regression suites, each in a disposable source snapshot;
+4. AWS, GCP, and Azure scaffold tests, including locked
    `tofu init -backend=false` and `tofu validate` for all nine roots;
-4. recursive OpenTofu formatting checks.
+5. recursive OpenTofu formatting checks.
+
+Every AWS automation suite records its exact deleted scratch path and verifies
+cleanup. Tests never infer ownership by scanning changes to real operation
+evidence. Existing tools and runtime environments are preserved.
 
 AWS checks include single-configuration rendering, complete production handoff
 validation with mocked OpenTofu user-data, timezone-aware SDK dates, scoped IAM
