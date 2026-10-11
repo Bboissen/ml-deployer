@@ -2,7 +2,8 @@
 # Standalone Bash 3.2 installer. Download/extract/setup only; no cloud actions.
 set -euo pipefail
 umask 077
-version=0.1.0-rc.1
+# package-release.py pins the published installer from shared/workspace/release.json.
+version=''
 prefix="${WORKSPACE_INSTALL_DIR:-$HOME/.local/share/aws-workspace}"
 github=0
 fail() { printf 'aws-workspace-install: %s\n' "$1" >&2; exit 2; }
@@ -16,6 +17,7 @@ while (($#)); do
   esac
   shift
 done
+[[ -n "$version" ]] || fail 'use the packaged installer or pass --version VERSION'
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || fail 'invalid version'
 [[ "$prefix" =~ ^/[A-Za-z0-9_./-]+$ && "$prefix" != / && "$prefix" != *'/../'* && "$prefix" != */.. && "$prefix" != *'/./'* && "$prefix" != */. && "$prefix" != *'//'* ]] || fail 'absolute prefix without traversal, spaces or metacharacters required'
 parent="$prefix"

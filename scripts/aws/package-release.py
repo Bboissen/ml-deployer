@@ -50,7 +50,10 @@ def package(root, output):
                 tar.addfile(info,io.BytesIO(data))
         checksum=hashlib.sha256(archive.read_bytes()).hexdigest()
         archive.with_name(archive.name+'.sha256').write_text(checksum+'  '+archive.name+'\n')
-        (output/'install.sh').write_bytes(content['scripts/aws/install-release.sh'])
+        installer, count = re.subn(r'^version=.*$', 'version='+version,
+            content['scripts/aws/install-release.sh'].decode(), count=1, flags=re.M)
+        require(count == 1, 'release installer version placeholder missing')
+        (output/'install.sh').write_text(installer)
         return {'version':version,'revision':revision,'archive':str(archive),'sha256':checksum,'native_acceptance':release['native_acceptance']}
     except BaseException:
         shutil.rmtree(output); raise

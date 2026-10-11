@@ -39,11 +39,11 @@ class Release(unittest.TestCase):
                  '-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-m','isolated release fixture')
         self.result=P.package(self.repo,self.directory/'artifacts'); self.archive=Path(self.result['archive'])
         self.prefix=self.directory/'installed'; self.shims=self.directory/'shims'; self.shims.mkdir()
-        curl=self.shims/'curl'; curl.write_text('#!'+sys.executable+'\nimport pathlib,shutil,sys\na=sys.argv[1:]\nshutil.copyfile(pathlib.Path('+repr(str(self.archive.parent))+')/a[-1].rsplit("/",1)[-1],a[a.index("-o")+1])\n'); curl.chmod(0o755)
-        self.env={**os.environ,'PATH':str(self.shims)+':'+os.environ['PATH'],'WORKSPACE_PYTHON':sys.executable}
+        curl=self.shims/'curl'; curl.write_text('#!'+sys.executable+'\nimport os,pathlib,shutil,sys\na=sys.argv[1:]\nshutil.copyfile(pathlib.Path(os.environ["MOCK_RELEASE_ASSETS"])/a[-1].rsplit("/",1)[-1],a[a.index("-o")+1])\n'); curl.chmod(0o755)
+        self.env={**os.environ,'PATH':str(self.shims)+':'+os.environ['PATH'],'WORKSPACE_PYTHON':sys.executable, 'MOCK_RELEASE_ASSETS':str(self.archive.parent)}
     def git(self,*args): return subprocess.check_output(['git','-C',str(self.repo),*args],stderr=subprocess.STDOUT,timeout=30)
-    def install(self,**env):
-        return subprocess.run(['bash',str(ROOT/'scripts/aws/install-release.sh'),'--prefix',str(self.prefix)],
+    def install(self,installer=None,**env):
+        return subprocess.run(['bash',str(installer or self.archive.parent/'install.sh'),'--prefix',str(self.prefix)],
                               cwd=self.directory,env={**self.env,**env},capture_output=True,text=True,timeout=30)
     def test_reproducible_committed_archive_contains_no_operational_material(self):
         second=P.package(self.repo,self.directory/'second')
@@ -53,6 +53,20 @@ class Release(unittest.TestCase):
             names=tar.getnames(); self.assertFalse(any('/.git/' in n or '/.tools/' in n or '/evidence/aws/' in n for n in names))
         (self.repo/'README.md').write_text('dirty source')
         with self.assertRaisesRegex((ValueError,AssertionError),'clean committed'): P.package(self.repo,self.directory/'dirty')
+    def test_published_installer_defaults_to_its_own_release_version(self):
+        metadata=self.repo/'shared/workspace/release.json'
+        value=json.loads(metadata.read_text()); value['version']='9.8.7-rc.2'
+        metadata.write_text(json.dumps(value)+'\n')
+        self.git('add','--','shared/workspace/release.json')
+        self.git('-c','user.name=Offline release test','-c','user.email=offline@example.invalid',
+                 '-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-m','next release fixture')
+        next_release=P.package(self.repo,self.directory/'next-release')
+        assets=Path(next_release['archive']).parent
+        result=self.install(assets/'install.sh',MOCK_RELEASE_ASSETS=str(assets))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((self.prefix/'releases'/value['version']/'RELEASE.json').is_file())
+        self.assertFalse((self.prefix/'releases'/self.result['version']).exists())
+
     def test_archive_uses_committed_blobs_during_checkout_changes(self):
         original=P.git; committed=original(self.repo,'show','HEAD:README.md')
         def raced(root,*arguments):
