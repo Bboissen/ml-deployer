@@ -12,7 +12,7 @@ case "${1:-}" in
 Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 
 First use:
-  workspace guide [PROJECT.json]               Install/verify tools, check readiness, open the first-use guide (also: make)
+  workspace guide [PROJECT.json]               Install/verify tools, serve the live first-use guide on 127.0.0.1 (also: make)
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
   workspace github-login                       GitHub login; private repositories only
@@ -96,18 +96,18 @@ if [[ "${1:-}" == doctor ]]; then
     if ((doctor_json)); then
       json_text() { local text="${1//\\/\\\\}"; text="${text//\"/\\\"}"; printf '%s' "${text//[[:cntrl:]]/ }"; }
       printf '{"ready": false, "checked_at": "%s", "config": null, "deploy": null, "rows": [' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf '{"check": "Managed tools", "state": "Action needed", "detail": "%s", "next": "%s"}' "$(json_text "$reason")" "$next"
+      printf '{"check": "Managed tools", "state": "To do", "detail": "%s", "next": "%s"}' "$(json_text "$reason")" "$next"
       for check_name in 'AWS identity' 'GitHub access' 'Project config'; do
-        printf ', {"check": "%s", "state": "Unknown", "detail": "checked after the managed tools are installed", "next": null}' "$check_name"
+        printf ', {"check": "%s", "state": "Not checked", "detail": "checked after the managed tools are installed", "next": null}' "$check_name"
       done
       printf ']}\n'
       exit 1
     fi
-    printf 'AWS workspace doctor\n  %-14s  %-13s  %s\n  %-14s  %-13s  next: %s\n' 'Managed tools' 'Action needed' "$reason" '' '' "$next"
+    printf 'AWS workspace doctor\n  %-14s  %-13s  %s\n  %-14s  %-13s  next: %s\n' 'Managed tools' 'To do' "$reason" '' '' "$next"
     for check_name in 'AWS identity' 'GitHub access' 'Project config'; do
-      printf '  %-14s  %-13s  %s\n' "$check_name" 'Unknown' 'checked after the managed tools are installed'
+      printf '  %-14s  %-13s  %s\n' "$check_name" 'Not checked' 'checked after the managed tools are installed'
     done
-    printf '\nAction needed: run %s, then ./workspace doctor%s again\n' "$next" "${doctor_config:+ ${doctor_config}}"
+    printf '\nNot ready yet: run %s, then ./workspace doctor%s again\n' "$next" "${doctor_config:+ ${doctor_config}}"
     exit 1
   fi
   debug_option=(); ((!doctor_debug)) || debug_option=(--debug); ((!doctor_json)) || debug_option+=(--json)

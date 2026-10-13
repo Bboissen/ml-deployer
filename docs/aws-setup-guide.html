@@ -53,10 +53,10 @@
 <main>
   <p class="eyebrow">AWS · Linux and macOS · updated 13 October 2026</p>
   <h1>AWS workspace: first-use guide</h1>
-  <p class="lead">Run <code>make</code> in the repository folder. It installs the pinned tools, checks what is already done and opens this page with every step marked. Do the next step, run <code>make</code> again, repeat until Deploy.</p>
+  <p class="lead">Run <code>make</code> in the repository folder. It installs the pinned tools and serves this page at <code>http://127.0.0.1:8765/</code> with every step checked live. Do the next step in your terminal; this page re-checks every 20 seconds and shows the one after it, until Deploy.</p>
 
   <div class="note" id="live">
-    <p><strong>No readiness check loaded.</strong> Open this page with <code>make</code> (or <code>./workspace guide</code>) from the repository folder to see which steps are done. Opened any other way, it is a plain checklist.</p>
+    <p><strong>No live readiness.</strong> Run <code>make</code> (or <code>./workspace guide</code>) in the repository folder and open the address it prints to see which steps are done. Opened as a file, this page is a plain checklist.</p>
   </div>
 
   <div class="pick" id="pick" hidden>
@@ -72,7 +72,8 @@
 <pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
 make            # or ./workspace guide when make is not installed</code></pre>
-      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), edits no shell files, logs in nowhere and makes no cloud calls. Then it opens this page.</p>
+      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), edits no shell files, logs in nowhere and makes no cloud calls. Then it serves this page on <code>127.0.0.1</code> only and opens your browser. Keep that terminal running; Ctrl+C stops the guide.</p>
+      <p class="meta">Working on a remote machine (SSH, a cloud desktop, an editor's remote terminal)? <code>make</code> prints the address plus an <code>ssh -L 8765:127.0.0.1:8765 host</code> command; run it on your own computer, then open the same address there. Editors with port forwarding (for example VS Code Remote) can forward port 8765 instead. Use another terminal for the steps below.</p>
       <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
     </li>
 
@@ -81,16 +82,14 @@ make            # or ./workspace guide when make is not installed</code></pre>
       <p>Copy the example and edit it: an AWS profile name of your choice (not <code>default</code>; you sign in with it in the next step), project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), your ML repository URL and branch/tag/commit, its own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
 <pre><code>mkdir -p ~/aws-workspace/demo
 cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
-"${EDITOR:-nano}" ~/aws-workspace/demo/project.json
-make</code></pre>
-      <p class="meta"><code>make</code> checks <code>~/aws-workspace/demo/project.json</code>; for another location use <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
+"${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
+      <p class="meta">The guide checks <code>~/aws-workspace/demo/project.json</code>; for another location stop it and start it with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
     </li>
 
     <li data-step="aws">
       <h3>Sign in to AWS</h3>
       <p>Use the profile and region from your project file; once that file exists, this step shows the exact command. The native AWS CLI login opens your browser for account selection, consent and MFA; the controller never sees or stores a password or key.</p>
-<pre><code>./workspace login --profile my-workspace --region us-east-1
-make</code></pre>
+<pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
       <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device (it prints a link, then you paste the code the browser shows back into the terminal). A successful login does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
       <div class="note warn"><p><strong>Browser shows “400 Bad Request” or another sign-in error?</strong> Each sign-in link works once and only for a few minutes, and only while the login command is still waiting in the terminal. Close that tab, press Ctrl+C in the terminal, run the login command again and use only the page it opens now; never reuse an older link. If it still fails, rerun with <code>--remote</code>.</p></div>
     </li>
@@ -102,8 +101,7 @@ make</code></pre>
       <div class="variant" data-repo="private"><span class="label">Private repository</span>
         <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, install the managed GitHub CLI and log in once. You need admin permission on that repository: Deploy registers a read-only deploy key for it and stores the private key only in AWS Secrets Manager.</p>
 <pre><code>./workspace setup --github
-./workspace github-login
-make</code></pre></div>
+./workspace github-login</code></pre></div>
     </li>
 
     <li data-step="deploy">
@@ -148,19 +146,16 @@ make</code></pre></div>
     <tr><td>Contributing, license status, releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
   </table>
 </main>
-<!-- Written by `make` / `./workspace guide`; absent when the page is opened any other way. -->
-<script src="../.tools/guide/status.js"></script>
 <script>
 (() => {
   'use strict';
   document.documentElement.classList.add('js');
-  const status = window.WORKSPACE_STATUS;
-  const rows = {};
-  if (status && Array.isArray(status.rows)) for (const row of status.rows) rows[row.check] = row;
   const checks = {tools: 'Managed tools', project: 'Project config', aws: 'AWS identity', github: 'GitHub access'};
-  const labels = {Ready: 'Done', 'Action needed': 'To do', Unknown: 'Not checked yet', Next: 'Next', Waiting: 'Waiting'};
+  const labels = {Ready: 'Done', 'To do': 'To do', 'Not checked': 'Not checked yet', Next: 'Next', Waiting: 'Waiting'};
+  const live = document.getElementById('live');
+  let lastFirst, refreshing = false;
 
-  function stepState(step) {
+  function stepState(status, rows, step) {
     if (step in checks) return rows[checks[step]] || null;
     const last = rows['Last operation'];
     if (step === 'deploy') {
@@ -180,40 +175,54 @@ make</code></pre></div>
     const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node;
   }
 
-  const live = document.getElementById('live');
-  if (status && typeof status === 'object') {
+  function notice(kind, text) { live.className = 'note ' + kind; live.replaceChildren(element('p', '', text)); }
+
+  function show(status) {
+    const rows = {};
+    if (Array.isArray(status.rows)) for (const row of status.rows) rows[row.check] = row;
     let first = null;
     for (const li of document.querySelectorAll('li[data-step]')) {
-      const s = stepState(li.dataset.step); if (!s) continue;
+      li.classList.remove('done', 'todo', 'pending'); li.querySelector('.state')?.remove();
+      const s = stepState(status, rows, li.dataset.step); if (!s) continue;
       const done = s.state === 'Ready';
-      li.classList.add(done ? 'done' : (s.state === 'Action needed' || s.state === 'Next') ? 'todo' : 'pending');
-      if (!done && !first && s.state !== 'Unknown') first = li;
+      li.classList.add(done ? 'done' : (s.state === 'To do' || s.state === 'Next') ? 'todo' : 'pending');
+      if (!done && !first && (s.state === 'To do' || s.state === 'Next' || s.next)) first = li;
       const box = element('div', 'state');
       box.append(element('span', 'badge', labels[s.state] || s.state), element('span', '', s.detail || ''));
-      if (s.next && (s.state === 'Action needed' || s.state === 'Next')) { const pre = element('pre'); pre.append(element('code', '', s.next)); box.append(pre); }
       li.querySelector('h3').insertAdjacentElement('afterend', box);
+      if (s.next && !done) { const pre = element('pre'); pre.append(element('code', '', s.next)); box.append(pre); addCopy(pre); }
     }
-    if (status.repository === 'public' || status.repository === 'private') document.getElementById('repo').value = status.repository;
+    if (status.repository === 'public' || status.repository === 'private') { repo.value = status.repository; render(); }
     const when = new Date(status.checked_at);
-    live.className = 'note ' + (status.deployed ? 'good' : first ? 'warn' : 'good');
+    live.className = 'note ' + (first || !status.ready ? 'warn' : 'good');
     live.replaceChildren();
-    const head = element('p'); head.append(element('strong', '', first ? 'Next: ' + first.querySelector('h3').textContent : status.deployed ? 'Deployed.' : 'Ready.'));
-    head.append(' Checked ' + (isNaN(when) ? 'just now' : when.toLocaleString()) + ' for ' + (status.config || 'no project file yet') + '.');
-    live.append(head, element('p', 'meta', 'Run make (or ./workspace guide) again after each step to refresh this page. It never logs in, deploys or changes cloud resources.'));
-    if (first) first.scrollIntoView({block: 'start'});
-  } else if (status === null) {
-    live.className = 'note warn';
-    live.replaceChildren(element('p', '', 'The readiness check did not complete. Run ./workspace doctor --debug in the repository folder for details.'));
+    const head = element('p'); head.append(element('strong', '', first ? 'Next: ' + first.querySelector('h3').textContent : status.ready ? (status.deployed ? 'Deployed.' : 'Ready to deploy.') : 'Readiness not confirmed.'));
+    head.append(' Checked ' + (isNaN(when) ? 'just now' : when.toLocaleTimeString()) + ' for ' + (status.expected_config ? status.expected_config + ' (not created yet)' : status.config || 'no project file yet') + '.');
+    live.append(head, element('p', 'meta', 'This page re-checks every 20 seconds and when you come back to it. It never logs in, deploys or changes cloud resources.'));
+    if (first && first !== lastFirst) first.scrollIntoView({block: 'start', behavior: lastFirst === undefined ? 'auto' : 'smooth'});
+    lastFirst = first;
+  }
+
+  async function refresh() {
+    if (location.protocol === 'file:' || refreshing) return;
+    refreshing = true;
+    try {
+      const response = await fetch('status.json', {cache: 'no-store'});
+      if (!response.ok) throw new Error('readiness unavailable');
+      const status = await response.json();
+      if (status.error) notice('warn', status.error); else show(status);
+    } catch { notice('warn', 'Live readiness is unavailable. Check the guide terminal; if it stopped, run make again in the repository folder.'); }
+    finally { refreshing = false; }
   }
 
   const repo = document.getElementById('repo'), pick = document.getElementById('pick'); const key = 'aws-workspace-guide-v3';
-  try { const saved = localStorage.getItem(key); if (!status?.repository && ['public', 'private', 'all'].includes(saved)) repo.value = saved; } catch {}
+  try { const saved = localStorage.getItem(key); if (['public', 'private', 'all'].includes(saved)) repo.value = saved; } catch {}
   function render() {
     for (const el of document.querySelectorAll('.variant')) el.style.display = repo.value !== 'all' && el.dataset.repo !== repo.value ? 'none' : 'block';
   }
   pick.hidden = false;
   repo.addEventListener('change', () => { render(); try { localStorage.setItem(key, repo.value); } catch {} });
-  for (const pre of document.querySelectorAll('pre')) {
+  function addCopy(pre) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'copy'; button.textContent = 'Copy commands';
     const result = document.createElement('span'); result.className = 'copied'; result.setAttribute('aria-live', 'polite');
     button.addEventListener('click', async () => {
@@ -224,7 +233,11 @@ make</code></pre></div>
     });
     pre.insertAdjacentElement('afterend', button); button.insertAdjacentElement('afterend', result);
   }
+  for (const pre of document.querySelectorAll('pre')) addCopy(pre);
   render();
+  refresh(); setInterval(() => { if (!document.hidden) refresh(); }, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  window.addEventListener('focus', refresh);
 })();
 </script>
 </body>

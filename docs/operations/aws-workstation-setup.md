@@ -8,7 +8,7 @@ installer behaves, which checks it keeps, and how to repair it.
 ## Commands
 
 ```bash
-./workspace guide [PROJECT.json]    # = make: setup, doctor --json, open the first-use guide
+./workspace guide [PROJECT.json]    # = make: setup, then serve the live first-use guide on 127.0.0.1
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
 ./workspace setup --fresh           # rebuild the managed tools even when they verify
@@ -23,6 +23,15 @@ for that process only. The default prefix is `.tools/aws-workstation` inside
 the checkout; `WORKSPACE_TOOLS_DIR` or `--prefix` chooses another user-owned
 absolute directory. Spaces in paths are fine. Nothing edits shell startup files,
 and a different AWS CLI or OpenTofu on the host PATH is left alone.
+
+`make` keeps the guide running in the foreground until Ctrl+C. It opens a
+graphical browser when available and always prints the URL and, for remote
+use, an SSH forwarding command. The page refreshes readiness every 20 seconds
+while visible and when focused, with doctor results cached for five seconds.
+These checks can read the selected AWS identity and GitHub repository; they
+never log in or change cloud resources. The default port is 8765, falling back
+to the next free port through 8774; `WORKSPACE_GUIDE_PORT=9000 make` selects an
+exact port. Missing project files get creation commands for the selected path.
 
 A new runtime becomes current only after every pinned binary ran and reported
 its version and every Python package matched the hash lock. Failure leaves the
@@ -81,7 +90,7 @@ Official references: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/
 ## Doctor
 
 `./workspace doctor PROJECT.json` prints one line per check with `Ready`,
-`Action needed` or `Unknown` and the exact next command:
+`To do` or `Not checked` and the exact next command:
 
 - Managed tools: the same verification as `setup --check`.
 - AWS identity: the project's profile. No profile yet gives the login command;
@@ -96,7 +105,7 @@ Official references: [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/
   or an interrupted operation that needs `resume`.
 
 Doctor never installs, logs in, registers keys or creates resources. Without a
-project file it reports the tools and marks the rest `Unknown`.
+project file it reports the tools, the project file as `To do` and the rest `Not checked`.
 
 ## Repair
 

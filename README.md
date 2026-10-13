@@ -14,11 +14,12 @@ cd Ray_terraform
 make            # or ./workspace guide when make is not installed
 ```
 
-`make` installs the pinned tools into the ignored `.tools/` folder, checks what
-is already done and opens the [first-use guide](docs/aws-setup-guide.html) in
-your browser with every step marked done or to do, plus the exact next command.
-It never logs in, deploys or changes cloud resources. Do the next step, run
-`make` again, and repeat until Deploy.
+`make` installs the pinned tools into the ignored `.tools/` folder and serves
+the [first-use guide](docs/aws-setup-guide.html) at `http://127.0.0.1:8765/`,
+opening your browser when this computer has one. The page checks each step live
+and shows the exact next command; do it in another terminal and the page moves on.
+On a remote machine, `make` prints the `ssh -L` command to reach the page. It never
+logs in, deploys or changes cloud resources; Ctrl+C stops it.
 
 Shared foundation **2.0.0** is implemented offline. A bounded private SSH/Make job,
 versioned S3 verification and compute teardown passed native acceptance in
@@ -62,7 +63,7 @@ check readiness, then review and Deploy from the checkout:
 ```bash
 ./workspace setup                                   # pinned local tools; no login, no cloud calls
 ./workspace login --profile my-workspace --region us-east-1
-./workspace doctor /path/project.json               # Ready / Action needed / Unknown with the next command
+./workspace doctor /path/project.json               # Ready / To do / Not checked with the next command
 ./workspace /path/project.json                      # readable scope, one confirmation, then Deploy
 ./workspace /path/project.json status --wait 30
 ```

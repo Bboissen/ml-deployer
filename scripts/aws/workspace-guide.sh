@@ -1,30 +1,17 @@
 #!/usr/bin/env bash
-# First-use entry point (`make`): install or verify the managed tools, record
-# doctor readiness for the guide page and open it. No login, no cloud changes.
+# First-use entry point (`make`): install or verify the managed tools, then serve
+# the guide with live readiness on 127.0.0.1. No login, no cloud changes.
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 config="${1:-$HOME/aws-workspace/demo/project.json}"
 [[ "$config" == /* ]] || config="$PWD/$config"
-page="$repo_root/docs/aws-setup-guide.html"
-status_dir="$repo_root/.tools/guide"
-mkdir -p "$status_dir"
-partial="$(mktemp "$status_dir/status.js.XXXXXX")"
-trap 'rm -f "$partial"' EXIT
+python="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}/current/sdk/bin/python"
 
-bash "$repo_root/workspace" setup || printf 'workspace guide: setup needs attention; the guide shows the next command\n' >&2
+if bash "$repo_root/workspace" setup && [[ -x "$python" ]]; then
+  exec "$python" "$repo_root/scripts/aws/workspace-guide.py" "$config"
+fi
+# Without the managed tools there is no runtime to serve the page: show the repair step here.
+printf '\nworkspace guide: the managed tools are needed before the guide page can open.\n\n' >&2
 target=(); [[ ! -f "$config" ]] || target=("$config")
-report="$(bash "$repo_root/workspace" doctor --json ${target[@]+"${target[@]}"} 2>/dev/null)" || true
-[[ "$report" == '{'* ]] || report=null
-printf 'window.WORKSPACE_STATUS = %s;\n' "$report" > "$partial"
-mv -f "$partial" "$status_dir/status.js"
-
-opener=''
-if [[ "$(uname -s)" == Darwin ]]; then opener=open
-elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v xdg-open >/dev/null 2>&1; then opener=xdg-open
-fi
-if [[ -n "$opener" ]] && "$opener" "$page" >/dev/null 2>&1; then
-  printf 'workspace guide: opened %s\nRun make (or ./workspace guide) again after each step to refresh it.\n' "$page"
-else
-  printf 'workspace guide: open %s in a browser; readiness now:\n\n' "$page"
-  bash "$repo_root/workspace" doctor ${target[@]+"${target[@]}"} || true
-fi
+bash "$repo_root/workspace" doctor ${target[@]+"${target[@]}"} || true
+exit 1

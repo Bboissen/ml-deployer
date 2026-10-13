@@ -48,7 +48,8 @@ class Doctor(unittest.TestCase):
         self.assertFalse(report.ready)
         self.assertEqual(self.states(report)['Managed tools'], M.READY)
         self.assertEqual(self.states(report)['AWS identity'], M.UNKNOWN)
-        self.assertIn('./workspace doctor PROJECT.json', text)
+        self.assertEqual([row['check'] for row in report.rows][:2], ['Managed tools', 'Project config'])
+        self.assertIn('next: mkdir -p ~/aws-workspace/demo', text); self.assertIn('Not ready yet', text)
 
     def test_missing_login_is_action_needed_without_network(self):
         with patch.dict(os.environ, self.files, clear=True), patch.object(M.A, 'auth_check', side_effect=AssertionError('network call')):
@@ -57,7 +58,7 @@ class Doctor(unittest.TestCase):
         self.assertEqual(states['Project config'], M.READY); self.assertEqual(states['GitHub access'], M.READY)
         self.assertEqual(states['AWS identity'], M.ACTION)
         self.assertIn('./workspace login --profile reviewed-temporary --region us-east-1', text)
-        self.assertIn('Action needed: resolve', text)
+        self.assertIn('Not ready yet', text); self.assertNotIn('Action needed', text)
 
     def test_all_ready_points_to_deploy(self):
         with patch.object(M.A, 'profile_method', return_value='console'), patch.object(M.A, 'auth_check', return_value={'identity': IDENTITY}):
@@ -132,6 +133,18 @@ class Doctor(unittest.TestCase):
         row = {row['check']: row for row in page['rows']}['Project config']
         self.assertEqual(row['state'], M.ACTION); self.assertIn('~/aws-workspace/demo/project.json', row['next'])
 
+    def test_missing_custom_configuration_uses_its_exact_path_without_network(self):
+        config = self.directory/"project's folder/project.json"
+        with patch.object(M.A, 'auth_check', side_effect=AssertionError('network call')):
+            report, _ = M.doctor(config, 'ok', False)
+        row = report.rows[1]
+        self.assertEqual(row['state'], M.ACTION)
+        result = subprocess.run(['bash', '-c', row['next']], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.read_bytes(), (ROOT/'infra/aws/project.example.json').read_bytes())
+        self.assertEqual(self.states(report)['AWS identity'], M.UNKNOWN)
+        self.assertEqual(json.loads(M.as_json(report, config))['expected_config'], str(config))
+
     def test_debug_lists_names_only(self):
         with patch.dict(os.environ, {**self.files, 'AWS_SECRET_ACCESS_KEY': 'SECRETVALUE', 'GH_TOKEN': 'TOKENVALUE'}, clear=True):
             report, text = M.doctor(None, 'ok', True)
@@ -147,7 +160,7 @@ class Doctor(unittest.TestCase):
                                 env=environment, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('Project config  Ready', result.stdout); self.assertIn('GitHub access   Ready', result.stdout)
-        self.assertIn('AWS identity    Action needed', result.stdout)
+        self.assertIn('AWS identity    To do', result.stdout)
         self.assertIn('./workspace login --profile reviewed-temporary --region us-east-1', result.stdout)
         self.assertIn(str(self.config), result.stdout)
 

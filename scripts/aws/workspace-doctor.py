@@ -27,7 +27,7 @@ def load(name, label):
 P = load('workspace-config.py', 'aws_workspace_config')
 A = load('workstation-auth.py', 'aws_workstation_auth')
 D = load('workspace-deploy.py', 'aws_deploy')
-READY, ACTION, UNKNOWN = 'Ready', 'Action needed', 'Unknown'
+READY, ACTION, UNKNOWN = 'Ready', 'To do', 'Not checked'
 
 
 class Report:
@@ -208,11 +208,14 @@ def doctor(config, tools_detail, debug):
     report = Report()
     report.add('Managed tools', READY, tools_detail)
     project = None
-    if config is None:
-        report.add('AWS identity', UNKNOWN, 'checked once the project file names your AWS profile', './workspace doctor PROJECT.json')
+    if config is None or not config.exists():
+        target = '~/aws-workspace/demo/project.json' if config is None else shell(config)
+        parent = '~/aws-workspace/demo' if config is None else shell(config.parent)
+        report.add('Project config', ACTION, 'no project file yet' + ('' if config is None else ' at ' + str(config)),
+                   'mkdir -p ' + parent + ' && cp infra/aws/project.example.json ' + target)
+        if config is not None: report.facts['expected_config'] = str(config)
+        report.add('AWS identity', UNKNOWN, 'checked once the project file names your AWS profile')
         report.add('GitHub access', UNKNOWN, 'public repositories need no login; checked once the project file names the repository')
-        report.add('Project config', ACTION, 'no project file yet',
-                   'mkdir -p ~/aws-workspace/demo && cp infra/aws/project.example.json ~/aws-workspace/demo/project.json')
     else:
         project = check_project(report, config)
         if project:
@@ -224,7 +227,7 @@ def doctor(config, tools_detail, debug):
     if report.ready:
         text += '\n\nReady' + (': review and deploy with ' + cli(config) if config else ': run ./workspace doctor PROJECT.json before deploying')
     else:
-        text += '\n\nAction needed: resolve the items above, then run ' + doctor_command(config) + ' again'
+        text += '\n\nNot ready yet: do the first "next" above, then run ' + doctor_command(config) + ' again'
     return report, text
 
 

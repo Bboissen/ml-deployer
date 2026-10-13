@@ -12,8 +12,9 @@ cd Ray_terraform
 make            # or ./workspace guide when make is not installed
 ```
 
-`make` runs `./workspace setup`, then `./workspace doctor --json`, and opens the
-first-use guide with each step marked done or to do. It checks
+`make` runs `./workspace setup`, then serves the first-use guide on
+`http://127.0.0.1:8765/` with each step checked live by `./workspace doctor --json`
+(on a remote machine it prints the `ssh -L` forward). It checks
 `~/aws-workspace/demo/project.json` unless you pass `make PROJECT=/path/project.json`.
 On Ubuntu/Debian, when setup reports missing system packages, run
 `./workspace setup --system-packages` (sudo) and then `make` again.
@@ -86,7 +87,7 @@ only in Secrets Manager.
 ./workspace doctor ~/aws-workspace/demo/project.json
 ```
 
-Each line is `Ready`, `Action needed` or `Unknown` with the next command. Repeat
+Each line is `Ready`, `To do` or `Not checked` with the next command. Repeat
 until the last line is `Ready: review and deploy with …`. `--debug` adds
 bounded, redacted diagnostics.
 

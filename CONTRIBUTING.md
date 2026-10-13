@@ -30,7 +30,7 @@ not native acceptance; see [native acceptance scope](docs/operations/aws-native-
 
 Developer acceptance matrices and historical milestone records live under
 `docs/operations/` and `goal/`. The user-facing first-use path is the
-[first-use guide](docs/aws-setup-guide.html) opened by `make` and the
+[first-use guide](docs/aws-setup-guide.html) served by `make` and the
 [quickstart](docs/operations/aws-deployer-quickstart.md); keep them, the README
 and `./workspace --help` consistent when commands change.
 

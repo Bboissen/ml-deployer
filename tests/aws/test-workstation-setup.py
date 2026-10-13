@@ -293,18 +293,18 @@ class Bootstrap(unittest.TestCase):
     def test_doctor_without_tools_reports_setup_without_installing(self):
         result = subprocess.run(['bash', str(self.repo/'workspace'), 'doctor', 'project.json'], env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 1)
-        self.assertIn('Managed tools   Action needed  managed tools are not installed', result.stdout)
-        self.assertIn('next: ./workspace setup', result.stdout); self.assertIn('Unknown', result.stdout)
+        self.assertIn('Managed tools   To do          managed tools are not installed', result.stdout)
+        self.assertIn('next: ./workspace setup', result.stdout); self.assertIn('Not checked', result.stdout)
         self.assertFalse(self.prefix.exists()); self.assertFalse(self.ledger.exists())
 
     def test_doctor_json_without_tools_is_valid_for_the_guide(self):
         result = subprocess.run(['bash', str(self.repo/'workspace'), 'doctor', '--json'], env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 1)
         page = json.loads(result.stdout)
-        self.assertFalse(page['ready']); self.assertEqual(page['rows'][0]['state'], 'Action needed')
+        self.assertFalse(page['ready']); self.assertEqual(page['rows'][0]['state'], 'To do')
         self.assertEqual(page['rows'][0]['next'], './workspace setup'); self.assertFalse(self.prefix.exists())
 
-    def test_guide_records_readiness_and_opens_the_page_without_login(self):
+    def test_guide_without_tools_prints_the_repair_step_instead_of_a_page(self):
         minimal = self.root/'minimal'; minimal.mkdir()
         for name in ('bash','dirname','basename','tar','sha256sum','cat','id','mkdir','df','awk','ps','grep','head','cut','mktemp','mv','rm','date'):
             (minimal/name).symlink_to(shutil.which(name))
@@ -315,13 +315,10 @@ class Bootstrap(unittest.TestCase):
         shutil.copy(ROOT/'scripts/aws/workspace-guide.sh', self.repo/'scripts/aws/workspace-guide.sh')
         self.env.update(PATH=str(minimal), DISPLAY=':0')
         result = subprocess.run(['bash', str(self.repo/'workspace'), 'guide'], env=self.env, capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr); self.assertIn('--system-packages', result.stderr)
-        self.assertEqual(opened.read_text().strip(), str(self.repo/'docs/aws-setup-guide.html'))
-        status = (self.repo/'.tools/guide/status.js').read_text()
-        self.assertTrue(status.startswith('window.WORKSPACE_STATUS = {'))
-        page = json.loads(status.split(' = ', 1)[1].rstrip().rstrip(';'))
-        self.assertEqual(page['rows'][0]['next'], './workspace setup --system-packages')
-        self.assertEqual(sorted(p.name for p in (self.repo/'.tools/guide').iterdir()), ['status.js'])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('managed tools are needed before the guide page can open', result.stderr)
+        self.assertIn('next: ./workspace setup --system-packages', result.stdout)
+        self.assertFalse(opened.exists()); self.assertFalse((self.repo/'.tools').exists())
         self.assertFalse(self.prefix.exists()); self.assertFalse(self.ledger.exists())
 
     def test_check_cannot_install_system_packages(self):
