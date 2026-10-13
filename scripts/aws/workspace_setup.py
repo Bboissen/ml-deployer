@@ -7,6 +7,7 @@ import shlex
 import shutil
 import sys
 import textwrap
+from workspace_terminal import ssh_session, terminal_output
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,7 +16,7 @@ class Console:
     def __init__(self, stream=None, reader=None):
         self.stream = stream or sys.stdout
         self.reader = reader or input
-        self.color = self.stream.isatty() and os.environ.get('TERM') != 'dumb' and 'NO_COLOR' not in os.environ
+        self.color = terminal_output(self.stream) and os.environ.get('TERM') != 'dumb' and 'NO_COLOR' not in os.environ
 
     def paint(self, text, color):
         return '\033[' + color + 'm' + text + '\033[0m' if self.color else text
@@ -35,6 +36,10 @@ class Console:
         width = min(96, shutil.get_terminal_size((80, 24)).columns)
         print(self.paint(textwrap.fill(text, width=max(30, width), initial_indent='  ', subsequent_indent='  '), '90'),
               file=self.stream, flush=True)
+
+    def command(self, text):
+        # Keep commands and links intact when the terminal is narrow.
+        print('  ' + self.paint(text, '36'), file=self.stream, flush=True)
 
     def ask(self, label, default=None, parse=str, validate=None):
         while True:
@@ -185,7 +190,7 @@ def create_project(config, ui, M):
     return project
 
 
-def setup_project(config, ui, doctor, M=None):
+def setup_project(config, ui, doctor, M=None, remote=None):
     """Skip completed setup; carry out selected missing actions in this terminal."""
     M = M or support()
     ui.step(2, 'Project')
@@ -216,7 +221,7 @@ def setup_project(config, ui, doctor, M=None):
         method = ui.ask('AWS login (auto, console or sso)', 'auto', validate=login_method)
         try:
             M.A.login(project['profile'], project['region'], method,
-                      bool(os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT')))
+                      ssh_session() if remote is None else remote)
         except M.B['Failure'] as exc:
             raise ValueError(str(exc)) from None
         ui.status('done', 'AWS sign-in verified')

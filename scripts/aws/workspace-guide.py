@@ -8,6 +8,7 @@ import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import pwd
 from pathlib import Path
 import platform
 import shlex
@@ -22,6 +23,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'scripts/aws'))
 from workspace_setup import Console, setup_project
+from workspace_terminal import interactive, ssh_session
 DOCS = ROOT/'docs'
 PAGE = DOCS/'aws-setup-guide.html'
 EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md'}
@@ -108,7 +110,7 @@ def bind(port, tries, doctor):
 
 def open_browser(url):
     """Open only a graphical browser; never a terminal one."""
-    if os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'): return False
+    if ssh_session(): return False
     if platform.system() == 'Darwin': opener = 'open'
     elif (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) and shutil.which('xdg-open'): opener = 'xdg-open'
     else: return False
@@ -118,17 +120,39 @@ def open_browser(url):
         return False
 
 
+def laptop_tunnel(port):
+    """Use Zelab's connection-derived SSH target, with an optional local alias."""
+    target = os.environ.get('REMOTE_HOST', '')
+    connection = os.environ.get('SSH_CONNECTION', '').split()
+    ssh_port = connection[3] if len(connection) == 4 else '22'
+    if not ssh_port.isdecimal() or not 1 <= int(ssh_port) <= 65535: ssh_port = '22'
+    command = ['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-L',
+               '127.0.0.1:%d:127.0.0.1:%d' % (port, port)]
+    if not target:
+        host = connection[2] if len(connection) == 4 else platform.node()
+        target = pwd.getpwuid(os.getuid()).pw_name + '@' + (host or 'your-server')
+        command += ['-p', ssh_port]
+    if target.startswith('-') or any(c.isspace() or ord(c) < 32 for c in target):
+        raise ValueError('REMOTE_HOST must be an SSH alias or user@server without spaces')
+    return shlex.join([*command, target])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('config', type=Path)
     parser.add_argument('--port', type=int, default=os.environ.get('WORKSPACE_GUIDE_PORT', '8765'))
     parser.add_argument('--read-only', action='store_true', help='serve the companion without terminal setup')
     parser.add_argument('--debug', action='store_true', help='show diagnostic details')
+    parser.add_argument('--remote', action='store_true', help='show laptop guide access and use remote sign-in')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535: parser.error('port must be between 1 and 65535')
+    remote = args.remote or ssh_session()
+    if remote:
+        try: tunnel = laptop_tunnel(args.port)
+        except ValueError as exc: parser.error(str(exc))
     doctor = Doctor(args.config.expanduser().absolute())
-    doctor.interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.read_only
-    exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT')
+    doctor.interactive = interactive() and not args.read_only
+    exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or remote
     server = bind(args.port, 1 if exact_port else min(10, 65536 - args.port), doctor)
     port = server.server_address[1]; url = 'http://127.0.0.1:%d/' % port
     serving = threading.Thread(target=server.serve_forever, daemon=True)
@@ -136,15 +160,21 @@ def main():
     ui = Console()
     try:
         if not os.environ.get('WORKSPACE_GUIDE_TITLE_SHOWN'): ui.title()
-        ui.hint('Companion: ' + url)
-        if open_browser(url):
+        if remote:
+            ui.status('next', 'Open the guide on your laptop')
+            ui.hint('In a new laptop terminal outside SSH, start this tunnel (skip if already forwarded):')
+            ui.command(tunnel)
+            ui.hint('Keep that terminal open, then open this link in your laptop browser:')
+            ui.command(url)
+        elif open_browser(url):
             ui.status('done', 'Browser companion opened')
-        elif os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'):
-            ui.hint('Open that link on your laptop. If the port is not forwarded:')
-            ui.hint('ssh -N -L %d:127.0.0.1:%d %s' % (port, port, shlex.quote(platform.node() or 'your-ssh-alias')))
+            ui.command(url)
+        else:
+            ui.hint('Companion:')
+            ui.command(url)
         if doctor.interactive:
             try:
-                complete = setup_project(doctor.config, ui, doctor)
+                complete = setup_project(doctor.config, ui, doctor, remote=remote)
             except Exception as exc:
                 if args.debug: raise
                 ui.status('error', str(exc) if isinstance(exc, ValueError) else 'Setup could not finish; rerun make DEBUG=1 for details')

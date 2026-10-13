@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workspace_target
+from workspace_terminal import interactive as user_terminal
 
 B = vars(workspace_target)
 require = B['require']
@@ -94,7 +95,7 @@ def profile_method(profile, region):
 
 
 def interactive(command):
-    require(sys.stdin.isatty() and sys.stdout.isatty(), 'login needs an interactive terminal for browser consent/MFA; run this command in your terminal')
+    require(user_terminal(), 'login needs an interactive terminal for browser consent/MFA; run this command in your terminal')
     # Native login output (including device URLs) goes only to the user's terminal.
     require(subprocess.call(command) == 0, 'native login did not finish; rerun it in your terminal')
 

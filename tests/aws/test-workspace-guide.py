@@ -1,8 +1,10 @@
 """Offline checks for the local first-use guide server; no login, no cloud calls."""
 import http.client
 import importlib.util
+import io
 import json
 import os
+import shlex
 from pathlib import Path
 import sys
 import subprocess
@@ -91,6 +93,39 @@ class GuideTerminal(unittest.TestCase):
         with patch.dict(os.environ, {'SSH_CONNECTION': 'client server', 'DISPLAY': ':0'}), \
              patch.object(G.subprocess, 'run', side_effect=AssertionError('remote browser opened')):
             self.assertFalse(G.open_browser('http://127.0.0.1:8765/'))
+
+    def test_laptop_tunnel_uses_the_connected_server_user_and_port(self):
+        with patch.dict(os.environ, {'SSH_CONNECTION': '192.0.2.10 54321 192.0.2.20 2222'}, clear=True), \
+             patch.object(G.pwd, 'getpwuid', return_value=type('User', (), {'pw_name': 'operator'})()):
+            command = shlex.split(G.laptop_tunnel(9000))
+        self.assertEqual(command[-3:], ['-p', '2222', 'operator@192.0.2.20'])
+        self.assertIn('127.0.0.1:9000:127.0.0.1:9000', command)
+        self.assertIn('ExitOnForwardFailure=yes', command)
+
+    def test_laptop_alias_keeps_the_users_ssh_config_and_rejects_options(self):
+        with patch.dict(os.environ, {'REMOTE_HOST': 'homelab', 'SSH_CONNECTION': 'client 123 server 2222'}):
+            command = shlex.split(G.laptop_tunnel(8765))
+            self.assertEqual(command[-1], 'homelab'); self.assertNotIn('-p', command)
+        for host in ('-oProxyCommand=bad', 'user@host\nother', 'user host'):
+            with patch.dict(os.environ, {'REMOTE_HOST': host}), self.assertRaises(ValueError):
+                G.laptop_tunnel(8765)
+
+    def test_explicit_remote_mode_has_a_fixed_port_and_never_opens_server_browser(self):
+        doctor = G.Doctor(Path('/nonexistent/project.json')); doctor.run = lambda: dict(REPORT)
+        server = G.bind(0, 1, doctor)
+        output = io.StringIO()
+        with patch.dict(os.environ, {'REMOTE_HOST': 'homelab'}, clear=True), \
+             patch.object(sys, 'argv', ['workspace-guide.py', '/nonexistent/project.json', '--remote', '--port', '9000']), \
+             patch.object(sys, 'stdout', output), patch.object(G, 'interactive', return_value=True), \
+             patch.object(G, 'bind', return_value=server) as bind, patch.object(G, 'Doctor', return_value=doctor), \
+             patch.object(G, 'open_browser', side_effect=AssertionError('server browser opened')), \
+             patch.object(G, 'setup_project', side_effect=KeyboardInterrupt()) as setup:
+            G.main()
+        self.assertEqual(bind.call_args.args[:2], (9000, 1))
+        self.assertTrue(setup.call_args.kwargs['remote'])
+        self.assertIn('laptop terminal outside SSH', output.getvalue())
+        self.assertIn('homelab', output.getvalue())
+        self.assertEqual(server.fileno(), -1)
 
     def test_doctor_always_checks_the_selected_path_even_before_creation(self):
         with tempfile.TemporaryDirectory() as directory:

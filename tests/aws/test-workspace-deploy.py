@@ -224,6 +224,13 @@ class Operations(unittest.TestCase):
                 result=D.deploy({'L':L},'config')
             self.assertEqual(result['status'],'review_required'); self.assertFalse(result['cloud_mutations'])
             self.assertFalse((self.directory/'task-authorization.json').exists())
+    def test_proxy_review_still_requires_the_exact_deploy_answer(self):
+        scope=self.review_scope()
+        with patch.object(sys.stdin,'isatty',return_value=True),patch.object(sys.stdout,'isatty',return_value=False):
+            with patch('builtins.input',return_value='yes'):
+                self.assertIsNone(D.confirm(L,scope))
+            with patch('builtins.input',return_value='deploy'):
+                self.assertIn(L['sha'](L['canon'](scope))[:16],D.confirm(L,scope))
     def test_readable_scope_and_outcome_summaries(self):
         lines='\n'.join(D.describe_scope(self.review_scope()))
         for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git'): self.assertIn(expected,lines)

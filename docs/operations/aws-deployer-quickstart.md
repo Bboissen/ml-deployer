@@ -18,6 +18,10 @@ and offers native sign-in in the same terminal. Its companion at
 laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
 `make PROJECT=/path/project.json`. Existing valid settings are reused.
 `make FRESH=1` rebuilds tools; `make DEBUG=1` shows diagnostics.
+For a laptop connected over SSH, run `make remote` on the server. It prints
+the tunnel command to run outside SSH on your laptop and the local browser
+link. Use `make remote REMOTE_HOST=homelab` for your laptop's saved SSH alias;
+answer setup questions in the original SSH terminal. The repo stays on the server.
 The commands below are the optional manual equivalents of the guided flow.
 On Ubuntu/Debian, when setup reports missing system packages, run
 `./workspace setup --system-packages` (sudo) and then `make` again.

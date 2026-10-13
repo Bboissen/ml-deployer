@@ -447,6 +447,12 @@ class Authentication(unittest.TestCase):
             A.interactive(['aws','login'])
         call.assert_not_called()
 
+    def test_native_login_accepts_a_proxy_with_terminal_input(self):
+        with patch.object(sys.stdin, 'isatty', return_value=True), \
+             patch.object(sys.stdout, 'isatty', return_value=False), patch.object(subprocess, 'call', return_value=0) as call:
+            A.interactive(['aws', 'login'])
+        call.assert_called_once_with(['aws', 'login'])
+
     def test_conflicting_credentials_are_rejected_before_new_profile_creation(self):
         with patch.dict(os.environ,{'AWS_ACCESS_KEY_ID':'SECRET'},clear=True), self.assertRaisesRegex(A.B['Failure'],'conflicting environment'):
             A.profile_method('new','us-east-1')

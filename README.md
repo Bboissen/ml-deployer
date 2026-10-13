@@ -20,24 +20,22 @@ needed. Answer in the same terminal; completed steps are skipped on rerun.
 The [HTML companion](docs/aws-setup-guide.html) at `http://127.0.0.1:8765/`
 shows progress. Deployment is offered only after setup and still requires the
 existing scope review and confirmation. `make FRESH=1` rebuilds tools;
-`make DEBUG=1` shows detailed diagnostics. Ctrl+C stops the companion.
+`make DEBUG=1` shows detailed diagnostics. A timed spinner shows work in progress;
+check marks identify finished steps. Ctrl+C stops the companion.
 
-For a laptop using SSH, keep the checkout on the server. Connect **from the
-laptop** with port forwarding (replace the SSH host alias):
+For a laptop using SSH, keep the checkout on the server. In the SSH session:
 
 ```bash
-ssh -L 8765:127.0.0.1:8765 homelab
-# Now on the server:
 cd /path/on/server/Ray_terraform
-make
+make remote             # same setup, with laptop guide instructions
 ```
 
-Open the printed `http://127.0.0.1:8765/` link in your laptop's browser. Keep this
-terminal open and answer the setup questions there. No laptop clone, launcher
-or cloud tools are needed. An existing SSH
-session can keep running `make`; add its tunnel from another laptop terminal
-with `ssh -N -L 8765:127.0.0.1:8765 homelab`. A command inside SSH cannot open
-the laptop browser automatically; the printed link is the remote companion.
+Run the printed tunnel command in a new laptop terminal **outside SSH**, then
+open the printed link in your laptop's browser. Answer setup questions in the
+original SSH terminal. `make remote REMOTE_HOST=homelab` uses your laptop's SSH
+alias instead of the detected server address and port. Skip the tunnel if you
+already forwarded the guide port. No laptop clone, launcher or cloud tools are
+needed. Plain `make` also detects SSH and prints these instructions.
 
 Shared foundation **2.0.0** is implemented offline. A bounded private SSH/Make job,
 versioned S3 verification and compute teardown passed native acceptance in

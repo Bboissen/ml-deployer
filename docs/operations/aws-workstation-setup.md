@@ -9,6 +9,8 @@ installer behaves, which checks it keeps, and how to repair it.
 
 ```bash
 ./workspace guide [PROJECT.json]    # = make: interactive tools/project/sign-in setup plus companion
+make remote                        # run on the server; print laptop tunnel and browser link
+make remote REMOTE_HOST=homelab     # use the laptop's saved SSH alias
 ./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
@@ -45,18 +47,24 @@ Native sign-in is offered in the same terminal, using remote browser login over
 SSH. Public repositories skip GitHub sign-in. An optional deployment review uses
 the existing scope-bound confirmation; answering setup questions never launches
 compute. `make FRESH=1` rebuilds tools and `make DEBUG=1` exposes diagnostic output.
-Terminal color follows TTY detection and `NO_COLOR`; redirected output stays plain.
+Tool setup has one active spinner with elapsed time, then a completed check mark.
+Terminal detection supports RTK's output relay; `NO_COLOR` disables colors.
+Noninteractive output stays plain.
 
-For SSH, keep the checkout on the server. Connect from the laptop with
-`ssh -L 8765:127.0.0.1:8765 HOST`, then run `make` in the server checkout and
-open the printed URL in the laptop's browser. For an already-running guide,
-add the tunnel from a separate laptop terminal with
-`ssh -N -L 8765:127.0.0.1:8765 HOST`. Keep the forwarding connection open.
+For SSH, keep the checkout on the server and run `make remote` there. It prints
+a tunnel command using the connected server's address, port and current user.
+Run that command from a separate laptop terminal outside SSH, keep it open,
+then open the printed URL in the laptop's browser. `REMOTE_HOST=homelab` uses
+your saved laptop SSH alias and its configured port instead. Skip the tunnel
+when the selected guide port is already forwarded. Answer setup questions in
+the original SSH terminal. Plain `make` detects SSH automatically too.
 No laptop checkout, launcher or cloud tools are required. Under SSH the guide
 uses its exact selected port rather than falling back silently to another port;
 an occupied port is reported. To choose another port, set `WORKSPACE_GUIDE_PORT`
 on the server and forward that port on the laptop. SSH sessions never launch a
 browser on the server; the printed companion link is opened on the laptop.
+The CLI presentation and connection-derived instructions follow Zelab's
+installer patterns; this repository retains its live, read-only companion.
 
 A new runtime becomes current only after every pinned binary ran and reported
 its version and every Python package matched the hash lock. Failure leaves the

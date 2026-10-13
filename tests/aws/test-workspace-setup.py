@@ -7,6 +7,7 @@ import os
 import pty
 import select
 import signal
+import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -156,9 +157,26 @@ class Setup(unittest.TestCase):
         self.assertNotIn('\033[', plain.getvalue())
         self.assertNotIn('\033[', self.output.getvalue())
 
+    def test_proxy_terminal_keeps_color_but_arbitrary_capture_and_no_color_stay_plain(self):
+        output = io.StringIO()
+        with patch.object(sys, 'stdout', output), patch.object(sys.stdin, 'isatty', return_value=True), \
+             patch.dict(os.environ, {'TERM': 'xterm'}, clear=True):
+            S.Console().status('done', 'Ready')
+            self.assertIn('\033[32m', output.getvalue())
+            self.assertFalse(S.Console(io.StringIO()).color)
+            os.environ['NO_COLOR'] = ''
+            self.assertFalse(S.Console().color)
+
 
 class MakeFlow(unittest.TestCase):
     def test_make_creates_project_in_its_own_terminal_and_companion_tracks_it(self):
+        self.make_flow()
+
+    @unittest.skipUnless(shutil.which('rtk'), 'RTK is optional for the standalone installer')
+    def test_make_remote_through_rtk_keeps_questions_color_and_safe_paths(self):
+        self.make_flow(remote=True)
+
+    def make_flow(self, remote=False):
         # Reuse the bootstrap's verified archive fixtures, rather than depending
         # on host cloud tools or downloading anything in this acceptance check.
         spec = importlib.util.spec_from_file_location('setup_fixtures', ROOT/'tests/aws/test-workstation-setup.py')
@@ -170,7 +188,7 @@ class MakeFlow(unittest.TestCase):
         repo = fixture.root/'full repo'; runner.source_snapshot(ROOT, repo)
         for name in ('workstation-tools.lock.tsv', 'controller-requirements.lock'):
             (repo/'scripts/aws'/name).write_bytes((fixture.repo/'scripts/aws'/name).read_bytes())
-        config = fixture.root/'project/project.json'
+        config = fixture.root/("project's `touch MAKE-INJECTION` folder/project.json" if remote else 'project/project.json')
         dataset = fixture.root/'data.csv'; dataset.write_text('x\n1\n')
         files = {}
         for name in ('AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE'):
@@ -179,11 +197,14 @@ class MakeFlow(unittest.TestCase):
         for name in list(environment):
             if name.startswith(('AWS_', 'GH_', 'GITHUB_', 'TF_')) and name not in files: environment.pop(name)
         environment.pop('NO_COLOR', None)
+        environment['REMOTE_HOST'] = 'homelab'
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
         environment['WORKSPACE_GUIDE_PORT'] = str(port)
         master, slave = pty.openpty()
-        process = subprocess.Popen(['make', 'PROJECT=' + str(config)], cwd=repo, env=environment,
+        command = [*([shutil.which('rtk'), 'proxy'] if remote else []), 'make',
+                   *(['remote'] if remote else []), 'PROJECT=' + str(config)]
+        process = subprocess.Popen(command, cwd=repo, env=environment,
                                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         captured = bytearray()
@@ -220,6 +241,13 @@ class MakeFlow(unittest.TestCase):
         self.assertNotIn('workstation-setup:', output)
         self.assertNotIn('Activate with:', output)
         self.assertNotIn('mkdir -p', output)
+        self.assertNotIn('Your local setup guide', output)
+        self.assertFalse((repo/'MAKE-INJECTION').exists())
+        self.assertEqual(list(Path(environment.get('TMPDIR', '/tmp')).glob('workspace-setup.*')), [])
+        if remote:
+            self.assertIn('laptop terminal outside SSH', output)
+            self.assertIn('homelab', output)
+            self.assertIn('ExitOnForwardFailure=yes', output)
         with urllib.request.urlopen('http://127.0.0.1:%d/status.json' % port, timeout=10) as response:
             report = json.load(response)
         self.assertEqual(report['setup_mode'], 'interactive')

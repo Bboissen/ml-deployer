@@ -8,15 +8,33 @@ export WORKSPACE_PYTHON
 PROJECT ?=
 FRESH ?= 0
 DEBUG ?= 0
+REMOTE_HOST ?=
+export PROJECT REMOTE_HOST
 
 .PHONY: aws-workstation-test aws-automation-test
+.PHONY: remote
+.PHONY: help-all
 
 .PHONY: guide help check workspace-test workspace-test-setup aws-project-config-test historical-check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
+remote: ## Setup on this server with laptop browser instructions (REMOTE_HOST=SSH-alias optionally).
 guide: ## Guided first use: tools, project questions, native login and companion (PROJECT=path, FRESH=1, DEBUG=1).
-	@env -u WORKSPACE_PYTHON bash ./workspace guide $(if $(PROJECT),"$(PROJECT)") $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
+guide remote:
+	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $(if $(filter remote,$@),--remote) $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
 
-help: ## Show available repository commands.
+help: ## Show first-use, remote and repair commands.
+	@printf '\nAWS workspace\n\n'
+	@printf '  %-42s %s\n' \
+		'make' 'Start or resume guided setup' \
+		'make remote' 'Setup on this server; print laptop tunnel and guide link' \
+		'make remote REMOTE_HOST=homelab' 'Use the SSH alias saved on your laptop' \
+		'make PROJECT=/path/project.json' 'Choose the project configuration' \
+		'make FRESH=1' 'Rebuild tools; keep settings and logins' \
+		'make DEBUG=1' 'Show detailed diagnostics' \
+		'make help-all' 'List development and infrastructure commands'
+	@printf '\nAnswer setup questions in this terminal. Over SSH, run the printed tunnel\ncommand on your laptop outside SSH, then open the guide link there.\n\n'
+
+help-all: ## Show all repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
 
 check: repository-check workspace-test aws-automation-test scaffold-test fmt-check ## Validate workspace foundation and existing roots without cloud account APIs.

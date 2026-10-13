@@ -73,13 +73,12 @@
 cd Ray_terraform
 make            # or ./workspace guide when make is not installed</code></pre>
       <p><code>make</code> prepares hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds in the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Sign-in uses the native provider's browser flow. Keep that terminal running; Ctrl+C stops setup and the companion. Deployment still requires review and confirmation of its exact scope.</p>
-      <div class="note"><p><strong>Laptop connecting over SSH:</strong> keep the repository on the server. From your laptop, connect with port forwarding, then run <code>make</code> in the server checkout:</p>
-<pre><code>ssh -L 8765:127.0.0.1:8765 homelab
-# Now on the server:
+      <div class="note"><p><strong>Laptop connecting over SSH:</strong> keep the repository on the server. In your SSH session, run:</p>
+<pre><code># On the server:
 cd /path/on/server/Ray_terraform
-make</code></pre>
-      <p>Open the printed <code>http://127.0.0.1:8765/</code> link in your laptop's browser. The SSH tunnel carries the server's page to your laptop. Keep this terminal running and use a second SSH terminal for setup steps. No laptop clone, launcher or cloud tools are needed.</p>
-      <p class="meta">If <code>make</code> is already running in an SSH session, leave it running and add the tunnel from another laptop terminal: <code>ssh -N -L 8765:127.0.0.1:8765 homelab</code>. Keep that terminal open too. A command running only inside SSH cannot open the laptop browser automatically. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
+make remote</code></pre>
+      <p>Run the printed tunnel command in a new laptop terminal <strong>outside SSH</strong>, then open the printed link in your laptop's browser. Keep the tunnel open and answer setup questions in the original SSH terminal. No laptop clone, launcher or cloud tools are needed.</p>
+      <p class="meta">Use <code>make remote REMOTE_HOST=homelab</code> to print your laptop's saved SSH alias instead of the detected server address and port. Skip the tunnel if the port is already forwarded. Plain <code>make</code> also detects SSH. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
       <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
     </li>
 

@@ -10,7 +10,8 @@ while (($#)); do
     --fresh) setup_options+=(--fresh) ;;
     --debug) setup_options+=(--debug); guide_options+=(--debug); debug=1 ;;
     --read-only) guide_options+=(--read-only) ;;
-    --help) printf '%s\n' 'workspace guide [PROJECT.json] [--fresh] [--debug] [--read-only]'; exit 0 ;;
+    --remote) guide_options+=(--remote) ;;
+    --help) printf '%s\n' 'workspace guide [PROJECT.json] [--fresh] [--debug] [--read-only] [--remote]'; exit 0 ;;
     -*) printf 'workspace guide: unknown option %s\n' "$1" >&2; exit 2 ;;
     *) [[ -z "$config" ]] || { printf 'workspace guide: provide one project path\n' >&2; exit 2; }; config="$1" ;;
   esac
@@ -21,10 +22,11 @@ config="${config:-$HOME/aws-workspace/demo/project.json}"
 python="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}/current/sdk/bin/python"
 ui_title
 ui_color '1;36' '  1/4  Tools'; printf '\n' >&2
-ui_status run 'Checking and preparing pinned tools…'
 setup_log="$(mktemp "${TMPDIR:-/tmp}/workspace-setup.XXXXXX")"
-trap 'rm -f "$setup_log"' EXIT
+trap 'ui_busy_stop; rm -f "$setup_log"' EXIT
+ui_busy_start 'Checking and preparing pinned tools'
 if bash "$repo_root/workspace" setup ${setup_options[@]+"${setup_options[@]}"} >"$setup_log" 2>&1 && [[ -x "$python" ]]; then
+  ui_busy_stop
   (( !debug )) || cat "$setup_log" >&2
   ui_status done 'Tools ready'
   rm -f "$setup_log"; trap - EXIT
@@ -33,6 +35,7 @@ if bash "$repo_root/workspace" setup ${setup_options[@]+"${setup_options[@]}"} >
   cd "$repo_root"
   exec "$python" "$repo_root/scripts/aws/workspace-guide.py" "$config" ${guide_options[@]+"${guide_options[@]}"}
 fi
+ui_busy_stop
 # Without the managed tools there is no runtime to serve the page: show the repair step here.
 ui_status error 'The managed tools are needed before the guide page can open'
 cat "$setup_log" >&2

@@ -13,6 +13,7 @@ import signal
 import sys
 import time
 import uuid
+from workspace_terminal import interactive
 
 
 def say(line):
@@ -40,7 +41,7 @@ def describe_scope(scope):
 
 def confirm(L,scope):
     """One interactive confirmation of the displayed scope; never implicit."""
-    if not (sys.stdin.isatty() and sys.stdout.isatty()): return None
+    if not interactive(): return None
     for line in describe_scope(scope): say(line)
     say('Type deploy to launch exactly this scope, or press Enter to stop without any cloud change.')
     try: answer=input('> ')
