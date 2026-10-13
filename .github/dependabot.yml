@@ -1,0 +1,8 @@
+# Only GitHub Actions are updated automatically; tool archives and Python
+# packages are hash-pinned by hand from official release metadata.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

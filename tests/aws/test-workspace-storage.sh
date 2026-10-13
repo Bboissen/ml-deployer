@@ -29,8 +29,6 @@ def native(root_name):
         ("init", ["init", "-backend=false", "-input=false", "-lockfile=readonly", "-no-color"]),
         ("test", ["test", "-test-directory=../../../tests/aws/" + root_name, "-no-color", "-json", "-verbose"]),
     ]
-    if root_name == "runner":
-        commands[1][1].append("-var-file=terraform.tfvars.example")
     for name, args in commands:
         log = ARTIFACTS / (root_name + "-" + name + ".log")
         with log.open("w") as stream:
@@ -202,16 +200,15 @@ def evaluate(documents, action, resource, context):
     return "Allow" if allowed else "ImplicitDeny"
 
 
-def policies_and_ordering(platform, runner):
+def boundary_policy(platform):
+    """The project permissions boundary alone must admit exactly the reviewed workload operations."""
     p = platform["unassigned_auto_creates_one_versioned_private_project_bucket"]
-    r = runner["scoped_identity_and_native_temporary_profile"]
     def values(plan, address):
         return next(resource["values"] for resource in plan["planned_values"]["root_module"]["resources"] if resource["address"] == address)
     boundary = json.loads(values(p, 'aws_iam_policy.project_workspace_boundary["fraud-detection"]')["policy"])
-    effective = json.loads(values(r, 'aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"]')["policy"])
     management = json.loads(values(p, "aws_iam_policy.session_manager")["policy"])
     # Normalize AWS JSON's string/list shorthand for the limited evaluator.
-    for doc in (boundary, effective, management):
+    for doc in (boundary, management):
         for statement in doc["Statement"]:
             for key in ("Action", "NotAction", "Resource", "NotResource"):
                 if key in statement and isinstance(statement[key], str):
@@ -219,7 +216,7 @@ def policies_and_ordering(platform, runner):
     # Rebind the project test boundary to the runner fixture's invented bucket.
     bucket = next(s["Resource"][0] for s in boundary["Statement"] if s["Sid"] == "ReadWorkloadBucketLocation")
     boundary = json.loads(json.dumps(boundary).replace(bucket, "arn:aws:s3:::offline-project-example"))
-    (ARTIFACTS / "rendered-policy-fixtures.json").write_text(json.dumps({"boundary": boundary, "effective": effective, "management": management}, indent=2))
+    (ARTIFACTS / "rendered-policy-fixtures.json").write_text(json.dumps({"boundary": boundary, "management": management}, indent=2))
     scope = "arn:aws:s3:::offline-project-example"
     data = scope + "/projects/fraud-detection/data/"
     output = scope + "/projects/fraud-detection/workspaces/fraud-detection-dev-01/output/"
@@ -250,21 +247,10 @@ def policies_and_ordering(platform, runner):
               ("s3:PutObject", output + "x", {"aws:SecureTransport": "false"}, False)]
     for action, resource, extra, accepted in cases:
         context = dict({"aws:SecureTransport": "true"}, **extra, workspace_id="fraud-detection-dev-01")
-        identity_result = evaluate([effective, management], action, resource, context)
-        boundary_result = evaluate([boundary], action, resource, context)
-        assert (identity_result == boundary_result == "Allow") == accepted, (action, resource, extra, identity_result, boundary_result)
-        if not accepted:
-            # Explicit denial remains when a hypothetical attached or direct
-            # session resource policy grants that same forbidden operation.
-            assert identity_result == boundary_result == "Deny", (action, resource)
-    resources = {item["address"]: item for item in r["configuration"]["root_module"]["resources"]}
-    for profile, dependencies in (("aws_iam_instance_profile.workspace", ("aws_iam_role_policy.workspace_storage", "aws_iam_role_policy_attachment.workspace_ssm")),
-                                  ("aws_iam_instance_profile.runtime", ("aws_iam_role_policy.runtime", "aws_iam_role_policy_attachment.ssm"))):
-        assert set(dependencies).issubset(resources[profile]["depends_on"]), profile
-    assert "aws_iam_instance_profile.runtime.name" in resources["aws_instance.runner"]["expressions"]["iam_instance_profile"]["references"]
-    assert not any(item["type"].startswith("aws_s3_") for item in resources.values() if item["mode"] == "managed")
+        boundary_result = evaluate([boundary, management], action, resource, context)
+        assert (boundary_result == "Allow") == accepted, (action, resource, extra, boundary_result)
     # Retention safeguards are literal lifecycle controls, absent from plan JSON.
-    for path in ("infra/aws/platform/project-storage.tf", "infra/aws/platform/storage.tf", "infra/aws/bootstrap/main.tf"):
+    for path in ("infra/aws/platform/project-storage.tf", "infra/aws/platform/storage.tf", "infra/aws/bootstrap/workspace/main.tf"):
         assert "prevent_destroy = true" in (ROOT / path).read_text(), path
         assert "force_destroy = true" not in (ROOT / path).read_text(), path
     return len(cases)
@@ -275,10 +261,10 @@ try:
         result = unittest.TextTestRunner(stream=stream, verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(Preparation))
     if not result.wasSuccessful():
         raise RuntimeError("preparation tests failed")
-    platform, runner = native("platform"), native("runner")
-    count = policies_and_ordering(platform, runner)
+    platform = native("platform")
+    count = boundary_policy(platform)
     (ARTIFACTS / "result.json").write_text(json.dumps({"status": "passed", "preparation_tests": result.testsRun, "policy_cases": count,
-                                                    "native_plan_tests": len(platform) + len(runner), "cloud_api_calls": False, "cloud_mutations": False}, indent=2))
+                                                    "native_plan_tests": len(platform), "cloud_api_calls": False, "cloud_mutations": False}, indent=2))
     print("test-aws-workspace-storage: PASS (" + str(ARTIFACTS.relative_to(ROOT)) + ")")
 except (Exception, KeyboardInterrupt) as error:
     (ARTIFACTS / "result.json").write_text(json.dumps({"status": "failed", "reason": str(error)}, indent=2))

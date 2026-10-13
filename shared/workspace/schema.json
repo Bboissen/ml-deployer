@@ -114,9 +114,7 @@
         },
         "provider": {
           "enum": [
-            "aws",
-            "gcp",
-            "azure"
+            "aws"
           ]
         },
         "account_scope": {
@@ -195,9 +193,7 @@
         },
         "provider": {
           "enum": [
-            "aws",
-            "gcp",
-            "azure"
+            "aws"
           ]
         },
         "account_scope": {
@@ -385,9 +381,7 @@
         },
         "provider": {
           "enum": [
-            "aws",
-            "gcp",
-            "azure"
+            "aws"
           ]
         },
         "account_scope": {

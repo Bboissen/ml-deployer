@@ -46,8 +46,13 @@ class GuideServer(unittest.TestCase):
         response, body = self.get('/')
         self.assertEqual(response.status, 200); self.assertIn(b'first-use guide', body)
         self.assertEqual(response.getheader('Cache-Control'), 'no-store')
-        self.assertIn("frame-ancestors 'none'", response.getheader('Content-Security-Policy'))
+        policy = response.getheader('Content-Security-Policy')
+        self.assertIn("frame-ancestors 'none'", policy); self.assertIn("script-src 'self'", policy); self.assertNotIn('unsafe-inline', policy.split('style-src')[0])
+        self.assertNotIn(b'<script>', body)
+        self.assertEqual(response.getheader('Cross-Origin-Resource-Policy'), 'same-origin')
         self.assertIsNone(response.getheader('Access-Control-Allow-Origin'))
+        script, text = self.get('/aws-setup-guide.js')
+        self.assertEqual(script.status, 200); self.assertTrue(script.getheader('Content-Type').startswith('text/javascript')); self.assertIn(b'status.json', text)
 
     def test_status_is_the_cached_doctor_report(self):
         for _ in range(3):
@@ -70,7 +75,7 @@ class GuideServer(unittest.TestCase):
 
     def test_only_documents_under_docs_are_served(self):
         self.assertEqual(self.get('/operations/aws-project-configuration.md')[0].status, 200)
-        self.assertEqual(self.get('/CONTRIBUTING.md')[0].status, 200)
+        self.assertEqual(self.get('/CONTRIBUTING.md')[0].status, 200); self.assertEqual(self.get('/SECURITY.md')[0].status, 200)
         for path in ('/../workspace', '/operations/../../README.md', '/%2e%2e/workspace', '/opentofu-architecture.css', '/missing.md'):
             self.assertEqual(self.get(path)[0].status, 404, path)
 

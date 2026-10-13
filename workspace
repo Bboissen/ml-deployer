@@ -36,8 +36,8 @@ Repair:
   workspace auth-check --profile NAME --region REGION   Re-check an AWS login
 
 Persistent storage survives compute teardown; cloud launch always requires a
-reviewed scope plus one confirmation or an explicit --authorization. Google
-Cloud and Azure launch are not available. Use workspace PROJECT.json deploy --help
+reviewed scope plus one confirmation or an explicit --authorization bound to
+its scope hash. Use workspace PROJECT.json deploy --help
 for deployment options.
 HELP
     exit 0 ;;

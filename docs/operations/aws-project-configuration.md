@@ -8,9 +8,7 @@ commands, changes credentials, initializes state or provisions infrastructure.
 
 Ordinary use never calls `configure` directly: `./workspace project.json`
 prepares this operation as the first step of its review, and
-`./workspace doctor project.json` validates the file beforehand. The historical
-[explicit configuration workflow](aws-workspace.md) remains available for the
-bounded fixture job with its own plan checks, authorization and cleanup.
+`./workspace doctor project.json` validates the file beforehand.
 
 ## Project input
 
@@ -21,7 +19,7 @@ the historical explicit controller configuration with `version: 1`.
 
 | Field | Meaning |
 | --- | --- |
-| `provider` | `aws`; GCP/Azure capabilities are explicitly unsupported |
+| `provider` | `aws` |
 | `profile` | Existing non-default temporary AWS profile; account/identity are discovered |
 | `region` | `us-east-1` in the current reviewed CPU profile |
 | `project`, `workspace` | Canonical friendly names; generated workspace ID is `project-workspace`, at most 48 characters |
@@ -123,4 +121,4 @@ execution). Configuration alone never authorizes or launches anything.
 
 Run `make aws-project-config-test` for meaningful offline configuration checks.
 The tests also run in the AWS scaffold suite. See the
-[baseline and assumption inventory](aws-controller-migration.md) for migration scope.
+baseline and assumption inventory for migration scope.

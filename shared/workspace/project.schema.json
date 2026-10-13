@@ -7,7 +7,7 @@
   "required": ["schema_version", "provider", "profile", "region", "project", "workspace", "dataset", "repository", "commands", "outputs", "resources", "maximum_runtime_minutes"],
   "properties": {
     "schema_version": {"const": "1.0.0"},
-    "provider": {"enum": ["aws", "gcp", "azure"]},
+    "provider": {"enum": ["aws"]},
     "profile": {"type": "string", "pattern": "^[A-Za-z0-9_+=,.@-]{1,128}$"},
     "region": {"type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$"},
     "project": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,22}[a-z0-9]$"},

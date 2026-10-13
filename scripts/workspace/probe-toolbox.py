@@ -50,7 +50,7 @@ def probe(provider, directory):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("provider", choices=("aws", "gcp", "azure"))
+    parser.add_argument("provider", choices=("aws",))
     parser.add_argument("project_directory")
     args = parser.parse_args()
     facts = probe(args.provider, args.project_directory)

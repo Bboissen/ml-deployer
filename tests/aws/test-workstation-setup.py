@@ -37,7 +37,7 @@ class Bootstrap(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root/'repo'
         (self.repo/'scripts/aws').mkdir(parents=True)
-        for name in ('workstation-setup.sh', 'workstation-ui.sh', 'workspace.sh'):
+        for name in ('workstation-setup.sh', 'workstation-ui.sh'):
             shutil.copy(ROOT/'scripts/aws'/name, self.repo/'scripts/aws'/name)
         shutil.copy(ROOT/'workspace', self.repo/'workspace')
         self.shims = self.root/'shims'; self.shims.mkdir()
@@ -114,7 +114,7 @@ class Bootstrap(unittest.TestCase):
         (self.repo/'scripts/aws/controller-requirements.lock').write_text('# mocked packages\n')
 
     def run_setup(self, *args):
-        return subprocess.run(['bash', str(self.repo/'scripts/aws/workspace.sh'), 'setup', *args],
+        return subprocess.run(['bash', str(self.repo/'workspace'), 'setup', *args],
                               env=self.env, capture_output=True, text=True, timeout=30)
 
     def test_check_only_has_no_writes_or_downloads(self):

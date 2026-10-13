@@ -51,12 +51,12 @@
 </head>
 <body>
 <main>
-  <p class="eyebrow">AWS · Linux and macOS · updated 13 October 2026</p>
+  <p class="eyebrow">AWS · Linux and macOS</p>
   <h1>AWS workspace: first-use guide</h1>
-  <p class="lead">Run <code>make</code> in the repository folder and answer its setup questions. It prepares the tools, creates your project configuration, and offers native sign-in. This companion shows progress; the setup work happens in the same terminal.</p>
+  <p class="lead">Run <code>make</code> in the repository folder and answer its questions in that terminal. It prepares the tools, saves your project file and offers native sign-in. This page only shows progress; it never logs in, deploys or changes anything.</p>
 
   <div class="note" id="live">
-    <p><strong>No live readiness.</strong> Run <code>make</code> (or <code>./workspace guide</code>) in the repository folder and open the address it prints to see which steps are done. Opened as a file, this page is a plain checklist.</p>
+    <p><strong>No live readiness.</strong> Run <code>make</code> in the repository folder and open the address it prints to see which steps are done. Opened as a file, this page is a plain checklist.</p>
   </div>
 
   <div class="pick" id="pick" hidden>
@@ -64,206 +64,86 @@
       <select id="repo"><option value="public">Public GitHub repository</option><option value="private">Private GitHub repository</option><option value="all">Show both</option></select>
     </label>
   </div>
-  <p class="nojs-only meta">JavaScript is off or unavailable: readiness is not shown, every public and private variant is listed, and commands can be selected and copied by hand.</p>
+  <p class="nojs-only meta">JavaScript is off: readiness is not shown and both public and private variants are listed.</p>
 
   <ol class="steps">
     <li data-step="tools">
       <h3>Get the source and run make</h3>
 <pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
-make            # or ./workspace guide when make is not installed</code></pre>
-      <p><code>make</code> prepares hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds in the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Sign-in uses the native provider's browser flow. Keep that terminal running; Ctrl+C stops setup and the companion. Deployment still requires review and confirmation of its exact scope.</p>
-      <div class="note"><p><strong>Laptop connecting over SSH:</strong> keep the repository on the server. In your SSH session, run:</p>
-<pre><code># On the server:
-cd /path/on/server/Ray_terraform
-make remote</code></pre>
-      <p>Run the printed tunnel command in a new laptop terminal <strong>outside SSH</strong>, then open the printed link in your laptop's browser. Keep the tunnel open and answer setup questions in the original SSH terminal. No laptop clone, launcher or cloud tools are needed.</p>
-      <p class="meta"><code>remote</code> selects browser access from another device; the installer and configuration run on the repository host. Skip the tunnel if the port is already forwarded. Plain <code>make</code> also detects SSH. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
-      <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
+make</code></pre>
+      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open; Ctrl+C stops setup and this page. Rerunning <code>make</code> resumes.</p>
+      <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make remote</code> there. It prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
+      <p class="meta">Ubuntu/Debian: if setup reports missing system packages, run <code>./workspace setup --system-packages</code> (sudo installs curl, unzip, tar, dpkg), then <code>make</code> again. macOS: install the Command Line Tools when prompted. Supported: Linux with glibc (x86_64, arm64) and macOS (Intel, Apple Silicon).</p>
     </li>
 
     <li data-step="project">
-      <h3>Configure your project</h3>
-      <p><strong>Answer the questions in the terminal running <code>make</code>.</strong> It creates the folder and saves a validated project file for you. Press Enter to keep a suggested value. Provide your real repository and dataset source; credentials are entered only through native sign-in.</p>
-      <table><tr><th>Fields to edit</th><th>Use your own values</th></tr>
-        <tr><td><code>profile</code>, <code>project</code>, <code>workspace</code></td><td>Your AWS login profile and names for this project and workspace.</td></tr>
-        <tr><td><code>dataset.source</code></td><td>Your existing dataset path or supported remote source; the example's <code>./dataset</code> must exist beside the project file if you keep it.</td></tr>
-        <tr><td><code>repository.url</code>, <code>repository.ref</code></td><td>Your ML repository URL and branch, tag or commit; <code>owner/project.git</code> is a placeholder.</td></tr>
-        <tr><td><code>commands.setup</code>, <code>commands.run</code>, <code>outputs.paths</code></td><td>The commands and output folders that your ML repository actually uses.</td></tr>
-        <tr><td><code>maximum_runtime_minutes</code></td><td>A limit from 15 to 60 minutes.</td></tr>
+      <h3>Describe your project</h3>
+      <p><strong>Answer in the terminal running <code>make</code>.</strong> It saves a validated private project file for you; press Enter to keep a suggested value. Credentials are never typed here: sign-in is always the provider's own browser flow.</p>
+      <table><tr><th>Question</th><th>What to answer</th></tr>
+        <tr><td>Project and workspace names</td><td>Short lowercase names for this project and this workspace.</td></tr>
+        <tr><td>AWS profile and region</td><td>A named profile (not <code>default</code>) and <code>us-east-1</code>, the reviewed CPU region.</td></tr>
+        <tr><td>Mode and maximum runtime</td><td><code>job</code> runs setup and run then tears the machine down; <code>workspace</code> keeps it for a terminal. 15 to 60 minutes.</td></tr>
+        <tr><td>Repository URL and ref</td><td>Your ML repository and a branch, tag or commit. Private repositories use the <code>git@github.com:</code> URL.</td></tr>
+        <tr><td>Setup and run commands, output folders</td><td>The commands your repository documents and the folders it writes results to.</td></tr>
+        <tr><td>Dataset</td><td>A file or folder on this machine, an <code>s3://</code> prefix or a public HTTPS file.</td></tr>
       </table>
-      <details><summary>Manual configuration reference (optional)</summary>
-<pre><code>mkdir -p ~/aws-workspace/demo
-cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
-"${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
-      </details>
-      <p class="meta">The guide checks <code>~/aws-workspace/demo/project.json</code>; for another location stop it and start it with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
+      <p class="meta">The default file is <code>~/aws-workspace/demo/project.json</code>; choose another with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>.</p>
     </li>
 
     <li data-step="aws">
       <h3>Sign in to AWS</h3>
-      <p><code>make</code> offers sign-in using the profile you chose. Accept that prompt to continue in the same terminal. Over SSH it uses remote login and prints the native browser link for your laptop. The controller never sees or stores a password or key.</p>
+      <p><code>make</code> offers sign-in with the profile you chose and opens the AWS browser flow. Over SSH it prints a link and a code for your laptop browser. This repository never sees or stores a password or access key.</p>
 <pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
-      <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device (it prints a link, then you paste the code the browser shows back into the terminal). A successful login does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
-      <div class="note warn"><p><strong>Browser shows “400 Bad Request” or another sign-in error?</strong> Each sign-in link works once and only for a few minutes, and only while the login command is still waiting in the terminal. Close that tab, press Ctrl+C in the terminal, run the login command again and use only the page it opens now; never reuse an older link. If it still fails, rerun with <code>--remote</code>.</p></div>
+      <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device. Static access keys are refused. A successful login does not prove permission to create infrastructure; Deploy checks that against its saved plans.</p>
+      <div class="note warn"><p><strong>Browser shows “400 Bad Request”?</strong> Each sign-in link works once, for a few minutes, while the login command still waits. Press Ctrl+C, run the login again and use only the newly opened page.</p></div>
     </li>
 
     <li data-step="github">
-      <h3>Connect private GitHub access only when needed</h3>
+      <h3>Connect GitHub only for a private repository</h3>
       <div class="variant" data-repo="public"><span class="label">Public repository</span>
-        <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>. No GitHub login is required anywhere.</p></div>
+        <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>.</p></div>
       <div class="variant" data-repo="private"><span class="label">Private repository</span>
-        <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, install the managed GitHub CLI and log in once. You need admin permission on that repository: Deploy registers a read-only deploy key for it and stores the private key only in AWS Secrets Manager.</p>
-<pre><code>./workspace setup --github
-./workspace github-login</code></pre></div>
+        <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, and sign in once with the managed GitHub CLI. You need admin permission on that repository: Deploy registers a read-only deploy key and stores its private half only in AWS Secrets Manager.</p>
+<pre><code>./workspace github-login</code></pre></div>
     </li>
 
     <li data-step="deploy">
-      <h3>Review and Deploy</h3>
-      <p>When every step above is done, the first command resolves the account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one immutable scope, prints it, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
+      <h3>Review and deploy</h3>
+      <p>The first command resolves your account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one scope, prints it with its hash, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
 <pre><code>./workspace ~/aws-workspace/demo/project.json
 ./workspace ~/aws-workspace/demo/project.json status --wait 30</code></pre>
-      <p class="meta">For automation, pass <code>--authorization 'Approve the displayed scope'</code> instead of the prompt; nothing launches without one of the two. Stage progress (artifacts, foundation, repository, ingestion, prepare, launch, job, verify, cleanup) prints as it happens. Every saved OpenTofu plan is still inspected and bound to that one authorization; no ARN, hash or state path is copied by hand. A changed file or source needs a new review.</p>
+      <p class="meta">For automation, rerun with <code>--authorization "approve scope HASH"</code> where HASH is the 16-character scope hash the review printed. Nothing launches without the typed confirmation or that hash. A changed file or source needs a new review.</p>
     </li>
 
     <li data-step="outputs">
-      <h3>Locate output and confirm compute cleanup</h3>
-      <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>outputs</code> is the S3 location of your declared output paths; <code>compute cleanup: success</code> together with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable.</p>
-<pre><code>./workspace ~/aws-workspace/demo/project.json status
-./workspace ~/aws-workspace/demo/project.json logs</code></pre>
-      <p class="meta">Both print <code>output_uri</code>, the <code>s3://…/output/</code> prefix holding your declared paths and bounded logs; browse it in the S3 console or with your own AWS CLI. Retained on purpose: the dataset and output buckets, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can continue to cost money; deleting them is a separate reviewed decision. A second Deploy with the same data verifies and reuses the retained versions without uploading again.</p>
+      <h3>Find your outputs and confirm cleanup</h3>
+      <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>compute cleanup: success</code> with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable at the printed <code>s3://…/output/</code> prefix.</p>
+<pre><code>./workspace ~/aws-workspace/demo/project.json logs</code></pre>
+      <p class="meta">Kept on purpose: the dataset and output bucket, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can keep costing money; deleting them is a separate reviewed decision. A second Deploy with the same data reuses the retained versions without uploading again.</p>
     </li>
   </ol>
 
-  <h2>Installation failed: repair and retry</h2>
+  <h2>Something broke</h2>
   <div class="note warn">
-    <p><strong>Something is broken or half installed.</strong> Rebuild the managed tools; logins, project files, shell settings, state, saved plans and operation evidence are untouched, and the previous tools stay selected if the rebuild fails.</p>
+    <p><strong>Tools half installed or failing:</strong> rebuild them. Logins, project files, state and evidence are untouched, and the previous tools stay selected if the rebuild fails.</p>
 <pre><code>./workspace setup --fresh
 ./workspace doctor ~/aws-workspace/demo/project.json --debug</code></pre>
-    <p>If setup stops with <code>install.lock</code>: a setup that exited is recovered automatically; a running setup is reported with its process ID. Only when the message says the lock has no verifiable owner and you are sure nothing is running anywhere, remove the exact directory it names.</p>
-    <p><strong>The launcher itself is broken.</strong> Source checkout: <code>git status</code>, then <code>git checkout -- workspace scripts</code> restores the tracked files. Published release: rerun the same version's <code>install.sh --restore</code>; it verifies the archive checksum, puts back only changed release files and keeps evidence, tools and older versions.</p>
-    <p><strong>A Deploy was interrupted.</strong> That is not an installation problem. Run <code>./workspace project.json resume</code> (reconciles owned resources, never repeats a launch) or <code>cancel</code>. Fresh setup never touches operations.</p>
-  </div>
-
-  <h2>What is and is not accepted yet</h2>
-  <div class="note">
-    <p>The complete install → login → configure → Deploy → retained reuse journey has offline, mocked coverage and a clean Ubuntu container install without preinstalled Python. Native acceptance still pending for the generic journey: a clean macOS and Linux arm64 install with real browser login, a real generic job with durable outputs, retained-data reuse against the live account, controller-loss drills and verified teardown. One bounded private SSH/Make job passed natively earlier. Details and the exact authorization needed: <a href="operations/aws-native-acceptance.md">native acceptance scope</a>.</p>
+    <p><strong>A Deploy was interrupted:</strong> <code>./workspace project.json resume</code> reconciles owned resources and never repeats a launch; <code>cancel</code> removes the owned compute.</p>
+    <p><strong>The launcher itself is broken:</strong> <code>git checkout -- workspace scripts</code> restores the tracked files.</p>
   </div>
 
   <h2>More</h2>
   <table>
     <tr><th>Topic</th><th>Where</th></tr>
-    <tr><td>Commands in one page</td><td><a href="operations/aws-deployer-quickstart.md">Deployer quickstart</a>, <code>./workspace --help</code></td></tr>
-    <tr><td>Installer details, checks and flags, repair</td><td><a href="operations/aws-workstation-setup.md">Workstation setup</a></td></tr>
-    <tr><td>What Deploy does, recovery behaviour</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
-    <tr><td>Account prerequisites (owner actions)</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
-    <tr><td>Contributing, license status, releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
+    <tr><td>Commands in one page</td><td><a href="operations/aws-deployer-quickstart.md">Quickstart</a>, <code>./workspace --help</code></td></tr>
+    <tr><td>Installer checks, flags and repair</td><td><a href="operations/aws-workstation-setup.md">Workstation setup</a></td></tr>
+    <tr><td>What Deploy does and how recovery works</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
+    <tr><td>Account prerequisites</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
+    <tr><td>Security, reporting, what is verified</td><td><a href="../SECURITY.md">SECURITY</a></td></tr>
+    <tr><td>Contributing and releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
   </table>
 </main>
-<script>
-(() => {
-  'use strict';
-  document.documentElement.classList.add('js');
-  const checks = {tools: 'Managed tools', project: 'Project config', aws: 'AWS identity', github: 'GitHub access'};
-  const labels = {Ready: '✓ Done', 'To do': '○ To do', 'Not checked': '… Not checked yet', Next: '→ Next', Waiting: '… Waiting'};
-  const live = document.getElementById('live');
-  let refreshing = false;
-
-  function stepState(status, rows, step) {
-    if (step in checks) {
-      const row = rows[checks[step]];
-      if (!row) return null;
-      if (status.setup_mode === 'interactive' && row.state !== 'Ready') {
-        const instructions = {tools: 'Tools are being prepared in the setup terminal.', project: 'Answer the project questions in the terminal running make. The file is saved automatically.', aws: 'Continue with the sign-in prompt in the setup terminal.', github: 'Continue with the repository access prompt in the setup terminal.'};
-        return {...row, detail: instructions[step], next: null};
-      }
-      return row;
-    }
-    const last = rows['Last operation'];
-    if (step === 'deploy') {
-      if (status.deployed) return {state: 'Ready', detail: last ? last.detail : 'deployed'};
-      if (last && last.state !== 'Ready') return last;
-      if (status.ready) return {state: 'Next', detail: 'every check is ready: review and deploy', next: status.deploy};
-      return {state: 'Waiting', detail: 'finish the steps above first'};
-    }
-    if (step === 'outputs') {
-      if (status.deployed) return {state: 'Ready', detail: status.output_uri ? 'outputs at ' + status.output_uri : 'no declared outputs'};
-      return {state: 'Waiting', detail: 'available after a successful Deploy'};
-    }
-    return null;
-  }
-
-  function element(tag, className, text) {
-    const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node;
-  }
-
-  function notice(kind, text) { live.className = 'note ' + kind; live.replaceChildren(element('p', '', text)); }
-
-  function show(status) {
-    const rows = {};
-    if (Array.isArray(status.rows)) for (const row of status.rows) rows[row.check] = row;
-    let first = null;
-    for (const li of document.querySelectorAll('li[data-step]')) {
-      li.classList.remove('done', 'todo', 'pending'); li.querySelector('.state')?.remove();
-      const s = stepState(status, rows, li.dataset.step); if (!s) continue;
-      const done = s.state === 'Ready';
-      li.classList.add(done ? 'done' : (s.state === 'To do' || s.state === 'Next') ? 'todo' : 'pending');
-      if (!done && !first && (s.state === 'To do' || s.state === 'Next' || s.next)) first = li;
-      const box = element('div', 'state');
-      box.append(element('span', 'badge', labels[s.state] || s.state), element('span', '', s.detail || ''));
-      li.querySelector('h3').insertAdjacentElement('afterend', box);
-      if (s.next && !done) { const pre = element('pre'); pre.append(element('code', '', s.next)); box.append(pre); addCopy(pre); }
-    }
-    if (status.repository === 'public' || status.repository === 'private') { repo.value = status.repository; render(); }
-    const when = new Date(status.checked_at);
-    live.className = 'note ' + (first || !status.ready ? 'warn' : 'good');
-    live.replaceChildren();
-    const head = element('p'); head.append(element('strong', '', first ? 'Next: ' + first.querySelector('h3').textContent : status.ready ? (status.deployed ? 'Deployed.' : 'Ready to deploy.') : 'Readiness not confirmed.'));
-    head.append(' Checked ' + (isNaN(when) ? 'just now' : when.toLocaleTimeString()) + ' for ' + (status.expected_config ? status.expected_config + ' (not created yet)' : status.config || 'no project file yet') + '.');
-    live.append(head, element('p', 'meta', 'This page re-checks every 20 seconds and when you come back to it. It never logs in, deploys or changes cloud resources.'));
-    if (first) {
-      const action = stepState(status, rows, first.dataset.step);
-      live.append(element('p', '', action.detail));
-      if (action.next) { const pre = element('pre'); pre.append(element('code', '', action.next)); live.append(pre); addCopy(pre); }
-    }
-  }
-
-  async function refresh() {
-    if (location.protocol === 'file:' || refreshing) return;
-    refreshing = true;
-    try {
-      const response = await fetch('status.json', {cache: 'no-store'});
-      if (!response.ok) throw new Error('readiness unavailable');
-      const status = await response.json();
-      if (status.error) notice('warn', status.error); else show(status);
-    } catch { notice('warn', 'Live readiness is unavailable. Check the guide terminal; if it stopped, run make again in the repository folder.'); }
-    finally { refreshing = false; }
-  }
-
-  const repo = document.getElementById('repo'), pick = document.getElementById('pick'); const key = 'aws-workspace-guide-v3';
-  try { const saved = localStorage.getItem(key); if (['public', 'private', 'all'].includes(saved)) repo.value = saved; } catch {}
-  function render() {
-    for (const el of document.querySelectorAll('.variant')) el.style.display = repo.value !== 'all' && el.dataset.repo !== repo.value ? 'none' : 'block';
-  }
-  pick.hidden = false;
-  repo.addEventListener('change', () => { render(); try { localStorage.setItem(key, repo.value); } catch {} });
-  function addCopy(pre) {
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'copy'; button.textContent = 'Copy commands';
-    const result = document.createElement('span'); result.className = 'copied'; result.setAttribute('aria-live', 'polite');
-    button.addEventListener('click', async () => {
-      const text = pre.textContent;
-      try { if (!navigator.clipboard) throw new Error('no clipboard'); await navigator.clipboard.writeText(text); result.textContent = 'Copied; run it in your terminal.'; }
-      catch { try { const range = document.createRange(); range.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); result.textContent = 'Clipboard unavailable; the command is selected, copy it with your keyboard.'; }
-             catch { result.textContent = 'Clipboard unavailable; select and copy the command text above.'; } }
-    });
-    pre.insertAdjacentElement('afterend', button); button.insertAdjacentElement('afterend', result);
-  }
-  for (const pre of document.querySelectorAll('pre')) addCopy(pre);
-  render();
-  refresh(); setInterval(() => { if (!document.hidden) refresh(); }, 20000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-  window.addEventListener('focus', refresh);
-})();
-</script>
+<script src="aws-setup-guide.js"></script>
 </body>
 </html>

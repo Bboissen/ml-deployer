@@ -1,5 +1,10 @@
-# Shared contracts
+# Shared workspace contract
 
-This directory contains provider-neutral runner contracts, the genuinely portable guest execution core, and the bounded OCI conformance fixture used to accept that infrastructure.
+`workspace/schema.json` defines the request, handoff and readiness records the
+controller exchanges with the instance; `workspace/project.schema.json` is the
+short user configuration; `workspace/toolbox.json` pins the toolbox profile;
+`workspace/release.json` names the release candidate. `workspace/example/` is
+the deterministic NumPy/pandas acceptance example with its locked environment.
 
-It must not contain provider configurations, provider-specific IAM generation, production ML code, experiment parameters, or a lowest-common-denominator wrapper around cloud resources. The test-only fixture under `conformance/` may exercise representative libraries and provider-local object adapters, but it may not grow into the ML product repository.
+Nothing here contains provider configuration, production ML code or experiment
+parameters.

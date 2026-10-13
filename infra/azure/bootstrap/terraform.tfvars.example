@@ -1,6 +1,0 @@
-subscription_id  = "00000000-0000-0000-0000-000000000000"
-tenant_id        = "11111111-1111-1111-1111-111111111111"
-location         = "westeurope"
-project_name     = "mlinfra"
-uniqueness_suffix = "a1b2c3"
-owner            = "platform-team"

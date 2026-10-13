@@ -16,15 +16,6 @@
     "aws": [
       "aws",
       "boto3"
-    ],
-    "gcp": [
-      "gcloud",
-      "google-cloud-storage"
-    ],
-    "azure": [
-      "az",
-      "azure-identity",
-      "azure-storage-blob"
     ]
   },
   "project_environments": "non-root writable venvs separate from toolbox",

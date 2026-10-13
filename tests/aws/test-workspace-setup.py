@@ -256,7 +256,7 @@ class MakeFlow(unittest.TestCase):
         self.assertEqual(rows['Project config']['state'], 'Ready')
         self.assertEqual(rows['AWS identity']['state'], 'To do')
         with urllib.request.urlopen('http://127.0.0.1:%d/' % port, timeout=10) as response:
-            self.assertIn('The file is saved automatically.', response.read().decode())
+            self.assertIn('Describe your project', response.read().decode())
         os.killpg(process.pid, signal.SIGINT); process.wait(timeout=10)
         with socket.socket() as connection:
             self.assertNotEqual(connection.connect_ex(('127.0.0.1', port)), 0)

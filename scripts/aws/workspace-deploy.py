@@ -61,7 +61,7 @@ def describe_result(config,result):
     if result.get('output_uri'): lines.append('  outputs: '+result['output_uri'])
     if result.get('error'): lines.append('  error: '+str(result['error'].get('reason') or result['error'].get('type')))
     command='./workspace '+str(config)
-    if status=='review_required': lines.append('  next: review the scope above, then rerun '+command+' and type deploy, or pass --authorization TEXT')
+    if status=='review_required': lines.append('  next: review the scope above, then rerun '+command+' and type deploy, or pass --authorization "approve scope '+str(result.get('scope_sha256',''))[:16]+'"')
     elif status=='success': lines.append('  next: a second Deploy reuses the retained data; '+command+' logs shows events')
     elif status=='workspace_ready': lines.append('  next: '+command+' connect; '+command+' cancel ends compute before expiry')
     elif status in ('failure','cancelled') and result.get('cleanup_status') in ('success','not_needed'): lines.append('  next: owned compute is gone; fix the cause and run '+command+' for a new review')
@@ -387,10 +387,15 @@ def deploy(W,config,directory=None,authorization=None):
     L=W['L']
     if authorization and directory is None: directory=latest(L,config)
     directory,scope=prepare(W,config,directory)
+    scope_sha256=L['sha'](L['canon'](scope))
     if not authorization: authorization=confirm(L,scope)
-    if not authorization: return {'status':'review_required','operation_directory':str(directory),'review':scope,'cloud_mutations':False}
-    L['require'](len(authorization.strip())>=12 and L['source']()['working_tree_sha256']==L['sha'](b''),'task authorization and clean committed source required')
-    task={'scope_sha256':L['sha'](L['canon'](scope)),'authorization':authorization,'authorized_at':L['stamp']()}
+    if not authorization: return {'status':'review_required','operation_directory':str(directory),'scope_sha256':scope_sha256,'review':scope,'cloud_mutations':False}
+    # A noninteractive authorization must quote the reviewed scope hash: whoever
+    # supplies it has seen this exact review, not merely a config path.
+    L['require'](len(authorization.strip())>=12 and scope_sha256[:16] in authorization,
+                 'authorization must contain scope hash '+scope_sha256[:16]+' printed by the review; rerun without --authorization to see it')
+    L['require'](L['source']()['working_tree_sha256']==L['sha'](b''),'clean committed source required')
+    task={'scope_sha256':scope_sha256,'authorization':authorization,'authorized_at':L['stamp']()}
     L['write'](directory/'task-authorization.json',task)
     return execute(W,config,directory,scope,task)
 

@@ -96,7 +96,8 @@ only in Secrets Manager.
 
 Each line is `Ready`, `To do` or `Not checked` with the next command. Repeat
 until the last line is `Ready: review and deploy with …`. `--debug` adds
-bounded, redacted diagnostics.
+bounded, redacted diagnostics. `make` runs the same checks and shows them on the
+companion page.
 
 ## 6. Review and Deploy
 
@@ -108,16 +109,17 @@ bounded, redacted diagnostics.
 The command resolves account, zone, commit, dataset bytes, machine, price
 estimate, retained resources and lifetime into an immutable scope, prints it and
 asks once: type `deploy` to launch exactly that scope, or press Enter to stop
-with no cloud change. For automation:
+with no cloud change. The review also prints a 16-character scope hash. For
+automation, run the review once without a terminal (it stops at
+`review_required`), then rerun quoting that hash:
 
 ```sh
-./workspace ~/aws-workspace/demo/project.json \
-  --authorization 'Approve the displayed account, resources, access, bytes, cost and lifetime scope'
+./workspace ~/aws-workspace/demo/project.json --authorization "approve scope 0123456789abcdef"
 ```
 
-Nothing launches without the confirmation or an explicit `--authorization`.
-Every saved OpenTofu plan is inspected and bound to that one authorization; no
-ARN, hash or state path is copied. Stage progress prints as artifacts,
+Nothing launches without the typed confirmation or an `--authorization` that
+contains the hash of the exact scope it approves. Every saved OpenTofu plan is
+inspected and bound to that one authorization. Stage progress prints as artifacts,
 foundation, repository, ingestion, prepare, launch, job, verify and cleanup
 complete. A changed configuration or source needs a new review.
 

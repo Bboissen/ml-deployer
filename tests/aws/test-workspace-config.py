@@ -52,7 +52,7 @@ class Configuration(unittest.TestCase):
             self.prepare()
 
     def cli(self, *args):
-        return subprocess.run(['bash', 'scripts/aws/workspace.sh', str(self.config), *args],
+        return subprocess.run(['bash', 'workspace', str(self.config), *args],
                               env={**os.environ, 'WORKSPACE_PYTHON': sys.executable},
                               capture_output=True, text=True, timeout=20)
 
@@ -239,7 +239,7 @@ class Configuration(unittest.TestCase):
         runtime = self.directory/'runtime'
         runtime.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps([sys.argv[1:],os.read(3,4096).decode()]))\n')
         runtime.chmod(0o700)
-        result = subprocess.run(['bash', 'scripts/aws/workspace.sh', 'config.json', 'connect', 'run'],
+        result = subprocess.run(['bash', 'workspace', 'config.json', 'connect', 'run'],
                                 env={**os.environ, 'WORKSPACE_PYTHON': str(runtime)}, input='terminal input',
                                 text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -326,7 +326,7 @@ class Launcher(unittest.TestCase):
             tools = Path(directory)/'must-not-be-installed'
             environment = {**os.environ, 'WORKSPACE_TOOLS_DIR': str(tools)}
             environment.pop('WORKSPACE_PYTHON', None)
-            for entry in (ROOT/'workspace', ROOT/'scripts/aws/workspace.sh'):
+            for entry in (ROOT/'workspace',):
                 result = subprocess.run(['bash', str(entry), '--help'], cwd=directory,
                                         env=environment, capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -343,7 +343,7 @@ class Launcher(unittest.TestCase):
                      (['--authorization', 'reviewed scope with spaces'],
                       ['deploy', '--authorization', 'reviewed scope with spaces']),
                      (['status', '--wait', '0'], ['status', '--wait', '0'])]
-            for entry in (ROOT/'workspace', ROOT/'scripts/aws/workspace.sh'):
+            for entry in (ROOT/'workspace',):
                 for arguments, expected in cases:
                     result = subprocess.run(['bash', str(entry), 'project with spaces.json', *arguments],
                                             cwd=directory, env=environment, capture_output=True,

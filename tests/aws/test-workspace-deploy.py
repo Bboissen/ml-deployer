@@ -231,6 +231,21 @@ class Operations(unittest.TestCase):
                 self.assertIsNone(D.confirm(L,scope))
             with patch('builtins.input',return_value='deploy'):
                 self.assertIn(L['sha'](L['canon'](scope))[:16],D.confirm(L,scope))
+    def test_noninteractive_authorization_must_quote_the_reviewed_scope_hash(self):
+        scope=self.review_scope(); executed=[]; digest=L['sha'](L['canon'](scope))[:16]
+        clean={'revision':'a'*40,'working_tree_sha256':L['sha'](b'')}
+        with patch.object(D,'prepare',return_value=(self.directory,scope)),patch.object(D,'latest',return_value=self.directory),\
+             patch.object(D,'execute',side_effect=lambda W,c,d,s,t:executed.append(t) or {'status':'success'}),patch.dict(L,{'source':lambda:clean}),\
+             patch.object(sys.stdin,'isatty',return_value=False),patch.object(sys.stdout,'isatty',return_value=False):
+            review=D.deploy({'L':L},'config')
+            self.assertEqual(review['status'],'review_required'); self.assertEqual(review['scope_sha256'][:16],digest)
+            self.assertIn('--authorization "approve scope '+digest+'"','\n'.join(D.describe_result('/p/project.json',review)))
+            for text in ('Approve the displayed scope','approve scope '+'0'*16,digest[:8]):
+                with self.subTest(text=text),self.assertRaisesRegex(L['Failure'],'scope hash '+digest): D.deploy({'L':L},'config',authorization=text)
+            self.assertEqual(executed,[]); self.assertFalse((self.directory/'task-authorization.json').exists())
+            result=D.deploy({'L':L},'config',authorization='approve scope '+digest)
+        self.assertEqual(result['status'],'success'); self.assertEqual(len(executed),1)
+        self.assertEqual(L['read'](self.directory/'task-authorization.json')['scope_sha256'],L['sha'](L['canon'](scope)))
     def test_readable_scope_and_outcome_summaries(self):
         lines='\n'.join(D.describe_scope(self.review_scope()))
         for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git'): self.assertIn(expected,lines)

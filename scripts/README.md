@@ -1,33 +1,29 @@
 # Scripts
 
-Scripts in this repository must be small infrastructure lifecycle entrypoints. They must not implement training, scheduling, data transformation or result analysis.
+`./workspace` at the repository root is the operator entry point; everything
+under `aws/` is called through it or shipped to the instance.
 
-`aws/workspace.sh` is the AWS operator entrypoint: one ignored project config
-derives request/runner inputs, exact plan stages, terminal, clone and S3 commands.
-It uses the existing `aws/workspace-lifecycle.sh` saved-plan and evidence boundary.
-See the [AWS workflow](../docs/operations/aws-workspace.md).
+- `aws/workstation-setup.sh`, `aws/workstation-ui.sh` — Bash bootstrap of the
+  hash-pinned tools; works before Python exists.
+- `aws/workspace-guide.sh`, `aws/workspace-guide.py`, `aws/workspace_setup.py` —
+  guided first use and the read-only companion page.
+- `aws/workstation-auth.py` — native AWS and GitHub sign-in checks; never reads
+  or prints credentials.
+- `aws/workspace-doctor.py` — readiness report.
+- `aws/workspace.py`, `aws/workspace-config.py`, `aws/workspace-deploy.py`,
+  `aws/workspace-onboarding.py`, `aws/workspace-ingest.py`, `aws/workspace-e2e.py`,
+  `aws/workspace_lifecycle.py`, `aws/workspace_target.py` — the controller:
+  configuration, foundation, saved plans, authorization, ingestion, launch,
+  verification and cleanup.
+- `aws/clone-project.sh`, `aws/workspace-ssh.sh`, `aws/workspace-job.sh`,
+  `aws/workspace-generic-job.py`, `aws/workspace-guest-observe.sh`,
+  `aws/workspace_files.py`, `workspace/probe-toolbox.py` — run on the instance
+  as the non-root `workspace` user.
+- `aws/package-release.py`, `aws/install-release.sh`, `aws/workspace_release.py` —
+  deterministic release archive and standalone installer.
+- `workspace/validate.py` — offline validation of request, handoff and readiness
+  records against `shared/workspace/schema.json`.
+- `check-repository.sh` — static repository checks used by `make check`.
 
-`check-repository.sh` checks static repository structure, documents, JSON and
-shell syntax. The Makefile composes it with contract, conformance, provider
-scaffold, and format tests under `make check`.
-
-`validate-runner-request.sh` validates one closed versioned request,
-`hash-runner-request.sh` computes its normative checksum,
-`validate-deployment-index.sh` verifies runner/backend binding,
-`validate-command-result.sh` validates a lifecycle envelope, and
-`validate-completion-receipt.sh` validates the receipt payload without
-contacting a provider. A valid payload still needs provider-authenticated
-publisher and object-version evidence.
-
-`load-cloud-env.sh` reads one ignored canonical `.env` and derives the variable
-names required by the selected provider CLI, SDK and OpenTofu roots. Source it
-with `aws`, `gcp` or `azure` so the exports propagate into the current shell.
-Executing it, including through `make cloud-env CLOUD=<provider>`, validates the
-same binding in a subprocess without changing the caller's environment.
-
-The executable lifecycle and current entry points are summarized in
-[`../docs/operations/lifecycle.md`](../docs/operations/lifecycle.md). Provider
-CLIs and provider-specific scripts remain separate. `dummy/dispatch.sh` is only
-a common fail-closed gate and one-provider router: later provider work supplies
-`dummy/providers/PROVIDER.sh`. It never contains provider commands or an
-implicit plan/apply sequence, and a missing adapter is a hard failure.
+Scripts stay small infrastructure entry points; they never implement training,
+scheduling, data transformation or result analysis.

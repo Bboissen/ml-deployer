@@ -26,8 +26,8 @@ from workspace_setup import Console, setup_project
 from workspace_terminal import interactive, ssh_session
 DOCS = ROOT/'docs'
 PAGE = DOCS/'aws-setup-guide.html'
-EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md'}
-TYPES = {'.html': 'text/html; charset=utf-8', '.md': 'text/plain; charset=utf-8'}
+EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md', '/SECURITY.md': ROOT/'SECURITY.md'}
+TYPES = {'.html': 'text/html; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.js': 'text/javascript; charset=utf-8'}
 LOCAL_HOSTS = {'127.0.0.1', 'localhost', '::1'}
 CACHE_SECONDS = 5
 
@@ -75,7 +75,8 @@ def handler(doctor):
             self.send_response(code)
             for name, value in (('Content-Type', kind), ('Content-Length', str(len(body))), ('Cache-Control', 'no-store'),
                                 ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'no-referrer'),
-                                ('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                                ('Cross-Origin-Resource-Policy', 'same-origin'),
+                                ('Content-Security-Policy', "default-src 'self'; script-src 'self'; "
                                  "style-src 'unsafe-inline'; frame-ancestors 'none'")):
                 self.send_header(name, value)
             self.end_headers(); self.wfile.write(body)

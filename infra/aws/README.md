@@ -1,41 +1,24 @@
 # AWS roots
 
-For the independent workspace migration, use the
-[AWS workspace quickstart](../../docs/operations/aws-workspace.md). Milestone B
-prepares optional project storage and scoped workspace identity offline. C/D add a workspace runner configuration under `runner/workspace`, documented
-in the [C/D runbook](../../docs/operations/aws-workspace-cd.md). It uses a fresh
-workspace key in the existing runner namespace and preserves the historical
-runner configuration and state. Launch requires exact plan authorization and
-fresh native guard/identity observations. Native acceptance remains pending.
-The batch descriptions below are retained historical interfaces.
+The controller (`./workspace project.json`) plans and applies these roots with
+saved plans bound to one reviewed authorization; nothing here is applied by
+hand.
 
-- `bootstrap`: protected S3 remote-state bucket; local bootstrap state.
-- `platform`: persistent S3 data/results, ECR, IAM boundaries, VPC/subnet,
-  internet gateway, and no-ingress security group.
-- `runner`: one EC2 instance, deployment IAM, public outbound address, guest
-  termination, and independent EventBridge Scheduler deadline.
+- `bootstrap/workspace`: protected S3 state bucket with local bootstrap state.
+- `platform/workspace`: persistent workload bucket, no-ingress VPC/subnet,
+  deployer role, project permissions boundaries, Session Manager policy and the
+  Lambda/Scheduler expiry guard with its alarms.
+- `platform`: the retained-platform root. Deploy uses it only for the reviewed
+  IAM tightening of a foundation created by an earlier release; new installs
+  never plan against it.
+- `runner/workspace`: the guarded EC2 workspace, its instance role, SSM
+  terminal/job documents, deadline schedule and the toolbox under `toolbox/`.
 
-The accepted AWS platform resource graph is intentionally unchanged by the
-cross-cloud NAT cleanup. Migrating live platform network addresses requires a
-separate state-aware saved plan.
+`project.example.json` is the short user configuration; `workspace-profiles.json`
+pins the reviewed CPU sizes and region; `workspace-policy.json.tftpl` and
+`workspace-git-policy.json.tftpl` render the runtime boundaries;
+`targets.example.json` and `workspace.example.json` are the explicit advanced
+configuration used by the lifecycle tests.
 
-The runner assumes the bounded deployer role, recomputes the closed platform
-contract, uses IMDSv2 temporary credentials, and cannot assume the trusted
-publisher role. AWS Systems Manager (SSM) is the native operator path; no
-inbound security-group rule or SSH endpoint is created.
-
-Run the backend-disabled scaffold validation from the repository root:
-
-```bash
-make scaffold-test
-```
-
-For evidence-bound persistent-platform validation, use the explicit
-`aws-platform-plan-test` and `aws-platform-live-check` Make targets described in
-[the acceptance runbook](../../docs/operations/aws-platform-acceptance.md).
-The AWS dummy lifecycle adapter and its required durable evidence inputs are
-documented in
-[the AWS dummy runbook](../../docs/operations/aws-dummy-lifecycle.md).
-No command here authorizes plan application or cloud mutation.
-
-The independent workspace roots are `bootstrap/workspace/` (explicit local state bootstrap), `platform/workspace/` (persistent workspace-only platform) and `runner/workspace/` (disposable guarded toolbox). See [fresh workspace operations](../../docs/operations/aws-workspace-fresh.md). Historical roots remain preserved at their existing addresses.
+The instance uses IMDSv2 instance-role credentials bounded to the project's
+prefixes, has no inbound rule and is reached only through Session Manager.

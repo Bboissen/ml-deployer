@@ -55,7 +55,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_all_provider_records_and_cli(self):
         import sys
-        for provider in ("aws", "gcp", "azure"):
+        for provider in ("aws",):
             with self.subTest(provider=provider):
                 self.validate(*self.records(provider))
                 result = subprocess.run([sys.executable, str(ROOT / "scripts/workspace/validate.py"),
@@ -68,7 +68,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_closed_types_versions_and_id_boundaries(self):
         for field, value in (("schema_version", "1.0.0"), ("maximum_runtime_minutes", True),
                              ("maximum_runtime_minutes", 14), ("maximum_runtime_minutes", 721),
-                             ("maximum_runtime_minutes", 60.5), ("provider", "aws,gcp"),
+                             ("maximum_runtime_minutes", 60.5), ("provider", "gcp"),
                              ("operators", []), ("secret", "do-not-print-this"),
                              ("workspace_id", "a" * 49)):
             records = self.records()[:1]
@@ -84,13 +84,13 @@ class WorkspaceTests(unittest.TestCase):
             self.rejected([request])
 
     def test_native_storage_and_state_isolation(self):
-        for provider in ("aws", "gcp", "azure"):
+        for provider in ("aws",):
             request = self.records(provider)[0]
             for value in (request["storage"]["data_uri"] + "?token=forbidden",
                           request["storage"]["data_uri"] + "../",
                           request["storage"]["data_uri"] + "%2e%2e/",
                           request["storage"]["data_uri"].rstrip("/"),
-                          "s3://wrong-provider/data/" if provider != "aws" else "gs://wrong-provider/data/"):
+                          "gs://wrong-provider/data/"):
                 changed = copy.deepcopy(request)
                 changed["storage"]["data_uri"] = value
                 self.rejected([changed])
@@ -100,9 +100,6 @@ class WorkspaceTests(unittest.TestCase):
             changed = copy.deepcopy(request)
             changed["storage"]["output_uri"] = request["storage"]["data_uri"] + "outputs/"
             self.rejected([changed])
-        request = self.records("azure")[0]
-        request["storage"]["state_uri"] = request["storage"]["data_uri"].split("/data/")[0] + "/state/root.tfstate"
-        self.rejected([request])
 
     def test_handoff_rejects_rehashed_semantic_tampering(self):
         for key, value in (("provider", "gcp"), ("account_scope", "999999999999"),

@@ -66,33 +66,19 @@ def location(uri, provider, prefix=False):
     parsed = urlsplit(uri)
     require(not parsed.query and not parsed.fragment and not parsed.username
             and not parsed.password and parsed.port is None, "URI contains auth/query/port")
-    scheme = {"aws": "s3", "gcp": "gs", "azure": "https"}[provider]
-    require(parsed.scheme == scheme, "native URI/provider mismatch")
+    require(provider == "aws" and parsed.scheme == "s3", "native URI/provider mismatch")
     require("//" not in parsed.path, "empty object path segment")
-    if provider == "azure":
-        require(re.fullmatch(r"[a-z0-9]{3,24}\.blob\.core\.windows\.net", parsed.netloc),
-                "invalid native Blob endpoint")
-    else:
-        bucket_pattern = (r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]" if provider == "aws"
-                          else r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]")
-        require(re.fullmatch(bucket_pattern, parsed.netloc),
-                "invalid native bucket")
+    require(re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", parsed.netloc), "invalid native bucket")
     parts = parsed.path.lstrip("/").rstrip("/").split("/")
     require(all(part and part not in (".", "..") for part in parts), "unsafe/empty object path")
-    if provider == "azure":
-        require(len(parts) >= 2 and re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", parts[0]),
-                "Blob container/prefix required")
     require(not prefix or uri.endswith("/"), "storage prefixes must end with slash")
-    # Azure account separation is stronger than different containers on one account.
     return parsed.netloc
 
 
 def request_semantics(request):
     provider = request["provider"]
     scope = request["account_scope"]
-    pattern = {"aws": r"[0-9]{12}", "gcp": r"[a-z][a-z0-9-]{4,28}[a-z0-9]",
-               "azure": r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"}[provider]
-    require(re.fullmatch(pattern, scope), "invalid provider account scope")
+    require(provider == "aws" and re.fullmatch(r"[0-9]{12}", scope), "invalid provider account scope")
     storage = request["storage"]
     data = location(storage["data_uri"], provider, prefix=True)
     output = location(storage["output_uri"], provider, prefix=True)
@@ -110,33 +96,14 @@ def handoff_semantics(request, handoff):
     require(handoff["user"] != "root", "project user must be non-root")
     require(all(part not in (".", "..", "") for part in handoff["project_directory"].split("/")[1:]),
             "unsafe project directory")
-    provider = request["provider"]
     identity = handoff["identity"]
-    mode, method, cli, actions = {
-        "aws": ("instance_role", "ssm", "aws", ("terminate",)),
-        "gcp": ("service_account", "iap_oslogin", "gcloud", ("delete",)),
-        "azure": ("managed_identity", "reviewed_ssh", "az", ("delete", "deallocate")),
-    }[provider]
-    require(identity["mode"] == mode, "native identity/provider mismatch")
-    selector = identity["selector"]
-    if provider == "aws":
-        require(re.fullmatch(r"arn:aws:iam::" + request["account_scope"] + r":role/[A-Za-z0-9+=,.@_/-]+", selector),
-                "instance role/account mismatch")
-    elif provider == "gcp":
-        require(re.fullmatch(r"[a-z][a-z0-9-]+@" + re.escape(request["account_scope"])
-                             + r"\.iam\.gserviceaccount\.com", selector), "service account/project mismatch")
-    else:
-        require(re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", selector),
-                "managed identity client ID required")
-    require(handoff["terminal"]["method"] == method
-            and handoff["terminal"]["argv"][0] == cli, "terminal route/provider mismatch")
+    require(identity["mode"] == "instance_role", "native identity/provider mismatch")
+    require(re.fullmatch(r"arn:aws:iam::" + request["account_scope"] + r":role/[A-Za-z0-9+=,.@_/-]+", identity["selector"]),
+            "instance role/account mismatch")
     argv = handoff["terminal"]["argv"]
-    require((provider == "aws" and argv[:3] == ["aws", "ssm", "start-session"])
-            or (provider == "gcp" and argv[:3] == ["gcloud", "compute", "ssh"]
-                and "--tunnel-through-iap" in argv)
-            or (provider == "azure" and (argv[:4] == ["az", "network", "bastion", "ssh"]
-                                        or argv[:3] == ["az", "ssh", "vm"])),
+    require(handoff["terminal"]["method"] == "ssm" and argv[:3] == ["aws", "ssm", "start-session"],
             "terminal argv must describe an interactive native route")
+    actions = ("terminate",)
     lifetime = handoff["lifetime"]
     started, expires, active = (instant(lifetime[k]) for k in ("started_at", "expires_at", "guard_active_at"))
     require(active <= started < expires, "guard must be active before compute starts")

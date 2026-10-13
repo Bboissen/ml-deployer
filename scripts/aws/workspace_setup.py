@@ -1,4 +1,5 @@
 """Terminal-led first use; native authentication and existing project validation."""
+from contextlib import contextmanager
 import copy
 import importlib.util
 import os
@@ -7,19 +8,40 @@ import shlex
 import shutil
 import sys
 import textwrap
+import threading
+import time
 from workspace_terminal import ssh_session, terminal_output
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def clean(text):
+    """Strip control and escape characters: paths and API text never style the terminal."""
+    return ''.join(c if c.isprintable() and c not in '\x1b\x9b' else ' ' for c in str(text))
+
+
+def duration(seconds):
+    return '%.0fs' % seconds if seconds < 60 else '%dm%02ds' % (seconds // 60, seconds % 60)
+
+
 class Console:
+    """Zelab-style terminal: one mark per finished step, a timed spinner while working."""
+    MARKS = {'done': ('✓', 'ok', '32'), 'next': ('›', '>', '36'), 'error': ('!', '!', '31'), 'wait': ('○', '-', '33')}
+
     def __init__(self, stream=None, reader=None):
         self.stream = stream or sys.stdout
         self.reader = reader or input
-        self.color = terminal_output(self.stream) and os.environ.get('TERM') != 'dumb' and 'NO_COLOR' not in os.environ
+        self.live = terminal_output(self.stream) and os.environ.get('TERM') != 'dumb'
+        self.color = self.live and 'NO_COLOR' not in os.environ
+        encoding = (getattr(self.stream, 'encoding', None) or 'utf-8').lower().replace('-', '')
+        self.unicode = encoding == 'utf8'
 
     def paint(self, text, color):
         return '\033[' + color + 'm' + text + '\033[0m' if self.color else text
+
+    def mark(self, state):
+        symbol, ascii_symbol, color = self.MARKS[state]
+        return self.paint(symbol if self.unicode else ascii_symbol, color)
 
     def title(self):
         print('\n' + self.paint('AWS workspace', '1;36'), file=self.stream)
@@ -28,18 +50,38 @@ class Console:
     def step(self, number, label):
         print('\n' + self.paint('  ' + str(number) + '/4  ' + label, '1;36'), file=self.stream, flush=True)
 
-    def status(self, state, label):
-        mark, color = {'done': ('✓', '32'), 'next': ('›', '36'), 'error': ('!', '31'), 'wait': ('○', '33')}[state]
-        print('  ' + self.paint(mark, color) + ' ' + label, file=self.stream, flush=True)
+    def status(self, state, label, seconds=None):
+        timing = '  ' + self.paint(duration(seconds), '90') if seconds is not None and seconds >= 1 else ''
+        print('  ' + self.mark(state) + ' ' + clean(label) + timing, file=self.stream, flush=True)
 
     def hint(self, text):
         width = min(96, shutil.get_terminal_size((80, 24)).columns)
-        print(self.paint(textwrap.fill(text, width=max(30, width), initial_indent='  ', subsequent_indent='  '), '90'),
+        print(self.paint(textwrap.fill(clean(text), width=max(30, width), initial_indent='  ', subsequent_indent='  '), '90'),
               file=self.stream, flush=True)
 
     def command(self, text):
         # Keep commands and links intact when the terminal is narrow.
-        print('  ' + self.paint(text, '36'), file=self.stream, flush=True)
+        print('  ' + self.paint(clean(text), '36'), file=self.stream, flush=True)
+
+    @contextmanager
+    def busy(self, label):
+        """Spin with elapsed time while a step runs; the caller prints the final mark."""
+        started = time.monotonic(); stop = threading.Event()
+        def spin():
+            frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' if self.unicode else '|/-\\'; index = 0
+            while not stop.wait(0.1):
+                line = '  ' + self.paint(frames[index % len(frames)], '36') + ' ' + label + '  ' + duration(time.monotonic() - started)
+                self.stream.write('\r\033[2K' + line); self.stream.flush(); index += 1
+        if self.live:
+            thread = threading.Thread(target=spin, daemon=True); thread.start()
+        else:
+            self.status('next', label)
+        try:
+            yield lambda: time.monotonic() - started
+        finally:
+            stop.set()
+            if self.live:
+                thread.join(); self.stream.write('\r\033[2K'); self.stream.flush()
 
     def ask(self, label, default=None, parse=str, validate=None):
         while True:
@@ -209,8 +251,9 @@ def setup_project(config, ui, doctor, M=None, remote=None):
         ui.status('done', 'Existing project is valid')
 
     ui.step(3, 'Sign in')
-    ui.status('next', 'Checking saved sign-ins…')
-    report, _ = M.doctor(config, 'verified', False)
+    with ui.busy('Checking saved sign-ins') as elapsed:
+        report, _ = M.doctor(config, 'verified', False)
+    ui.status('done', 'Sign-ins checked', elapsed())
     rows = {row['check']: row for row in report.rows}
     aws = rows.get('AWS identity', {})
     if aws.get('state') == M.READY:

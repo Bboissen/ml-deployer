@@ -6,7 +6,7 @@ From a source checkout:
 
 ```sh
 ./workspace project.json                       # review, one interactive confirmation, then Deploy
-./workspace project.json --authorization 'Approve the displayed account, resources, transfer, cost and lifetime scope'
+./workspace project.json --authorization "approve scope HASH"   # HASH: the 16 characters the review printed
 ./workspace project.json status --wait 30
 ./workspace project.json logs
 ./workspace project.json cancel
@@ -17,7 +17,9 @@ A Deploy without `--authorization` prints the readable scope (account, zone,
 repository commit, dataset bytes, machine and price estimate, lifetime, retained
 resources, excluded fees) and asks once in an interactive terminal; typing
 `deploy` records an authorization bound to that exact scope hash. Without a
-terminal it stops at `review_required`. Stage progress and a plain outcome
+terminal it stops at `review_required` and prints the hash; a later
+`--authorization` must contain that hash, so no caller can approve a scope it
+has not seen. Stage progress and a plain outcome
 summary with the next command go to stderr; stdout stays JSON for automation.
 The first Deploy performs read-only authentication, exact Git ref resolution,
 source hashing, retained-state ownership checks and RAM/quota/price discovery.

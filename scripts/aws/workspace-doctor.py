@@ -37,14 +37,19 @@ class Report:
         self.facts = {}
 
     def add(self, check, state, detail, command=None):
-        self.rows.append({'check': check, 'state': state, 'detail': detail, 'next': command})
+        self.rows.append({'check': check, 'state': state, 'detail': clean(detail), 'next': None if command is None else clean(command)})
 
     def note(self, line):
-        self.debug.append(line)
+        self.debug.append(clean(line))
 
     @property
     def ready(self):
         return all(row['state'] == READY for row in self.rows)
+
+
+def clean(text):
+    """Strip control and escape characters so file names or API text cannot style the terminal."""
+    return ''.join(c if c == '\n' or (c.isprintable() and c not in '\x1b\x9b') else ' ' for c in str(text))
 
 
 def shell(path):

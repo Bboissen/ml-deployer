@@ -1,8 +1,0 @@
-resource_group_name  = "mlinfra-azure-state-a1b2c3"
-storage_account_name = "stmlinfraa1b2c3"
-container_name       = "tfstate"
-key                  = "azure/00000000-0000-0000-0000-000000000000/westeurope/runner/contract-smoke-001.tfstate"
-subscription_id      = "00000000-0000-0000-0000-000000000000"
-tenant_id            = "11111111-1111-1111-1111-111111111111"
-use_azuread_auth     = true
-use_cli              = true
