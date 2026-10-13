@@ -64,7 +64,7 @@ class GuideServer(unittest.TestCase):
             {'check': 'AWS identity', 'state': 'To do', 'detail': 'sign in', 'next': './workspace login'}]}
         self.doctor.at -= G.CACHE_SECONDS + 1
         _, body = self.get('/status.json')
-        self.assertIn('AWS identity: sign in', G.next_step(json.loads(body)))
+        self.assertEqual(json.loads(body)['rows'][1]['check'], 'AWS identity')
 
     def test_only_documents_under_docs_are_served(self):
         self.assertEqual(self.get('/operations/aws-project-configuration.md')[0].status, 200)
@@ -87,23 +87,6 @@ class GuideServer(unittest.TestCase):
 
 
 class GuideTerminal(unittest.TestCase):
-    def test_next_step_is_the_first_to_do_row(self):
-        self.assertEqual(G.next_step(REPORT), 'Project config: no project file yet\n    cp example project.json')
-        self.assertIsNone(G.next_step({'rows': [REPORT['rows'][0]]}))
-
-    def test_inconclusive_check_is_never_reported_as_ready(self):
-        report = {'ready': False, 'rows': [REPORT['rows'][0], REPORT['rows'][2]]}
-        self.assertEqual(G.next_step(report), 'AWS identity: later\n    ignored')
-
-    def test_terminal_distinguishes_done_next_wait_and_required_editing(self):
-        report = {**REPORT, 'expected_config': '/custom/project.json'}
-        text = G.readiness_text(report)
-        self.assertIn('[DONE] Managed tools', text)
-        self.assertIn('[NEXT] Project config', text)
-        self.assertIn('[WAIT] AWS identity', text)
-        self.assertIn('second terminal on this server', text)
-        self.assertIn('replace the example profile', text)
-
     def test_ssh_never_opens_a_browser_on_the_server(self):
         with patch.dict(os.environ, {'SSH_CONNECTION': 'client server', 'DISPLAY': ':0'}), \
              patch.object(G.subprocess, 'run', side_effect=AssertionError('remote browser opened')):

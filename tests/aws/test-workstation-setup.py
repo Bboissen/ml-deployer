@@ -37,7 +37,7 @@ class Bootstrap(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root/'repo'
         (self.repo/'scripts/aws').mkdir(parents=True)
-        for name in ('workstation-setup.sh', 'workspace.sh'):
+        for name in ('workstation-setup.sh', 'workstation-ui.sh', 'workspace.sh'):
             shutil.copy(ROOT/'scripts/aws'/name, self.repo/'scripts/aws'/name)
         shutil.copy(ROOT/'workspace', self.repo/'workspace')
         self.shims = self.root/'shims'; self.shims.mkdir()

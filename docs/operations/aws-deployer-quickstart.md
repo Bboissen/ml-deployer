@@ -12,10 +12,13 @@ cd Ray_terraform
 make            # or ./workspace guide when make is not installed
 ```
 
-`make` runs `./workspace setup`, then serves the first-use guide on
-`http://127.0.0.1:8765/` with each step checked live by `./workspace doctor --json`
-(on a remote machine it prints the `ssh -L` forward). It checks
-`~/aws-workspace/demo/project.json` unless you pass `make PROJECT=/path/project.json`.
+`make` prepares the tools, asks for project settings, saves the configuration,
+and offers native sign-in in the same terminal. Its companion at
+`http://127.0.0.1:8765/` shows progress (over SSH, forward that port from your
+laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
+`make PROJECT=/path/project.json`. Existing valid settings are reused.
+`make FRESH=1` rebuilds tools; `make DEBUG=1` shows diagnostics.
+The commands below are the optional manual equivalents of the guided flow.
 On Ubuntu/Debian, when setup reports missing system packages, run
 `./workspace setup --system-packages` (sudo) and then `make` again.
 

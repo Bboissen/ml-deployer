@@ -53,7 +53,7 @@
 <main>
   <p class="eyebrow">AWS · Linux and macOS · updated 13 October 2026</p>
   <h1>AWS workspace: first-use guide</h1>
-  <p class="lead">Run <code>make</code> in the repository folder. It installs the pinned tools and serves this page at <code>http://127.0.0.1:8765/</code> with every step checked live. Do the next step in your terminal; this page re-checks every 20 seconds and shows the one after it, until Deploy.</p>
+  <p class="lead">Run <code>make</code> in the repository folder and answer its setup questions. It prepares the tools, creates your project configuration, and offers native sign-in. This companion shows progress; the setup work happens in the same terminal.</p>
 
   <div class="note" id="live">
     <p><strong>No live readiness.</strong> Run <code>make</code> (or <code>./workspace guide</code>) in the repository folder and open the address it prints to see which steps are done. Opened as a file, this page is a plain checklist.</p>
@@ -72,7 +72,7 @@
 <pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
 make            # or ./workspace guide when make is not installed</code></pre>
-      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), edits no shell files, logs in nowhere and makes no cloud calls. Then it serves this page on <code>127.0.0.1</code> only and opens your browser. Keep that terminal running; Ctrl+C stops the guide.</p>
+      <p><code>make</code> prepares hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds in the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Sign-in uses the native provider's browser flow. Keep that terminal running; Ctrl+C stops setup and the companion. Deployment still requires review and confirmation of its exact scope.</p>
       <div class="note"><p><strong>Laptop connecting over SSH:</strong> keep the repository on the server. From your laptop, connect with port forwarding, then run <code>make</code> in the server checkout:</p>
 <pre><code>ssh -L 8765:127.0.0.1:8765 homelab
 # Now on the server:
@@ -84,9 +84,8 @@ make</code></pre>
     </li>
 
     <li data-step="project">
-      <h3>Write the short project configuration</h3>
-      <p>Copy the example and edit it: an AWS profile name of your choice (not <code>default</code>; you sign in with it in the next step), project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), your ML repository URL and branch/tag/commit, its own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
-      <p><strong>Yes, you must edit the example.</strong> The editor command below opens the file. Save your changes when finished; the guide re-checks them. You do not need to activate a Python environment or edit shell startup files.</p>
+      <h3>Configure your project</h3>
+      <p><strong>Answer the questions in the terminal running <code>make</code>.</strong> It creates the folder and saves a validated project file for you. Press Enter to keep a suggested value. Provide your real repository and dataset source; credentials are entered only through native sign-in.</p>
       <table><tr><th>Fields to edit</th><th>Use your own values</th></tr>
         <tr><td><code>profile</code>, <code>project</code>, <code>workspace</code></td><td>Your AWS login profile and names for this project and workspace.</td></tr>
         <tr><td><code>dataset.source</code></td><td>Your existing dataset path or supported remote source; the example's <code>./dataset</code> must exist beside the project file if you keep it.</td></tr>
@@ -94,15 +93,17 @@ make</code></pre>
         <tr><td><code>commands.setup</code>, <code>commands.run</code>, <code>outputs.paths</code></td><td>The commands and output folders that your ML repository actually uses.</td></tr>
         <tr><td><code>maximum_runtime_minutes</code></td><td>A limit from 15 to 60 minutes.</td></tr>
       </table>
+      <details><summary>Manual configuration reference (optional)</summary>
 <pre><code>mkdir -p ~/aws-workspace/demo
 cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
 "${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
+      </details>
       <p class="meta">The guide checks <code>~/aws-workspace/demo/project.json</code>; for another location stop it and start it with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
     </li>
 
     <li data-step="aws">
       <h3>Sign in to AWS</h3>
-      <p>Use the profile and region from your project file; once that file exists, this step shows the exact command. The native AWS CLI login opens your browser for account selection, consent and MFA; the controller never sees or stores a password or key.</p>
+      <p><code>make</code> offers sign-in using the profile you chose. Accept that prompt to continue in the same terminal. Over SSH it uses remote login and prints the native browser link for your laptop. The controller never sees or stores a password or key.</p>
 <pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
       <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device (it prints a link, then you paste the code the browser shows back into the terminal). A successful login does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
       <div class="note warn"><p><strong>Browser shows “400 Bad Request” or another sign-in error?</strong> Each sign-in link works once and only for a few minutes, and only while the login command is still waiting in the terminal. Close that tab, press Ctrl+C in the terminal, run the login command again and use only the page it opens now; never reuse an older link. If it still fails, rerun with <code>--remote</code>.</p></div>
@@ -170,7 +171,15 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
   let refreshing = false;
 
   function stepState(status, rows, step) {
-    if (step in checks) return rows[checks[step]] || null;
+    if (step in checks) {
+      const row = rows[checks[step]];
+      if (!row) return null;
+      if (status.setup_mode === 'interactive' && row.state !== 'Ready') {
+        const instructions = {tools: 'Tools are being prepared in the setup terminal.', project: 'Answer the project questions in the terminal running make. The file is saved automatically.', aws: 'Continue with the sign-in prompt in the setup terminal.', github: 'Continue with the repository access prompt in the setup terminal.'};
+        return {...row, detail: instructions[step], next: null};
+      }
+      return row;
+    }
     const last = rows['Last operation'];
     if (step === 'deploy') {
       if (status.deployed) return {state: 'Ready', detail: last ? last.detail : 'deployed'};

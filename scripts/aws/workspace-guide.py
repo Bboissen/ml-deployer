@@ -1,7 +1,7 @@
 """Serve the first-use guide on 127.0.0.1 with live doctor readiness.
 
-Read-only: GET of the guide, its linked documents and the doctor report. It
-never logs in, deploys or changes cloud resources. Stops on Ctrl+C.
+The browser exposes read-only documentation and doctor reports. Interactive
+terminal setup creates configuration and offers native login. Stops on Ctrl+C.
 """
 import argparse
 import errno
@@ -20,6 +20,8 @@ from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'scripts/aws'))
+from workspace_setup import Console, setup_project
 DOCS = ROOT/'docs'
 PAGE = DOCS/'aws-setup-guide.html'
 EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md'}
@@ -32,6 +34,7 @@ class Doctor:
     """Run `workspace doctor --json` at most once per CACHE_SECONDS, one at a time."""
     def __init__(self, config):
         self.config, self.lock, self.cached, self.at = config, threading.Lock(), None, 0.0
+        self.interactive = False
 
     def run(self):
         result = subprocess.run(['bash', str(ROOT/'workspace'), 'doctor', '--json', str(self.config)],
@@ -40,6 +43,7 @@ class Doctor:
         report = json.loads(result.stdout)
         if not isinstance(report, dict) or not isinstance(report.get('rows'), list):
             raise ValueError('invalid doctor report')
+        report['setup_mode'] = 'interactive' if self.interactive else 'reference'
         return report
 
     def report(self):
@@ -51,32 +55,6 @@ class Doctor:
                     self.cached = {'error': 'readiness check failed (' + type(exc).__name__ + '); run ./workspace doctor --debug'}
                 self.at = time.monotonic()
             return self.cached
-
-
-def next_step(report):
-    for row in report.get('rows', []):
-        if row['state'] != 'Ready':
-            return row['check'] + ': ' + row['detail'] + ('\n    ' + row['next'] if row.get('next') else '')
-    return None
-
-
-def readiness_text(report):
-    lines = ['Setup checklist']; pending = False
-    for row in report.get('rows', []):
-        done = row['state'] == 'Ready'
-        marker = '[DONE]' if done else '[NEXT]' if not pending else '[WAIT]'
-        lines.append('  ' + marker + ' ' + row['check'])
-        pending = pending or not done
-    step = next_step(report)
-    if step:
-        lines.extend(['', 'Do this next in a second terminal on this server:', step])
-        if report.get('expected_config'):
-            lines.append('The editor command opens project.json: replace the example profile, project/workspace names, dataset source, repository URL/ref, setup/run commands and output paths with your own values. Save the file; the page checks it automatically.')
-    elif report.get('ready'):
-        lines.append('All checks are ready: the page shows the Deploy command.')
-    else:
-        lines.append(report.get('error', 'Readiness is not confirmed; see the guide page.'))
-    return '\n'.join(lines)
 
 
 def resolve(path):
@@ -144,31 +122,54 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('config', type=Path)
     parser.add_argument('--port', type=int, default=os.environ.get('WORKSPACE_GUIDE_PORT', '8765'))
+    parser.add_argument('--read-only', action='store_true', help='serve the companion without terminal setup')
+    parser.add_argument('--debug', action='store_true', help='show diagnostic details')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535: parser.error('port must be between 1 and 65535')
     doctor = Doctor(args.config.expanduser().absolute())
+    doctor.interactive = sys.stdin.isatty() and sys.stdout.isatty() and not args.read_only
     exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT')
     server = bind(args.port, 1 if exact_port else min(10, 65536 - args.port), doctor)
     port = server.server_address[1]; url = 'http://127.0.0.1:%d/' % port
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()
+    ui = Console()
     try:
-        print('First-use guide: ' + url, flush=True)
+        if not os.environ.get('WORKSPACE_GUIDE_TITLE_SHOWN'): ui.title()
+        ui.hint('Companion: ' + url)
         if open_browser(url):
-            print('[DONE] Companion opened in this computer\'s browser.')
+            ui.status('done', 'Browser companion opened')
+        elif os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'):
+            ui.hint('Open that link on your laptop. If the port is not forwarded:')
+            ui.hint('ssh -N -L %d:127.0.0.1:%d %s' % (port, port, shlex.quote(platform.node() or 'your-ssh-alias')))
+        if doctor.interactive:
+            try:
+                complete = setup_project(doctor.config, ui, doctor)
+            except Exception as exc:
+                if args.debug: raise
+                ui.status('error', str(exc) if isinstance(exc, ValueError) else 'Setup could not finish; rerun make DEBUG=1 for details')
+                complete = False
+            ui.step(4, 'Review')
+            report = doctor.report()
+            if complete and report.get('ready'):
+                ui.status('done', 'Setup complete')
+                if ui.confirm('Review deployment now?'):
+                    # The existing deployer displays its scope and requires its
+                    # own scope-bound confirmation before cloud changes.
+                    subprocess.call(['bash', str(ROOT/'workspace'), str(doctor.config)])
+            else:
+                ui.status('wait', 'Setup paused · run make again to continue')
         else:
-            print('[DONE] HTML companion is running.\n'
-                  '[LINK] Open in your laptop browser: %s\n'
-                  '  If your SSH connection does not already forward this port, open another\n'
-                  '  terminal ON YOUR LAPTOP and leave this command running:\n'
-                  '    ssh -N -L %d:127.0.0.1:%d %s\n'
-                  '  Then click/open the link above. No laptop clone or installation is needed.' %
-                  (url, port, port, shlex.quote(platform.node() or 'your-ssh-alias')), flush=True)
-        print(readiness_text(doctor.report()))
-        print('The page updates itself as you complete each step. Press Ctrl+C here to stop the guide.', flush=True)
+            report = doctor.report()
+            for row in report.get('rows', []):
+                ui.status('done' if row['state'] == 'Ready' else 'wait', row['check'])
+            if report.get('expected_config'):
+                ui.hint('Run make in an interactive terminal to answer project questions and create the file automatically.')
+        if args.debug: print(json.dumps(doctor.report(), indent=2))
+        ui.hint('Companion stays available · Ctrl+C to exit')
         serving.join()
-    except KeyboardInterrupt:
-        print('\nworkspace guide: stopped')
+    except (KeyboardInterrupt, EOFError):
+        ui.hint('Stopped · saved settings are kept')
     finally:
         server.shutdown()
         serving.join()

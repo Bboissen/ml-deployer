@@ -14,12 +14,13 @@ cd Ray_terraform
 make            # or ./workspace guide when make is not installed
 ```
 
-`make` installs the pinned tools into the ignored `.tools/` folder and serves
-the [first-use guide](docs/aws-setup-guide.html) at `http://127.0.0.1:8765/`,
-opening your browser when this computer has one. The page checks each step live
-and shows the exact next command; do it in another terminal and the page moves on.
-On a remote machine, `make` prints the `ssh -L` command to reach the page. It never
-logs in, deploys or changes cloud resources; Ctrl+C stops it.
+`make` is the guided installer: it prepares pinned tools, asks for your project
+settings, creates the configuration and offers native AWS/GitHub sign-in when
+needed. Answer in the same terminal; completed steps are skipped on rerun.
+The [HTML companion](docs/aws-setup-guide.html) at `http://127.0.0.1:8765/`
+shows progress. Deployment is offered only after setup and still requires the
+existing scope review and confirmation. `make FRESH=1` rebuilds tools;
+`make DEBUG=1` shows detailed diagnostics. Ctrl+C stops the companion.
 
 For a laptop using SSH, keep the checkout on the server. Connect **from the
 laptop** with port forwarding (replace the SSH host alias):
@@ -32,8 +33,8 @@ make
 ```
 
 Open the printed `http://127.0.0.1:8765/` link in your laptop's browser. Keep this
-terminal open and use another SSH terminal to create **and edit** the project
-file. No laptop clone, launcher or cloud tools are needed. An existing SSH
+terminal open and answer the setup questions there. No laptop clone, launcher
+or cloud tools are needed. An existing SSH
 session can keep running `make`; add its tunnel from another laptop terminal
 with `ssh -N -L 8765:127.0.0.1:8765 homelab`. A command inside SSH cannot open
 the laptop browser automatically; the printed link is the remote companion.

@@ -3,6 +3,7 @@
 set -euo pipefail
 umask 077
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "$repo_root/scripts/aws/workstation-ui.sh"
 manifest="$repo_root/scripts/aws/workstation-tools.lock.tsv"
 requirements="$repo_root/scripts/aws/controller-requirements.lock"
 prefix="${WORKSPACE_TOOLS_DIR:-$repo_root/.tools/aws-workstation}"
@@ -12,7 +13,17 @@ system_packages=0
 fresh=0
 debug=0
 fail() { printf 'workstation-setup: %s\n' "$1" >&2; exit 2; }
-log() { printf 'workstation-setup: %s\n' "$1" >&2; }
+log() {
+  if [[ -t 2 ]] && ((!check_only && !debug)); then
+    case "$1" in
+      '[RUN] '*) ui_status run "${1#\[RUN\] }" ;;
+      '[DONE] replaced previous installation '*) ui_status done 'Previous tools replaced' ;;
+      '[DONE] '*) ui_status done "${1#\[DONE\] }" ;;
+      'ready: '*) ui_status done 'Tools ready' ;;
+      *) ui_status run "$1" ;;
+    esac
+  else printf 'workstation-setup: %s\n' "$1" >&2; fi
+}
 while (($#)); do
   case "$1" in
     --check) check_only=1 ;;

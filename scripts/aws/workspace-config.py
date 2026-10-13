@@ -11,8 +11,12 @@ import uuid
 
 
 def validate_project(L, path):
+    return validate_project_value(L, L['load_json'](path))
+
+
+def validate_project_value(L, value):
+    """Validate CLI answers and file inputs against the same project contract."""
     from jsonschema import Draft202012Validator
-    value = L['load_json'](path)
     schema = L['load_json'](L['REPO']/'shared/workspace/project.schema.json')
     errors = list(Draft202012Validator(schema).iter_errors(value))
     # Schema errors may contain rejected credential values. Report field paths only.

@@ -8,7 +8,8 @@ installer behaves, which checks it keeps, and how to repair it.
 ## Commands
 
 ```bash
-./workspace guide [PROJECT.json]    # = make: setup, then serve the live first-use guide on 127.0.0.1
+./workspace guide [PROJECT.json]    # = make: interactive tools/project/sign-in setup plus companion
+./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
 ./workspace setup --fresh           # rebuild the managed tools even when they verify
@@ -31,7 +32,20 @@ while visible and when focused, with doctor results cached for five seconds.
 These checks can read the selected AWS identity and GitHub repository; they
 never log in or change cloud resources. The default port is 8765, falling back
 to the next free port through 8774; `WORKSPACE_GUIDE_PORT=9000 make` selects an
-exact port. Missing project files get creation commands for the selected path.
+exact port. Interactive setup creates missing project files from your answers.
+
+In an interactive terminal, `make` asks for the project names, named AWS profile,
+supported region, mode/lifetime, repository/ref, setup/run commands, outputs and
+dataset source. It validates answers against the existing project contract and
+atomically writes a private project file; no copy command or editor is required.
+Existing valid files are reused. Repairing an invalid existing file requires an
+explicit answer and preserves optional resource/data limits; concurrent changes
+and symlinked paths are refused. Interrupted answers leave no partial file.
+Native sign-in is offered in the same terminal, using remote browser login over
+SSH. Public repositories skip GitHub sign-in. An optional deployment review uses
+the existing scope-bound confirmation; answering setup questions never launches
+compute. `make FRESH=1` rebuilds tools and `make DEBUG=1` exposes diagnostic output.
+Terminal color follows TTY detection and `NO_COLOR`; redirected output stays plain.
 
 For SSH, keep the checkout on the server. Connect from the laptop with
 `ssh -L 8765:127.0.0.1:8765 HOST`, then run `make` in the server checkout and

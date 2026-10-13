@@ -12,7 +12,8 @@ case "${1:-}" in
 Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 
 First use:
-  workspace guide [PROJECT.json]               Install/verify tools, serve the live first-use guide on 127.0.0.1 (also: make)
+  workspace guide [PROJECT.json]               Guided tools/project/login setup with an HTML companion (also: make)
+                                               --fresh rebuilds tools; --debug shows details; --read-only skips questions
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
   workspace github-login                       GitHub login; private repositories only

@@ -6,13 +6,15 @@ export WORKSPACE_PYTHON
 
 .DEFAULT_GOAL := guide
 PROJECT ?=
+FRESH ?= 0
+DEBUG ?= 0
 
 .PHONY: aws-workstation-test aws-automation-test
 
 .PHONY: guide help check workspace-test workspace-test-setup aws-project-config-test historical-check repository-check contract-test conformance-test dummy-operator-test oci-conformance-build dummy-image-check dummy-image-build dummy-image-run-local dummy-lock-refresh dummy-preflight dummy-publication-review dummy-publish dummy-plan dummy-apply dummy-observe dummy-receipt-publish dummy-receipt-check dummy-destroy-plan dummy-destroy dummy-post-destroy-check dummy-cross-cloud-acceptance scaffold-test aws-platform-plan-test aws-platform-live-check cloud-env cloud-env-command fmt fmt-check
 
-guide: ## First use: install/verify the managed tools, serve the live guide on 127.0.0.1 (PROJECT=path/project.json).
-	@env -u WORKSPACE_PYTHON bash ./workspace guide $(if $(PROJECT),"$(PROJECT)")
+guide: ## Guided first use: tools, project questions, native login and companion (PROJECT=path, FRESH=1, DEBUG=1).
+	@env -u WORKSPACE_PYTHON bash ./workspace guide $(if $(PROJECT),"$(PROJECT)") $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
 
 help: ## Show available repository commands.
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' Makefile | sed 's/:.*##/: /' | sort
