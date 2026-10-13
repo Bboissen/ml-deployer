@@ -2,19 +2,20 @@
 
 Bash bootstraps a machine without Python; Python then owns configuration,
 immutable plans, expiry and cleanup. Users follow the
-[first-use checklist](../aws-setup-guide.html); this page records how the
+[first-use guide](../aws-setup-guide.html) via `make`; this page records how the
 installer behaves, which checks it keeps, and how to repair it.
 
 ## Commands
 
 ```bash
+./workspace guide [PROJECT.json]    # = make: setup, doctor --json, open the first-use guide
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
 ./workspace setup --fresh           # rebuild the managed tools even when they verify
 ./workspace setup --github          # also install the GitHub CLI (private repositories)
 ./workspace setup --system-packages # Ubuntu/Debian: apt-get the missing OS tools with sudo first
 ./workspace setup --debug           # print bounded, redacted diagnostics before acting
-./workspace doctor [PROJECT.json] [--debug]
+./workspace doctor [PROJECT.json] [--debug] [--json]
 ```
 
 Ordinary commands install missing managed tools automatically and select them

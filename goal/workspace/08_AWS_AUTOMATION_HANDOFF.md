@@ -42,7 +42,7 @@ replacement infrastructure stack or controller rewrite is needed.
   `4622a05` prepares immutable configuration operations but deliberately rejects
   generic execution; PR28 at `d430823` installs tools and assists login. Their
   clean Linux installation does not establish native macOS or complete Deploy
-  acceptance. The interactive HTML checklist is personal notes, not authorization.
+  acceptance. The HTML guide shows doctor readiness, not authorization.
 
 ## Next implementation deliverable
 

@@ -1,6 +1,6 @@
 # AWS deployer quickstart
 
-The short version of the [first-use checklist](../aws-setup-guide.html): the
+The short version of the [first-use guide](../aws-setup-guide.html): the
 exact commands, in order. Native generic acceptance and release publication
 remain pending; see [native acceptance scope](aws-native-acceptance.md).
 
@@ -9,8 +9,14 @@ remain pending; see [native acceptance scope](aws-native-acceptance.md).
 ```sh
 git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
-./workspace setup --system-packages   # Linux; macOS: ./workspace setup
+make            # or ./workspace guide when make is not installed
 ```
+
+`make` runs `./workspace setup`, then `./workspace doctor --json`, and opens the
+first-use guide with each step marked done or to do. It checks
+`~/aws-workspace/demo/project.json` unless you pass `make PROJECT=/path/project.json`.
+On Ubuntu/Debian, when setup reports missing system packages, run
+`./workspace setup --system-packages` (sudo) and then `make` again.
 
 Linux with glibc (x86_64/arm64) and macOS (Intel/Apple Silicon) are supported;
 there is no distribution or OS-version gate. The installer downloads hash-pinned
@@ -31,32 +37,7 @@ archives and Python wheels use the committed hash locks. Then use
 `$HOME/.local/share/aws-workspace/bin/aws-workspace` wherever `./workspace`
 appears below.
 
-## 2. Sign in
-
-```sh
-./workspace login --profile my-workspace --region us-east-1      # add --method sso for Identity Center
-./workspace auth-check --profile my-workspace --region us-east-1
-```
-
-Use a profile name other than `default` and temporary native identities, never
-static keys. Login shows the account and ARN; it does not prove infrastructure
-permissions, which Deploy checks against its saved plans. Ambient `AWS_PROFILE`
-or `AWS_REGION` shell defaults are overridden by the project file.
-
-## 3. Private GitHub access, only when needed
-
-Public repositories use an `https://github.com/owner/project.git` URL and need
-no login. Private repositories use `git@github.com:owner/project.git`, the
-managed GitHub CLI and one browser login; Deploy then registers a read-only
-deploy key (repository admin permission required) and stores the private key
-only in Secrets Manager.
-
-```sh
-./workspace setup --github
-./workspace github-login
-```
-
-## 4. Configure
+## 2. Configure
 
 ```sh
 mkdir -p ~/aws-workspace/demo
@@ -68,6 +49,36 @@ Set the profile, project/workspace names, dataset (local path relative to the
 JSON file, `s3://` prefix or public HTTPS file), repository URL and ref, the
 external project's setup/run argument arrays, output paths and a 15–60 minute
 lifetime. Field reference: [project configuration](aws-project-configuration.md).
+
+## 3. Sign in
+
+```sh
+./workspace login --profile my-workspace --region us-east-1      # add --method sso for Identity Center
+./workspace auth-check --profile my-workspace --region us-east-1
+```
+
+Use a profile name other than `default` and temporary native identities, never
+static keys. Login shows the account and ARN; it does not prove infrastructure
+permissions, which Deploy checks against its saved plans. Ambient `AWS_PROFILE`
+or `AWS_REGION` shell defaults are overridden by the project file.
+
+If the browser shows `400 Bad Request` or another sign-in error, the link expired
+or was already used: each link works once, for a few minutes, while the login
+command still waits. Press Ctrl+C, rerun the login and use only the newly opened
+page; add `--remote` if it still fails.
+
+## 4. Private GitHub access, only when needed
+
+Public repositories use an `https://github.com/owner/project.git` URL and need
+no login. Private repositories use `git@github.com:owner/project.git`, the
+managed GitHub CLI and one browser login; Deploy then registers a read-only
+deploy key (repository admin permission required) and stores the private key
+only in Secrets Manager.
+
+```sh
+./workspace setup --github
+./workspace github-login
+```
 
 ## 5. Doctor
 

@@ -5,12 +5,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 fail() { printf 'workspace: %s\n' "$1" >&2; exit 2; }
 doctor_config=''
 doctor_debug=0
+doctor_json=0
 case "${1:-}" in
   -h|--help|"")
     cat <<'HELP'
 Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 
 First use:
+  workspace guide [PROJECT.json]               Install/verify tools, check readiness, open the first-use guide (also: make)
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
   workspace github-login                       GitHub login; private repositories only
@@ -38,12 +40,14 @@ for deployment options.
 HELP
     exit 0 ;;
   setup|login|auth-check|github-login) ;;
+  guide) shift; exec bash "$repo_root/scripts/aws/workspace-guide.sh" "$@" ;;
   doctor)
     shift
     while (($#)); do
       case "$1" in
         --debug) doctor_debug=1 ;;
-        -*) fail "unknown doctor option $1; usage: workspace doctor [PROJECT.json] [--debug]" ;;
+        --json) doctor_json=1 ;;
+        -*) fail "unknown doctor option $1; usage: workspace doctor [PROJECT.json] [--debug] [--json]" ;;
         *)
           [[ -z "$doctor_config" ]] || fail 'doctor accepts one PROJECT.json'
           doctor_config="$1"
@@ -89,6 +93,16 @@ if [[ "${1:-}" == doctor ]]; then
     next='./workspace setup'
     [[ "$reason" != *--fresh* ]] || next='./workspace setup --fresh'
     [[ "$reason" != *--system-packages* ]] || next='./workspace setup --system-packages'
+    if ((doctor_json)); then
+      json_text() { local text="${1//\\/\\\\}"; text="${text//\"/\\\"}"; printf '%s' "${text//[[:cntrl:]]/ }"; }
+      printf '{"ready": false, "checked_at": "%s", "config": null, "deploy": null, "rows": [' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf '{"check": "Managed tools", "state": "Action needed", "detail": "%s", "next": "%s"}' "$(json_text "$reason")" "$next"
+      for check_name in 'AWS identity' 'GitHub access' 'Project config'; do
+        printf ', {"check": "%s", "state": "Unknown", "detail": "checked after the managed tools are installed", "next": null}' "$check_name"
+      done
+      printf ']}\n'
+      exit 1
+    fi
     printf 'AWS workspace doctor\n  %-14s  %-13s  %s\n  %-14s  %-13s  next: %s\n' 'Managed tools' 'Action needed' "$reason" '' '' "$next"
     for check_name in 'AWS identity' 'GitHub access' 'Project config'; do
       printf '  %-14s  %-13s  %s\n' "$check_name" 'Unknown' 'checked after the managed tools are installed'
@@ -96,7 +110,7 @@ if [[ "${1:-}" == doctor ]]; then
     printf '\nAction needed: run %s, then ./workspace doctor%s again\n' "$next" "${doctor_config:+ ${doctor_config}}"
     exit 1
   fi
-  debug_option=(); ((!doctor_debug)) || debug_option=(--debug)
+  debug_option=(); ((!doctor_debug)) || debug_option=(--debug); ((!doctor_json)) || debug_option+=(--json)
   exec "$WORKSPACE_PYTHON" scripts/aws/workspace-doctor.py --tools-detail "$tools_detail" ${debug_option[@]+"${debug_option[@]}"} ${doctor_config:+"$doctor_config"}
 fi
 if [[ -z "${WORKSPACE_PYTHON:-}" ]]; then

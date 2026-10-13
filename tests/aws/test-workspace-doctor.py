@@ -119,6 +119,18 @@ class Doctor(unittest.TestCase):
         with patch.object(M.A, 'profile_method', return_value='console'), patch.object(M.A, 'auth_check', return_value={'identity': IDENTITY}):
             report, text = M.doctor(self.config, 'ok', False)
         self.assertEqual(self.states(report)['Last operation'], M.READY); self.assertIn('s3://bucket/out/', text)
+        page = json.loads(M.as_json(report, self.config))
+        self.assertTrue(page['ready']); self.assertTrue(page['deployed']); self.assertEqual(page['output_uri'], 's3://bucket/out/')
+        self.assertEqual(page['repository'], 'public'); self.assertEqual(page['deploy'], './workspace ' + str(self.config))
+        self.assertEqual([row['check'] for row in page['rows']], [row['check'] for row in report.rows])
+
+    def test_guide_json_without_configuration_points_to_project_file(self):
+        report, _ = M.doctor(None, 'pinned tools verified', False)
+        page = json.loads(M.as_json(report, None))
+        self.assertFalse(page['ready']); self.assertIsNone(page['config']); self.assertIsNone(page['deploy'])
+        self.assertNotIn('deployed', page)
+        row = {row['check']: row for row in page['rows']}['Project config']
+        self.assertEqual(row['state'], M.ACTION); self.assertIn('~/aws-workspace/demo/project.json', row['next'])
 
     def test_debug_lists_names_only(self):
         with patch.dict(os.environ, {**self.files, 'AWS_SECRET_ACCESS_KEY': 'SECRETVALUE', 'GH_TOKEN': 'TOKENVALUE'}, clear=True):

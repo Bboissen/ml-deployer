@@ -6,9 +6,24 @@ or Azure. Each provider operates independently. The user connects, clones an
 external ML repository and installs its project dependencies; that repository
 owns scripts, datasets, transformations, training and results.
 
-Shared foundation **2.0.0** is implemented offline. The AWS persistent foundation
-is deployed; a bounded private SSH/Make job, versioned S3 verification and compute
-teardown passed native acceptance in [PR24](https://github.com/Bboissen/Ray_terraform/pull/24).
+## Quick start (AWS)
+
+```bash
+git clone https://github.com/Bboissen/Ray_terraform.git
+cd Ray_terraform
+make            # or ./workspace guide when make is not installed
+```
+
+`make` installs the pinned tools into the ignored `.tools/` folder, checks what
+is already done and opens the [first-use guide](docs/aws-setup-guide.html) in
+your browser with every step marked done or to do, plus the exact next command.
+It never logs in, deploys or changes cloud resources. Do the next step, run
+`make` again, and repeat until Deploy.
+
+Shared foundation **2.0.0** is implemented offline. A bounded private SSH/Make job,
+versioned S3 verification and compute teardown passed native acceptance in
+[PR24](https://github.com/Bboissen/Ray_terraform/pull/24). That AWS foundation was
+removed on 13 October 2026 for a from-scratch run; the next Deploy recreates it.
 The AWS deployer now implements short configuration, scoped foundation/access
 onboarding, streamed local/S3/public HTTPS ingestion, generic non-root setup/run,
 declared output persistence and one reviewed Deploy with durable recovery.
@@ -27,7 +42,7 @@ Google Cloud and Azure workspace implementation remain pending. Existing
 batch roots, contracts and historical evidence remain preserved during migration.
 No cross-cloud service, registry mirror, homelab, local VM or Ray cluster is needed.
 
-Start with the [first-use checklist](docs/aws-setup-guide.html); the
+Start with `make` and the [first-use guide](docs/aws-setup-guide.html); the
 [deployer quickstart](docs/operations/aws-deployer-quickstart.md) lists the same
 commands on one page. [CONTRIBUTING.md](CONTRIBUTING.md) covers development
 setup, the pending license decision and releases.

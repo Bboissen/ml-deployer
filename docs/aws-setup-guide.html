@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>AWS workspace: first-use checklist</title>
+  <title>AWS workspace: first-use guide</title>
   <style>
     :root { color-scheme: light dark; --bg:#f7f8fa; --fg:#1b2838; --sub:#49586a; --panel:#fff; --line:#cbd3dc; --blue:#1753a4; --soft:#eaf1fc; --amber:#81500b; --warm:#fff3dc; --green:#146048; --good:#e7f4ed; }
     @media (prefers-color-scheme: dark) { :root { --bg:#101720; --fg:#e6edf5; --sub:#bac7d6; --panel:#17212e; --line:#435064; --blue:#9abfff; --soft:#20334d; --amber:#efc577; --warm:#352b1b; --green:#94dcb6; --good:#18362b; } }
@@ -22,109 +22,99 @@
     .warn { border-left-color: var(--amber); background: var(--warm); }
     .good { border-left-color: var(--green); background: var(--good); }
     ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
-    ol.steps > li { counter-increment: step; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 14px 18px; margin: 16px 0; }
+    ol.steps > li { counter-increment: step; background: var(--panel); border: 1px solid var(--line); border-left-width: 6px; border-radius: 12px; padding: 18px 18px 14px 18px; margin: 16px 0; }
     ol.steps > li > h3 { margin-top: 0; }
     ol.steps > li > h3::before { content: counter(step) ". "; color: var(--blue); }
+    ol.steps > li.done { border-left-color: var(--green); }
+    ol.steps > li.todo { border-left-color: var(--amber); }
+    .state { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--soft); font-size: .94rem; }
+    li.done .state { background: var(--good); }
+    li.todo .state { background: var(--warm); }
+    .badge { font-weight: 700; margin-right: 8px; }
     pre { background: #0f1620; color: #e6edf5; padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .92rem; margin: 10px 0; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    p code, li code, td code { background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+    :not(pre) > code { background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
     .copy { font: inherit; font-size: .85rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
-    .copy:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .copy:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
     .copied { font-size: .85rem; color: var(--sub); margin-left: 8px; }
     .variant { display: block; }
     .variant > .label { font-size: .8rem; font-weight: 700; color: var(--sub); text-transform: uppercase; letter-spacing: .06em; }
     .pick { display: flex; flex-wrap: wrap; gap: 14px 28px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin: 18px 0; }
     .pick label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; }
     select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-    label.check { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; color: var(--sub); margin-top: 10px; }
-    label.check input { margin-top: 5px; }
     table { border-collapse: collapse; width: 100%; font-size: .95rem; }
     th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
     .meta { color: var(--sub); font-size: .88rem; }
-    #status { margin-top: 12px; font-size: .92rem; color: var(--sub); }
     .nojs-only { display: block; }
     .js .nojs-only { display: none; }
   </style>
 </head>
 <body>
 <main>
-  <p class="eyebrow">AWS · Linux and macOS · updated 11 October 2026</p>
-  <h1>AWS workspace: first-use checklist</h1>
-  <p class="lead">Install the managed tools, sign in, describe your project in one short file, run <code>doctor</code>, review once and Deploy. Afterwards find your outputs, confirm the compute is gone, and repeat with the retained data.</p>
-  <p class="meta">This page is a static file. It runs nothing, stores no credentials and never approves spending. The checkboxes are personal notes only; <code>./workspace doctor</code> is the verified readiness check.</p>
+  <p class="eyebrow">AWS · Linux and macOS · updated 13 October 2026</p>
+  <h1>AWS workspace: first-use guide</h1>
+  <p class="lead">Run <code>make</code> in the repository folder. It installs the pinned tools, checks what is already done and opens this page with every step marked. Do the next step, run <code>make</code> again, repeat until Deploy.</p>
+
+  <div class="note" id="live">
+    <p><strong>No readiness check loaded.</strong> Open this page with <code>make</code> (or <code>./workspace guide</code>) from the repository folder to see which steps are done. Opened any other way, it is a plain checklist.</p>
+  </div>
 
   <div class="pick" id="pick" hidden>
-    <label>Workstation
-      <select id="host"><option value="linux">Ubuntu / Debian Linux</option><option value="macos">macOS</option><option value="all">Show both</option></select>
-    </label>
-    <label>Repository
+    <label>Your ML project's repository
       <select id="repo"><option value="public">Public GitHub repository</option><option value="private">Private GitHub repository</option><option value="all">Show both</option></select>
     </label>
   </div>
-  <p class="nojs-only meta">JavaScript is off or unavailable: every Linux, macOS, public and private variant is shown below, and commands can be selected and copied by hand.</p>
+  <p class="nojs-only meta">JavaScript is off or unavailable: readiness is not shown, every public and private variant is listed, and commands can be selected and copied by hand.</p>
 
   <ol class="steps">
-    <li>
-      <h3>Install the managed tools</h3>
-      <p>Get the source and run setup. It downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into a user-owned directory, edits no shell files and makes no cloud calls. Help and <code>doctor</code> work before anything is installed.</p>
-      <div class="variant" data-host="linux"><span class="label">Linux</span>
+    <li data-step="tools">
+      <h3>Get the source and run make</h3>
 <pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
 cd Ray_terraform
-./workspace setup --system-packages   # Ubuntu/Debian: adds curl, unzip, tar, dpkg with sudo only if they are missing</code></pre></div>
-      <div class="variant" data-host="macos"><span class="label">macOS</span>
-<pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
-cd Ray_terraform
-./workspace setup                     # if Git is missing, macOS offers the Command Line Tools dialog first</code></pre></div>
-      <p class="meta">Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon). No distribution or OS-version gate; the pinned binaries are run and verified before they become active. Directories with spaces are fine. Once a release is published, its standalone <code>install.sh</code> replaces the clone.</p>
-      <label class="check"><input type="checkbox" data-note="tools"><span>Personal note: tools installed (not a verification).</span></label>
+make            # or ./workspace guide when make is not installed</code></pre>
+      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), edits no shell files, logs in nowhere and makes no cloud calls. Then it opens this page.</p>
+      <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
     </li>
 
-    <li>
+    <li data-step="project">
+      <h3>Write the short project configuration</h3>
+      <p>Copy the example and edit it: an AWS profile name of your choice (not <code>default</code>; you sign in with it in the next step), project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), your ML repository URL and branch/tag/commit, its own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
+<pre><code>mkdir -p ~/aws-workspace/demo
+cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
+"${EDITOR:-nano}" ~/aws-workspace/demo/project.json
+make</code></pre>
+      <p class="meta"><code>make</code> checks <code>~/aws-workspace/demo/project.json</code>; for another location use <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
+    </li>
+
+    <li data-step="aws">
       <h3>Sign in to AWS</h3>
-      <p>Choose a profile name that is not <code>default</code>. The native AWS CLI login opens your browser for account selection, consent and MFA; the controller never sees or stores a password or key. Use <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device.</p>
+      <p>Use the profile and region from your project file; once that file exists, this step shows the exact command. The native AWS CLI login opens your browser for account selection, consent and MFA; the controller never sees or stores a password or key.</p>
 <pre><code>./workspace login --profile my-workspace --region us-east-1
-./workspace auth-check --profile my-workspace --region us-east-1</code></pre>
-      <p class="meta">A successful login shows the account and identity. It does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
-      <label class="check"><input type="checkbox" data-note="aws"><span>Personal note: signed in to AWS.</span></label>
+make</code></pre>
+      <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device (it prints a link, then you paste the code the browser shows back into the terminal). A successful login does not prove permission to create infrastructure; Deploy checks that against the exact saved plans. Static access keys are refused; shell defaults such as <code>AWS_PROFILE</code> are ignored in favour of the profile in your project file.</p>
+      <div class="note warn"><p><strong>Browser shows “400 Bad Request” or another sign-in error?</strong> Each sign-in link works once and only for a few minutes, and only while the login command is still waiting in the terminal. Close that tab, press Ctrl+C in the terminal, run the login command again and use only the page it opens now; never reuse an older link. If it still fails, rerun with <code>--remote</code>.</p></div>
     </li>
 
-    <li>
+    <li data-step="github">
       <h3>Connect private GitHub access only when needed</h3>
       <div class="variant" data-repo="public"><span class="label">Public repository</span>
         <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>. No GitHub login is required anywhere.</p></div>
       <div class="variant" data-repo="private"><span class="label">Private repository</span>
         <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, install the managed GitHub CLI and log in once. You need admin permission on that repository: Deploy registers a read-only deploy key for it and stores the private key only in AWS Secrets Manager.</p>
 <pre><code>./workspace setup --github
-./workspace github-login</code></pre></div>
-      <label class="check"><input type="checkbox" data-note="github"><span>Personal note: repository access settled.</span></label>
+./workspace github-login
+make</code></pre></div>
     </li>
 
-    <li>
-      <h3>Fill a short project configuration</h3>
-      <p>Copy the example anywhere outside the source tree and edit it: your profile, project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), the repository URL and branch/tag/commit, the project's own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
-<pre><code>mkdir -p ~/aws-workspace/demo
-cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
-"${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
-      <p class="meta">Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>. The reviewed CPU profile currently supports <code>us-east-1</code>.</p>
-      <label class="check"><input type="checkbox" data-note="project"><span>Personal note: project file written.</span></label>
-    </li>
-
-    <li>
-      <h3>Run doctor and resolve remaining actions</h3>
-      <p>Doctor reports <strong>Ready</strong>, <strong>Action needed</strong> or <strong>Unknown</strong> for the managed tools, the AWS identity of your profile, GitHub access (private repositories only), the project file and the last operation, each with the exact next command. It installs nothing, logs in nowhere and creates no resources.</p>
-<pre><code>./workspace doctor ~/aws-workspace/demo/project.json</code></pre>
-      <p class="meta">Repeat until the last line reads <code>Ready: review and deploy with …</code>. Add <code>--debug</code> for bounded, redacted diagnostics (tool versions, lock state, variable names only).</p>
-    </li>
-
-    <li>
+    <li data-step="deploy">
       <h3>Review and Deploy</h3>
-      <p>The first command resolves the account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one immutable scope, prints it, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
+      <p>When every step above is done, the first command resolves the account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one immutable scope, prints it, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
 <pre><code>./workspace ~/aws-workspace/demo/project.json
 ./workspace ~/aws-workspace/demo/project.json status --wait 30</code></pre>
       <p class="meta">For automation, pass <code>--authorization 'Approve the displayed scope'</code> instead of the prompt; nothing launches without one of the two. Stage progress (artifacts, foundation, repository, ingestion, prepare, launch, job, verify, cleanup) prints as it happens. Every saved OpenTofu plan is still inspected and bound to that one authorization; no ARN, hash or state path is copied by hand. A changed file or source needs a new review.</p>
     </li>
 
-    <li>
+    <li data-step="outputs">
       <h3>Locate output and confirm compute cleanup</h3>
       <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>outputs</code> is the S3 location of your declared output paths; <code>compute cleanup: success</code> together with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable.</p>
 <pre><code>./workspace ~/aws-workspace/demo/project.json status
@@ -132,7 +122,6 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
       <p class="meta">Both print <code>output_uri</code>, the <code>s3://…/output/</code> prefix holding your declared paths and bounded logs; browse it in the S3 console or with your own AWS CLI. Retained on purpose: the dataset and output buckets, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can continue to cost money; deleting them is a separate reviewed decision. A second Deploy with the same data verifies and reuses the retained versions without uploading again.</p>
     </li>
   </ol>
-  <p id="status" class="meta"></p>
 
   <h2>Installation failed: repair and retry</h2>
   <div class="note warn">
@@ -159,37 +148,71 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
     <tr><td>Contributing, license status, releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
   </table>
 </main>
+<!-- Written by `make` / `./workspace guide`; absent when the page is opened any other way. -->
+<script src="../.tools/guide/status.js"></script>
 <script>
 (() => {
   'use strict';
   document.documentElement.classList.add('js');
-  const host = document.getElementById('host'), repo = document.getElementById('repo'), pick = document.getElementById('pick');
-  const status = document.getElementById('status'); const key = 'aws-workspace-checklist-v2';
-  let state = {host: 'linux', repo: 'public', notes: {}}; let writable = true;
-  try { const saved = JSON.parse(localStorage.getItem(key) || 'null');
-    if (saved && typeof saved === 'object') {
-      if (['linux', 'macos', 'all'].includes(saved.host)) state.host = saved.host;
-      if (['public', 'private', 'all'].includes(saved.repo)) state.repo = saved.repo;
-      if (saved.notes && typeof saved.notes === 'object') for (const k of Object.keys(saved.notes)) if (saved.notes[k] === true) state.notes[k] = true;
-    } } catch { writable = false; }
-  const boxes = [...document.querySelectorAll('input[data-note]')];
-  function remember() {
-    if (writable) try { localStorage.setItem(key, JSON.stringify(state)); } catch { writable = false; }
-    const done = boxes.filter(b => b.checked).length;
-    status.textContent = `Personal notes: ${done} of ${boxes.length} steps marked. These notes are not verified readiness; run ./workspace doctor.` +
-      (writable ? ' Only host/repository choices and these notes are kept in this browser.' : ' Browser storage is unavailable; notes last while this page is open.');
-  }
-  function render() {
-    for (const el of document.querySelectorAll('.variant')) {
-      const h = el.dataset.host, r = el.dataset.repo;
-      el.style.display = (h && state.host !== 'all' && h !== state.host) || (r && state.repo !== 'all' && r !== state.repo) ? 'none' : 'block';
+  const status = window.WORKSPACE_STATUS;
+  const rows = {};
+  if (status && Array.isArray(status.rows)) for (const row of status.rows) rows[row.check] = row;
+  const checks = {tools: 'Managed tools', project: 'Project config', aws: 'AWS identity', github: 'GitHub access'};
+  const labels = {Ready: 'Done', 'Action needed': 'To do', Unknown: 'Not checked yet', Next: 'Next', Waiting: 'Waiting'};
+
+  function stepState(step) {
+    if (step in checks) return rows[checks[step]] || null;
+    const last = rows['Last operation'];
+    if (step === 'deploy') {
+      if (status.deployed) return {state: 'Ready', detail: last ? last.detail : 'deployed'};
+      if (last && last.state !== 'Ready') return last;
+      if (status.ready) return {state: 'Next', detail: 'every check is ready: review and deploy', next: status.deploy};
+      return {state: 'Waiting', detail: 'finish the steps above first'};
     }
+    if (step === 'outputs') {
+      if (status.deployed) return {state: 'Ready', detail: status.output_uri ? 'outputs at ' + status.output_uri : 'no declared outputs'};
+      return {state: 'Waiting', detail: 'available after a successful Deploy'};
+    }
+    return null;
   }
-  host.value = state.host; repo.value = state.repo; pick.hidden = false;
-  host.addEventListener('change', () => { state.host = host.value; render(); remember(); });
-  repo.addEventListener('change', () => { state.repo = repo.value; render(); remember(); });
-  for (const box of boxes) { box.checked = state.notes[box.dataset.note] === true;
-    box.addEventListener('change', () => { if (box.checked) state.notes[box.dataset.note] = true; else delete state.notes[box.dataset.note]; remember(); }); }
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node;
+  }
+
+  const live = document.getElementById('live');
+  if (status && typeof status === 'object') {
+    let first = null;
+    for (const li of document.querySelectorAll('li[data-step]')) {
+      const s = stepState(li.dataset.step); if (!s) continue;
+      const done = s.state === 'Ready';
+      li.classList.add(done ? 'done' : (s.state === 'Action needed' || s.state === 'Next') ? 'todo' : 'pending');
+      if (!done && !first && s.state !== 'Unknown') first = li;
+      const box = element('div', 'state');
+      box.append(element('span', 'badge', labels[s.state] || s.state), element('span', '', s.detail || ''));
+      if (s.next && (s.state === 'Action needed' || s.state === 'Next')) { const pre = element('pre'); pre.append(element('code', '', s.next)); box.append(pre); }
+      li.querySelector('h3').insertAdjacentElement('afterend', box);
+    }
+    if (status.repository === 'public' || status.repository === 'private') document.getElementById('repo').value = status.repository;
+    const when = new Date(status.checked_at);
+    live.className = 'note ' + (status.deployed ? 'good' : first ? 'warn' : 'good');
+    live.replaceChildren();
+    const head = element('p'); head.append(element('strong', '', first ? 'Next: ' + first.querySelector('h3').textContent : status.deployed ? 'Deployed.' : 'Ready.'));
+    head.append(' Checked ' + (isNaN(when) ? 'just now' : when.toLocaleString()) + ' for ' + (status.config || 'no project file yet') + '.');
+    live.append(head, element('p', 'meta', 'Run make (or ./workspace guide) again after each step to refresh this page. It never logs in, deploys or changes cloud resources.'));
+    if (first) first.scrollIntoView({block: 'start'});
+  } else if (status === null) {
+    live.className = 'note warn';
+    live.replaceChildren(element('p', '', 'The readiness check did not complete. Run ./workspace doctor --debug in the repository folder for details.'));
+  }
+
+  const repo = document.getElementById('repo'), pick = document.getElementById('pick'); const key = 'aws-workspace-guide-v3';
+  try { const saved = localStorage.getItem(key); if (!status?.repository && ['public', 'private', 'all'].includes(saved)) repo.value = saved; } catch {}
+  function render() {
+    for (const el of document.querySelectorAll('.variant')) el.style.display = repo.value !== 'all' && el.dataset.repo !== repo.value ? 'none' : 'block';
+  }
+  pick.hidden = false;
+  repo.addEventListener('change', () => { render(); try { localStorage.setItem(key, repo.value); } catch {} });
   for (const pre of document.querySelectorAll('pre')) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'copy'; button.textContent = 'Copy commands';
     const result = document.createElement('span'); result.className = 'copied'; result.setAttribute('aria-live', 'polite');
@@ -201,7 +224,7 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
     });
     pre.insertAdjacentElement('afterend', button); button.insertAdjacentElement('afterend', result);
   }
-  render(); remember();
+  render();
 })();
 </script>
 </body>

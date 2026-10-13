@@ -1,5 +1,6 @@
 """Local readiness report: managed tools, AWS identity, GitHub access, project."""
 import argparse
+from datetime import datetime, timezone
 import importlib.util
 import json
 import os
@@ -33,6 +34,7 @@ class Report:
     def __init__(self):
         self.rows = []
         self.debug = []
+        self.facts = {}
 
     def add(self, check, state, detail, command=None):
         self.rows.append({'check': check, 'state': state, 'detail': detail, 'next': command})
@@ -91,6 +93,7 @@ def text_of(exc):
 
 def check_github(report, project):
     repository = project['repository']; route = repository_route(repository['url'])
+    report.facts['repository'] = route
     if route == 'public':
         if not shutil.which('git'):
             report.add('GitHub access', ACTION, 'public repository needs the git command to resolve its branch or tag',
@@ -151,6 +154,7 @@ def check_operation(report, config):
     if result:
         if result['status'] in ('success', 'cancelled') and result.get('cleanup_status') in ('success', 'not_needed'):
             where = ('; outputs at ' + result['output_uri']) if result.get('output_uri') else ''
+            report.facts.update(deployed=True, output_uri=result.get('output_uri'))
             report.add('Last operation', READY, result['status'] + ', compute cleanup ' + result['cleanup_status'] + where); return
         if result['status'] == 'workspace_ready':
             report.add('Last operation', ACTION, 'workspace compute is still running until cancel or expiry', cli(config) + ' cancel'); return
@@ -205,9 +209,10 @@ def doctor(config, tools_detail, debug):
     report.add('Managed tools', READY, tools_detail)
     project = None
     if config is None:
-        report.add('AWS identity', UNKNOWN, 'pass PROJECT.json to check its AWS profile', './workspace doctor PROJECT.json')
-        report.add('GitHub access', UNKNOWN, 'public repositories need no login; pass PROJECT.json to check a private one')
-        report.add('Project config', UNKNOWN, 'no configuration selected', 'cp infra/aws/project.example.json /path/project.json')
+        report.add('AWS identity', UNKNOWN, 'checked once the project file names your AWS profile', './workspace doctor PROJECT.json')
+        report.add('GitHub access', UNKNOWN, 'public repositories need no login; checked once the project file names the repository')
+        report.add('Project config', ACTION, 'no project file yet',
+                   'mkdir -p ~/aws-workspace/demo && cp infra/aws/project.example.json ~/aws-workspace/demo/project.json')
     else:
         project = check_project(report, config)
         if project:
@@ -223,15 +228,23 @@ def doctor(config, tools_detail, debug):
     return report, text
 
 
+def as_json(report, config):
+    """Machine-readable report for the first-use guide page."""
+    return json.dumps({'ready': report.ready, 'checked_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                       'config': None if config is None else str(config), 'deploy': None if config is None else cli(config),
+                       'rows': report.rows, **report.facts})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('config', nargs='?')
     parser.add_argument('--tools-detail', required=True)
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--json', action='store_true', help='print the report as JSON for the guide page')
     args = parser.parse_args()
     config = Path(args.config).absolute() if args.config else None
-    report, text = doctor(config, args.tools_detail, args.debug)
-    print(text)
+    report, text = doctor(config, args.tools_detail, args.debug and not args.json)
+    print(as_json(report, config) if args.json else text)
     sys.exit(0 if report.ready else 1)
 
 
