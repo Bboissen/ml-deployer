@@ -95,6 +95,20 @@ class GuideTerminal(unittest.TestCase):
         report = {'ready': False, 'rows': [REPORT['rows'][0], REPORT['rows'][2]]}
         self.assertEqual(G.next_step(report), 'AWS identity: later\n    ignored')
 
+    def test_terminal_distinguishes_done_next_wait_and_required_editing(self):
+        report = {**REPORT, 'expected_config': '/custom/project.json'}
+        text = G.readiness_text(report)
+        self.assertIn('[DONE] Managed tools', text)
+        self.assertIn('[NEXT] Project config', text)
+        self.assertIn('[WAIT] AWS identity', text)
+        self.assertIn('second terminal on this server', text)
+        self.assertIn('replace the example profile', text)
+
+    def test_ssh_never_opens_a_browser_on_the_server(self):
+        with patch.dict(os.environ, {'SSH_CONNECTION': 'client server', 'DISPLAY': ':0'}), \
+             patch.object(G.subprocess, 'run', side_effect=AssertionError('remote browser opened')):
+            self.assertFalse(G.open_browser('http://127.0.0.1:8765/'))
+
     def test_doctor_always_checks_the_selected_path_even_before_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory)/'custom project.json'

@@ -128,7 +128,8 @@ def check_project(report, config):
         P.supported_profile(L, project['region'])
         dataset = P.dataset_metadata(L, project['dataset']['source'], config.parent)
     except Exception as exc:
-        report.add('Project config', ACTION, str(config) + ': ' + text_of(exc), 'edit the file and run ' + doctor_command(config))
+        report.add('Project config', ACTION, str(config) + ': ' + text_of(exc),
+                   '"${EDITOR:-nano}" ' + shell(config) + '\n' + doctor_command(config))
         return None
     if dataset['adapter'] == 'local':
         size = dataset['bytes']; shown = '%d bytes' % size if size < 1024**2 else '%.1f MiB' % (size/1024**2)
@@ -211,8 +212,9 @@ def doctor(config, tools_detail, debug):
     if config is None or not config.exists():
         target = '~/aws-workspace/demo/project.json' if config is None else shell(config)
         parent = '~/aws-workspace/demo' if config is None else shell(config.parent)
-        report.add('Project config', ACTION, 'no project file yet' + ('' if config is None else ' at ' + str(config)),
-                   'mkdir -p ' + parent + ' && cp infra/aws/project.example.json ' + target)
+        report.add('Project config', ACTION, 'no project file yet' + ('' if config is None else ' at ' + str(config)) +
+                   '; copy the example, then edit it for your profile, dataset and ML repository',
+                   'mkdir -p ' + parent + ' && cp infra/aws/project.example.json ' + target + '\n"${EDITOR:-nano}" ' + target)
         if config is not None: report.facts['expected_config'] = str(config)
         report.add('AWS identity', UNKNOWN, 'checked once the project file names your AWS profile')
         report.add('GitHub access', UNKNOWN, 'public repositories need no login; checked once the project file names the repository')

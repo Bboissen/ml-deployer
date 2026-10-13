@@ -4,11 +4,13 @@ Read-only: GET of the guide, its linked documents and the doctor report. It
 never logs in, deploys or changes cloud resources. Stops on Ctrl+C.
 """
 import argparse
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -58,6 +60,25 @@ def next_step(report):
     return None
 
 
+def readiness_text(report):
+    lines = ['Setup checklist']; pending = False
+    for row in report.get('rows', []):
+        done = row['state'] == 'Ready'
+        marker = '[DONE]' if done else '[NEXT]' if not pending else '[WAIT]'
+        lines.append('  ' + marker + ' ' + row['check'])
+        pending = pending or not done
+    step = next_step(report)
+    if step:
+        lines.extend(['', 'Do this next in a second terminal on this server:', step])
+        if report.get('expected_config'):
+            lines.append('The editor command opens project.json: replace the example profile, project/workspace names, dataset source, repository URL/ref, setup/run commands and output paths with your own values. Save the file; the page checks it automatically.')
+    elif report.get('ready'):
+        lines.append('All checks are ready: the page shows the Deploy command.')
+    else:
+        lines.append(report.get('error', 'Readiness is not confirmed; see the guide page.'))
+    return '\n'.join(lines)
+
+
 def resolve(path):
     """Map a URL path to a guide page or document; nothing outside docs/ except EXTRA."""
     path = path.split('?', 1)[0]
@@ -101,13 +122,15 @@ def bind(port, tries, doctor):
     for candidate in range(port, port + tries):
         try:
             return ThreadingHTTPServer(('127.0.0.1', candidate), handler(doctor))
-        except OSError:
-            continue
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise SystemExit('workspace guide: cannot listen on 127.0.0.1:%d (%s)' % (candidate, exc.strerror))
     raise SystemExit('workspace guide: ports %d-%d are busy; set WORKSPACE_GUIDE_PORT' % (port, port + tries - 1))
 
 
 def open_browser(url):
     """Open only a graphical browser; never a terminal one."""
+    if os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'): return False
     if platform.system() == 'Darwin': opener = 'open'
     elif (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')) and shutil.which('xdg-open'): opener = 'xdg-open'
     else: return False
@@ -124,21 +147,24 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535: parser.error('port must be between 1 and 65535')
     doctor = Doctor(args.config.expanduser().absolute())
-    server = bind(args.port, 1 if 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv else min(10, 65536 - args.port), doctor)
+    exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT')
+    server = bind(args.port, 1 if exact_port else min(10, 65536 - args.port), doctor)
     port = server.server_address[1]; url = 'http://127.0.0.1:%d/' % port
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()
     try:
         print('First-use guide: ' + url, flush=True)
         if open_browser(url):
-            print('  Opened in your browser.')
+            print('[DONE] Companion opened in this computer\'s browser.')
         else:
-            print('  Open that address in your browser. On another computer, forward the port first:\n'
-                  '    ssh -L %d:127.0.0.1:%d %s   (then open the same address there)' % (port, port, platform.node() or 'this-host'), flush=True)
-        report = doctor.report(); step = next_step(report)
-        if step: print('Next: ' + step)
-        elif report.get('ready'): print('All checks are ready: the page shows the Deploy command.')
-        else: print(report.get('error', 'Readiness is not confirmed; see the guide page.'))
+            print('[DONE] HTML companion is running.\n'
+                  '[LINK] Open in your laptop browser: %s\n'
+                  '  If your SSH connection does not already forward this port, open another\n'
+                  '  terminal ON YOUR LAPTOP and leave this command running:\n'
+                  '    ssh -N -L %d:127.0.0.1:%d %s\n'
+                  '  Then click/open the link above. No laptop clone or installation is needed.' %
+                  (url, port, port, shlex.quote(platform.node() or 'your-ssh-alias')), flush=True)
+        print(readiness_text(doctor.report()))
         print('The page updates itself as you complete each step. Press Ctrl+C here to stop the guide.', flush=True)
         serving.join()
     except KeyboardInterrupt:

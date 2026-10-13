@@ -73,13 +73,27 @@
 cd Ray_terraform
 make            # or ./workspace guide when make is not installed</code></pre>
       <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), edits no shell files, logs in nowhere and makes no cloud calls. Then it serves this page on <code>127.0.0.1</code> only and opens your browser. Keep that terminal running; Ctrl+C stops the guide.</p>
-      <p class="meta">Working on a remote machine (SSH, a cloud desktop, an editor's remote terminal)? <code>make</code> prints the address plus an <code>ssh -L 8765:127.0.0.1:8765 host</code> command; run it on your own computer, then open the same address there. Editors with port forwarding (for example VS Code Remote) can forward port 8765 instead. Use another terminal for the steps below.</p>
+      <div class="note"><p><strong>Laptop connecting over SSH:</strong> keep the repository on the server. From your laptop, connect with port forwarding, then run <code>make</code> in the server checkout:</p>
+<pre><code>ssh -L 8765:127.0.0.1:8765 homelab
+# Now on the server:
+cd /path/on/server/Ray_terraform
+make</code></pre>
+      <p>Open the printed <code>http://127.0.0.1:8765/</code> link in your laptop's browser. The SSH tunnel carries the server's page to your laptop. Keep this terminal running and use a second SSH terminal for setup steps. No laptop clone, launcher or cloud tools are needed.</p>
+      <p class="meta">If <code>make</code> is already running in an SSH session, leave it running and add the tunnel from another laptop terminal: <code>ssh -N -L 8765:127.0.0.1:8765 homelab</code>. Keep that terminal open too. A command running only inside SSH cannot open the laptop browser automatically. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
       <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
     </li>
 
     <li data-step="project">
       <h3>Write the short project configuration</h3>
       <p>Copy the example and edit it: an AWS profile name of your choice (not <code>default</code>; you sign in with it in the next step), project and workspace names, the dataset (a local file or folder next to the JSON, an <code>s3://</code> prefix or a public HTTPS file), your ML repository URL and branch/tag/commit, its own setup and run commands, the output paths and a 15–60 minute maximum runtime. Keep credentials out of it.</p>
+      <p><strong>Yes, you must edit the example.</strong> The editor command below opens the file. Save your changes when finished; the guide re-checks them. You do not need to activate a Python environment or edit shell startup files.</p>
+      <table><tr><th>Fields to edit</th><th>Use your own values</th></tr>
+        <tr><td><code>profile</code>, <code>project</code>, <code>workspace</code></td><td>Your AWS login profile and names for this project and workspace.</td></tr>
+        <tr><td><code>dataset.source</code></td><td>Your existing dataset path or supported remote source; the example's <code>./dataset</code> must exist beside the project file if you keep it.</td></tr>
+        <tr><td><code>repository.url</code>, <code>repository.ref</code></td><td>Your ML repository URL and branch, tag or commit; <code>owner/project.git</code> is a placeholder.</td></tr>
+        <tr><td><code>commands.setup</code>, <code>commands.run</code>, <code>outputs.paths</code></td><td>The commands and output folders that your ML repository actually uses.</td></tr>
+        <tr><td><code>maximum_runtime_minutes</code></td><td>A limit from 15 to 60 minutes.</td></tr>
+      </table>
 <pre><code>mkdir -p ~/aws-workspace/demo
 cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
 "${EDITOR:-nano}" ~/aws-workspace/demo/project.json</code></pre>
@@ -151,9 +165,9 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
   'use strict';
   document.documentElement.classList.add('js');
   const checks = {tools: 'Managed tools', project: 'Project config', aws: 'AWS identity', github: 'GitHub access'};
-  const labels = {Ready: 'Done', 'To do': 'To do', 'Not checked': 'Not checked yet', Next: 'Next', Waiting: 'Waiting'};
+  const labels = {Ready: '✓ Done', 'To do': '○ To do', 'Not checked': '… Not checked yet', Next: '→ Next', Waiting: '… Waiting'};
   const live = document.getElementById('live');
-  let lastFirst, refreshing = false;
+  let refreshing = false;
 
   function stepState(status, rows, step) {
     if (step in checks) return rows[checks[step]] || null;
@@ -199,8 +213,11 @@ cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
     const head = element('p'); head.append(element('strong', '', first ? 'Next: ' + first.querySelector('h3').textContent : status.ready ? (status.deployed ? 'Deployed.' : 'Ready to deploy.') : 'Readiness not confirmed.'));
     head.append(' Checked ' + (isNaN(when) ? 'just now' : when.toLocaleTimeString()) + ' for ' + (status.expected_config ? status.expected_config + ' (not created yet)' : status.config || 'no project file yet') + '.');
     live.append(head, element('p', 'meta', 'This page re-checks every 20 seconds and when you come back to it. It never logs in, deploys or changes cloud resources.'));
-    if (first && first !== lastFirst) first.scrollIntoView({block: 'start', behavior: lastFirst === undefined ? 'auto' : 'smooth'});
-    lastFirst = first;
+    if (first) {
+      const action = stepState(status, rows, first.dataset.step);
+      live.append(element('p', '', action.detail));
+      if (action.next) { const pre = element('pre'); pre.append(element('code', '', action.next)); live.append(pre); addCopy(pre); }
+    }
   }
 
   async function refresh() {

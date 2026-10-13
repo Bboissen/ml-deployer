@@ -164,9 +164,10 @@ if [[ -L "$prefix/current" ]]; then
   if verify_runtime "$current"; then
     if ((!fresh)); then
       ((!check_only)) || log "ready: $platform tools in $prefix/current"
+      ((check_only)) || log '[DONE] Managed tools verified; no installation or environment activation needed'
       exit 0
     fi
-    log 'rebuilding verified managed tools (--fresh)'
+    log '[RUN] rebuilding verified managed tools (--fresh)'
   else
     ((!check_only)) || fail "managed tools need repair: $verify_failure; run ./workspace setup --fresh"
     log "managed tools need repair ($verify_failure); building a replacement"
@@ -228,7 +229,7 @@ while IFS=$'\t' read -r row_platform tool version url checksum; do
   [[ "$tool" != gh || "$github" == 1 ]] || continue
   [[ "$checksum" =~ ^[a-f0-9]{64}$ && "$url" == https://* ]] || fail 'invalid tool lock entry'
   archive="$scratch/downloads/$checksum"
-  log "installing $tool $version"
+  log "[RUN] installing $tool $version"
   curl -q -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 300 --retry 2 -o "$archive.part" "$url" \
     || fail "download of $tool $version failed; check network access and rerun setup"
   [[ "$(hash "$archive.part")" == "$checksum" ]] || fail "download checksum mismatch for $tool $version; nothing from this archive was executed; rerun setup"
@@ -280,11 +281,16 @@ XML
       ;;
   esac
   rm -f "$archive"
+  log "[DONE] $tool $version downloaded and unpacked"
 done < "$manifest"
-"$release/bin/uv" --no-config venv --python "$release/python/bin/python3.13" "$release/sdk" >&2
-"$release/bin/uv" --no-config pip sync --python "$release/sdk/bin/python" --only-binary :all: --require-hashes --index-url https://pypi.org/simple "$requirements" >&2
+log '[RUN] Prepare the private Python runtime and locked packages (automatic)'
+"$release/bin/uv" --quiet --no-config venv --python "$release/python/bin/python3.13" "$release/sdk" >&2
+"$release/bin/uv" --quiet --no-config pip sync --python "$release/sdk/bin/python" --only-binary :all: --require-hashes --index-url https://pypi.org/simple "$requirements" >&2
+log '[DONE] Private Python runtime prepared; do not activate it or edit shell settings'
 printf '%s\n' "$fingerprint" > "$release/complete"
+log '[RUN] Verify every pinned tool and Python package'
 verify_runtime "$release" || fail "installed tools failed verification ($verify_failure); the previous installation, if any, remains selected"
+log '[DONE] Every pinned tool and Python package verified'
 ln -s "$release" "$lock/current"
 "$release/sdk/bin/python" -I - "$lock/current" "$prefix/current" <<'PY'
 import os, sys
@@ -294,6 +300,6 @@ activated=1
 rm -f "$release/AWSCLIV2.pkg" "$release/choices.xml"
 if [[ -n "$previous" && "$previous" != "$release" && "$previous" == "$prefix/releases/"* && -d "$previous" && ! -L "$previous" ]]; then
   rm -rf "$previous"
-  log "replaced previous installation $previous"
+  log "[DONE] replaced previous installation $previous"
 fi
 log "ready: $platform tools in $prefix/current; ./workspace selects them automatically"

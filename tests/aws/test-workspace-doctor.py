@@ -139,9 +139,11 @@ class Doctor(unittest.TestCase):
             report, _ = M.doctor(config, 'ok', False)
         row = report.rows[1]
         self.assertEqual(row['state'], M.ACTION)
-        result = subprocess.run(['bash', '-c', row['next']], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        create, edit = row['next'].split('\n')
+        result = subprocess.run(['bash', '-c', create], cwd=ROOT, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(config.read_bytes(), (ROOT/'infra/aws/project.example.json').read_bytes())
+        self.assertEqual(edit, '"${EDITOR:-nano}" ' + M.shell(config))
         self.assertEqual(self.states(report)['AWS identity'], M.UNKNOWN)
         self.assertEqual(json.loads(M.as_json(report, config))['expected_config'], str(config))
 

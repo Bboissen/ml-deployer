@@ -33,6 +33,17 @@ never log in or change cloud resources. The default port is 8765, falling back
 to the next free port through 8774; `WORKSPACE_GUIDE_PORT=9000 make` selects an
 exact port. Missing project files get creation commands for the selected path.
 
+For SSH, keep the checkout on the server. Connect from the laptop with
+`ssh -L 8765:127.0.0.1:8765 HOST`, then run `make` in the server checkout and
+open the printed URL in the laptop's browser. For an already-running guide,
+add the tunnel from a separate laptop terminal with
+`ssh -N -L 8765:127.0.0.1:8765 HOST`. Keep the forwarding connection open.
+No laptop checkout, launcher or cloud tools are required. Under SSH the guide
+uses its exact selected port rather than falling back silently to another port;
+an occupied port is reported. To choose another port, set `WORKSPACE_GUIDE_PORT`
+on the server and forward that port on the laptop. SSH sessions never launch a
+browser on the server; the printed companion link is opened on the laptop.
+
 A new runtime becomes current only after every pinned binary ran and reported
 its version and every Python package matched the hash lock. Failure leaves the
 previously selected runtime in place. A rerun of a healthy installation

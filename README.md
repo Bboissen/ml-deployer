@@ -21,6 +21,23 @@ and shows the exact next command; do it in another terminal and the page moves o
 On a remote machine, `make` prints the `ssh -L` command to reach the page. It never
 logs in, deploys or changes cloud resources; Ctrl+C stops it.
 
+For a laptop using SSH, keep the checkout on the server. Connect **from the
+laptop** with port forwarding (replace the SSH host alias):
+
+```bash
+ssh -L 8765:127.0.0.1:8765 homelab
+# Now on the server:
+cd /path/on/server/Ray_terraform
+make
+```
+
+Open the printed `http://127.0.0.1:8765/` link in your laptop's browser. Keep this
+terminal open and use another SSH terminal to create **and edit** the project
+file. No laptop clone, launcher or cloud tools are needed. An existing SSH
+session can keep running `make`; add its tunnel from another laptop terminal
+with `ssh -N -L 8765:127.0.0.1:8765 homelab`. A command inside SSH cannot open
+the laptop browser automatically; the printed link is the remote companion.
+
 Shared foundation **2.0.0** is implemented offline. A bounded private SSH/Make job,
 versioned S3 verification and compute teardown passed native acceptance in
 [PR24](https://github.com/Bboissen/Ray_terraform/pull/24). That AWS foundation was

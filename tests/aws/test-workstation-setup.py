@@ -64,7 +64,7 @@ class Bootstrap(unittest.TestCase):
         # operations exercise verification, activation and preservation behavior.
         py = '#!/bin/sh\nif [ "$1" = --version ]; then echo "Python 3.13.16"; exit; fi\ncase "$*" in *controller-requirements.lock) cat >/dev/null; exit 0;; esac\nexec ' + shlex.quote(sys.executable) + ' "$@"\n'
         executable(self.root/'fixture-python', py)
-        uv = '#!' + sys.executable + '\nimport pathlib,sys,os\na=sys.argv[1:]\nif a==["--version"]: print("uv 0.12.23 (mock)")\nelif "venv" in a:\n p=pathlib.Path(a[-1]); (p/"bin").mkdir(parents=True); (p/"bin/python").symlink_to(' + repr(str(self.root/'fixture-python')) + ')\n'
+        uv = '#!' + sys.executable + '\nimport pathlib,sys,os\na=sys.argv[1:]\nif a==["--version"]: print("uv 0.12.23 (mock)")\nelif "venv" in a:\n p=pathlib.Path(a[-1]); (p/"bin").mkdir(parents=True); (p/"bin/python").symlink_to(' + repr(str(self.root/'fixture-python')) + ')\n if "--quiet" not in a: print("Activate with: source sdk/bin/activate",file=sys.stderr)\nelif "pip" in a and os.environ.get("MOCK_UV_FAILURE"):\n print("package installation failed (mock)",file=sys.stderr); sys.exit(2)\n'
         executable(self.root/'fixture-uv', uv)
         curl = '#!' + sys.executable + '\nimport pathlib,shutil,sys\na=sys.argv[1:]\nwith pathlib.Path(' + repr(str(self.ledger)) + ').open("a") as f: f.write(a[-1]+"\\n")\nshutil.copyfile(pathlib.Path(' + repr(str(self.cache)) + ')/a[-1].rsplit("/",1)[-1],a[a.index("-o")+1])\n'
         executable(self.shims/'curl', curl)
@@ -142,6 +142,23 @@ class Bootstrap(unittest.TestCase):
                 result = self.run_setup('--github')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.run_setup('--check', '--github').returncode, 0)
+
+    def test_progress_marks_completed_stages_without_activation_instructions(self):
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for tool in ('uv', 'python', 'tofu', 'aws', 'ssm'):
+            self.assertIn('[DONE] ' + tool, result.stderr)
+        self.assertIn('[DONE] Every pinned tool and Python package verified', result.stderr)
+        self.assertNotIn('Activate with:', result.stderr)
+        self.assertIn('do not activate it or edit shell settings', result.stderr)
+        selected = (self.prefix/'current').resolve()
+        self.env['MOCK_UV_FAILURE'] = '1'
+        result = self.run_setup('--fresh')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('package installation failed (mock)', result.stderr)
+        self.assertNotIn('[DONE] Every pinned tool and Python package verified', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertFalse((self.prefix/'install.lock').exists())
 
     def test_wrong_download_hash_stops_before_execution_or_activation(self):
         (self.cache/'uv.tgz').write_bytes(b'corrupted')
