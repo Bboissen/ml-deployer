@@ -197,7 +197,7 @@ class MakeFlow(unittest.TestCase):
         for name in list(environment):
             if name.startswith(('AWS_', 'GH_', 'GITHUB_', 'TF_')) and name not in files: environment.pop(name)
         environment.pop('NO_COLOR', None)
-        environment['REMOTE_HOST'] = 'homelab'
+        environment['SSH_CONNECTION'] = '192.0.2.10 54321 192.0.2.20 2222'
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
         environment['WORKSPACE_GUIDE_PORT'] = str(port)
@@ -246,7 +246,8 @@ class MakeFlow(unittest.TestCase):
         self.assertEqual(list(Path(environment.get('TMPDIR', '/tmp')).glob('workspace-setup.*')), [])
         if remote:
             self.assertIn('laptop terminal outside SSH', output)
-            self.assertIn('homelab', output)
+            self.assertIn('192.0.2.20', output)
+            self.assertIn('setup continues here', output)
             self.assertIn('ExitOnForwardFailure=yes', output)
         with urllib.request.urlopen('http://127.0.0.1:%d/status.json' % port, timeout=10) as response:
             report = json.load(response)

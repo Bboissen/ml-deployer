@@ -78,7 +78,7 @@ make            # or ./workspace guide when make is not installed</code></pre>
 cd /path/on/server/Ray_terraform
 make remote</code></pre>
       <p>Run the printed tunnel command in a new laptop terminal <strong>outside SSH</strong>, then open the printed link in your laptop's browser. Keep the tunnel open and answer setup questions in the original SSH terminal. No laptop clone, launcher or cloud tools are needed.</p>
-      <p class="meta">Use <code>make remote REMOTE_HOST=homelab</code> to print your laptop's saved SSH alias instead of the detected server address and port. Skip the tunnel if the port is already forwarded. Plain <code>make</code> also detects SSH. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
+      <p class="meta"><code>remote</code> selects browser access from another device; the installer and configuration run on the repository host. Skip the tunnel if the port is already forwarded. Plain <code>make</code> also detects SSH. Under SSH the guide keeps its selected port fixed; stop an older guide if that port is busy.</p></div>
       <p class="meta">Ubuntu/Debian: if this step says system packages are missing, run <code>./workspace setup --system-packages</code> (uses sudo only to add missing curl, unzip, tar or dpkg), then <code>make</code> again. macOS: if Git is missing, macOS first offers the Command Line Tools dialog. Supported: Linux with glibc (x86_64 or arm64) and macOS (Intel or Apple Silicon).</p>
     </li>
 

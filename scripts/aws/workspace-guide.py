@@ -121,20 +121,15 @@ def open_browser(url):
 
 
 def laptop_tunnel(port):
-    """Use Zelab's connection-derived SSH target, with an optional local alias."""
-    target = os.environ.get('REMOTE_HOST', '')
+    """Print browser-access instructions for this host's guide, using SSH metadata."""
     connection = os.environ.get('SSH_CONNECTION', '').split()
+    host = connection[2] if len(connection) == 4 else platform.node()
+    target = pwd.getpwuid(os.getuid()).pw_name + '@' + (host or 'your-server')
     ssh_port = connection[3] if len(connection) == 4 else '22'
     if not ssh_port.isdecimal() or not 1 <= int(ssh_port) <= 65535: ssh_port = '22'
     command = ['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-L',
                '127.0.0.1:%d:127.0.0.1:%d' % (port, port)]
-    if not target:
-        host = connection[2] if len(connection) == 4 else platform.node()
-        target = pwd.getpwuid(os.getuid()).pw_name + '@' + (host or 'your-server')
-        command += ['-p', ssh_port]
-    if target.startswith('-') or any(c.isspace() or ord(c) < 32 for c in target):
-        raise ValueError('REMOTE_HOST must be an SSH alias or user@server without spaces')
-    return shlex.join([*command, target])
+    return shlex.join([*command, '-p', ssh_port, target])
 
 
 def main():
@@ -143,13 +138,11 @@ def main():
     parser.add_argument('--port', type=int, default=os.environ.get('WORKSPACE_GUIDE_PORT', '8765'))
     parser.add_argument('--read-only', action='store_true', help='serve the companion without terminal setup')
     parser.add_argument('--debug', action='store_true', help='show diagnostic details')
-    parser.add_argument('--remote', action='store_true', help='show laptop guide access and use remote sign-in')
+    parser.add_argument('--remote', action='store_true', help='run setup here with the browser on another device')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535: parser.error('port must be between 1 and 65535')
     remote = args.remote or ssh_session()
-    if remote:
-        try: tunnel = laptop_tunnel(args.port)
-        except ValueError as exc: parser.error(str(exc))
+    if remote: tunnel = laptop_tunnel(args.port)
     doctor = Doctor(args.config.expanduser().absolute())
     doctor.interactive = interactive() and not args.read_only
     exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or remote
@@ -161,7 +154,7 @@ def main():
     try:
         if not os.environ.get('WORKSPACE_GUIDE_TITLE_SHOWN'): ui.title()
         if remote:
-            ui.status('next', 'Open the guide on your laptop')
+            ui.status('next', 'Guide on your laptop · setup continues here')
             ui.hint('In a new laptop terminal outside SSH, start this tunnel (skip if already forwarded):')
             ui.command(tunnel)
             ui.hint('Keep that terminal open, then open this link in your laptop browser:')

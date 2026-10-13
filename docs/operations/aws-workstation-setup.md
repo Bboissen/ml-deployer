@@ -10,7 +10,6 @@ installer behaves, which checks it keeps, and how to repair it.
 ```bash
 ./workspace guide [PROJECT.json]    # = make: interactive tools/project/sign-in setup plus companion
 make remote                        # run on the server; print laptop tunnel and browser link
-make remote REMOTE_HOST=homelab     # use the laptop's saved SSH alias
 ./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
@@ -54,10 +53,10 @@ Noninteractive output stays plain.
 For SSH, keep the checkout on the server and run `make remote` there. It prints
 a tunnel command using the connected server's address, port and current user.
 Run that command from a separate laptop terminal outside SSH, keep it open,
-then open the printed URL in the laptop's browser. `REMOTE_HOST=homelab` uses
-your saved laptop SSH alias and its configured port instead. Skip the tunnel
-when the selected guide port is already forwarded. Answer setup questions in
-the original SSH terminal. Plain `make` detects SSH automatically too.
+then open the printed URL in the laptop's browser. Skip the tunnel when the
+selected guide port is already forwarded. Answer setup questions in the original
+SSH terminal. `remote` selects browser access from another device; installation
+and configuration run on the repository host. Plain `make` detects SSH automatically too.
 No laptop checkout, launcher or cloud tools are required. Under SSH the guide
 uses its exact selected port rather than falling back silently to another port;
 an occupied port is reported. To choose another port, set `WORKSPACE_GUIDE_PORT`

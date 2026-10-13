@@ -14,7 +14,7 @@ Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 First use:
   workspace guide [PROJECT.json]               Guided tools/project/login setup with an HTML companion (also: make)
                                                --fresh rebuilds tools; --debug shows details; --read-only skips questions
-                                               --remote prints laptop guide access (also: make remote on the server)
+                                               --remote keeps setup here and guides browser access from your laptop (make remote)
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
   workspace github-login                       GitHub login; private repositories only

@@ -102,19 +102,18 @@ class GuideTerminal(unittest.TestCase):
         self.assertIn('127.0.0.1:9000:127.0.0.1:9000', command)
         self.assertIn('ExitOnForwardFailure=yes', command)
 
-    def test_laptop_alias_keeps_the_users_ssh_config_and_rejects_options(self):
-        with patch.dict(os.environ, {'REMOTE_HOST': 'homelab', 'SSH_CONNECTION': 'client 123 server 2222'}):
+    def test_laptop_instructions_quote_the_server_name_without_executing_it(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(G.platform, 'node', return_value='server; touch sentinel'), \
+             patch.object(G.pwd, 'getpwuid', return_value=type('User', (), {'pw_name': 'operator'})()):
             command = shlex.split(G.laptop_tunnel(8765))
-            self.assertEqual(command[-1], 'homelab'); self.assertNotIn('-p', command)
-        for host in ('-oProxyCommand=bad', 'user@host\nother', 'user host'):
-            with patch.dict(os.environ, {'REMOTE_HOST': host}), self.assertRaises(ValueError):
-                G.laptop_tunnel(8765)
+        self.assertEqual(command[-1], 'operator@server; touch sentinel')
+        self.assertEqual(command[-3:-1], ['-p', '22'])
 
     def test_explicit_remote_mode_has_a_fixed_port_and_never_opens_server_browser(self):
         doctor = G.Doctor(Path('/nonexistent/project.json')); doctor.run = lambda: dict(REPORT)
         server = G.bind(0, 1, doctor)
         output = io.StringIO()
-        with patch.dict(os.environ, {'REMOTE_HOST': 'homelab'}, clear=True), \
+        with patch.dict(os.environ, {'SSH_CONNECTION': '192.0.2.10 54321 192.0.2.20 2222'}, clear=True), \
              patch.object(sys, 'argv', ['workspace-guide.py', '/nonexistent/project.json', '--remote', '--port', '9000']), \
              patch.object(sys, 'stdout', output), patch.object(G, 'interactive', return_value=True), \
              patch.object(G, 'bind', return_value=server) as bind, patch.object(G, 'Doctor', return_value=doctor), \
@@ -124,7 +123,8 @@ class GuideTerminal(unittest.TestCase):
         self.assertEqual(bind.call_args.args[:2], (9000, 1))
         self.assertTrue(setup.call_args.kwargs['remote'])
         self.assertIn('laptop terminal outside SSH', output.getvalue())
-        self.assertIn('homelab', output.getvalue())
+        self.assertIn('192.0.2.20', output.getvalue())
+        self.assertIn('setup continues here', output.getvalue())
         self.assertEqual(server.fileno(), -1)
 
     def test_doctor_always_checks_the_selected_path_even_before_creation(self):

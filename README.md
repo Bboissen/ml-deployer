@@ -32,10 +32,9 @@ make remote             # same setup, with laptop guide instructions
 
 Run the printed tunnel command in a new laptop terminal **outside SSH**, then
 open the printed link in your laptop's browser. Answer setup questions in the
-original SSH terminal. `make remote REMOTE_HOST=homelab` uses your laptop's SSH
-alias instead of the detected server address and port. Skip the tunnel if you
-already forwarded the guide port. No laptop clone, launcher or cloud tools are
-needed. Plain `make` also detects SSH and prints these instructions.
+original SSH terminal. `remote` selects the browser location; the installer and
+all setup commands run on the repository host. Skip the tunnel if you already
+forwarded the guide port. Plain `make` also detects SSH and prints these instructions.
 
 Shared foundation **2.0.0** is implemented offline. A bounded private SSH/Make job,
 versioned S3 verification and compute teardown passed native acceptance in
