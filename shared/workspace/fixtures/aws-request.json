@@ -1,0 +1,23 @@
+{
+  "schema_version": "2.0.0",
+  "provider": "aws",
+  "account_scope": "123456789012",
+  "region": "eu-west-1",
+  "workspace_id": "workspace-example",
+  "kind": "request",
+  "toolbox_profile": "cpu-python-v1",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 4096,
+    "disk_gb": 20
+  },
+  "storage": {
+    "data_uri": "s3://workspace-data-example/datasets/example/",
+    "output_uri": "s3://workspace-data-example/outputs/workspace-example/",
+    "state_uri": "s3://workspace-state-example/aws/runner/example.tfstate"
+  },
+  "operators": [
+    "operator@example.com"
+  ],
+  "maximum_runtime_minutes": 60
+}

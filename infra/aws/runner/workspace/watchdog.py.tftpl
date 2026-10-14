@@ -1,0 +1,92 @@
+"""Provider guard source. Packaging copies these exact bytes to watchdog.py."""
+import datetime as dt
+import json
+import os
+import re
+import time
+
+import boto3
+from botocore.config import Config
+
+
+def utc(value):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+        raise ValueError("noncanonical lease timestamp")
+    return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+
+
+def due(tags, now):
+    try:
+        start, end, latest = (utc(tags[k]) for k in ("LeaseStart", "ExpiresAt", "LaunchBefore"))
+        assert re.fullmatch(r"[a-z0-9][a-z0-9-]{1,46}[a-z0-9]", tags["WorkspaceId"])
+        assert re.fullmatch(r"[0-9a-f]{32}", tags["LeaseId"])
+        assert 900 <= (end - start).total_seconds() <= 43200
+        assert 0 < (latest - start).total_seconds() <= 300
+        assert latest < end - dt.timedelta(minutes=5)
+        return now >= end - dt.timedelta(minutes=5)
+    except (KeyError, ValueError, AssertionError, TypeError):
+        # Only called after matching all static ownership tags.
+        return True
+
+
+def sweep(ec2, event, ownership, now, remaining=lambda: 25):
+    if event.get("guard_id") != ownership["GuardId"] or event.get("kind") not in {"sweep", "lease"}:
+        raise ValueError("mismatched guard event")
+    if event["kind"] == "lease" and (
+        not re.fullmatch(r"[0-9a-f]{32}", event.get("lease_id", "")) or
+        not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,46}[a-z0-9]", event.get("workspace_id", ""))
+    ):
+        raise ValueError("invalid lease event")
+    filters = [{"Name": "tag:" + k, "Values": [v]} for k, v in ownership.items()]
+    args = {"Filters": filters, "MaxResults": 100}
+    scanned, terminated = 0, []
+    while True:
+        if remaining() < 8:
+            raise TimeoutError("incomplete guard scan")
+        page = ec2.describe_instances(**args)
+        for reservation in page.get("Reservations", []):
+            for instance in reservation.get("Instances", []):
+                scanned += 1
+                tags = {t["Key"]: t["Value"] for t in instance.get("Tags", [])}
+                if any(tags.get(k) != v for k, v in ownership.items()):
+                    continue
+                if event["kind"] == "lease" and (
+                    tags.get("LeaseId") != event["lease_id"] or tags.get("WorkspaceId") != event["workspace_id"]
+                ):
+                    continue
+                if instance["State"]["Name"] in {"terminated", "shutting-down"} or not due(tags, now):
+                    continue
+                if remaining() < 8:
+                    raise TimeoutError("incomplete guard termination")
+                instance_id = instance["InstanceId"]
+                fresh = ec2.describe_instances(InstanceIds=[instance_id])
+                actual = [i for r in fresh.get("Reservations", []) for i in r.get("Instances", [])]
+                if len(actual) != 1:
+                    raise ValueError("instance visibility changed")
+                current = actual[0]
+                current_tags = {t["Key"]: t["Value"] for t in current.get("Tags", [])}
+                if current_tags != tags:
+                    raise ValueError("instance tags changed during sweep")
+                if current["State"]["Name"] not in {"terminated", "shutting-down"}:
+                    ec2.terminate_instances(InstanceIds=[instance_id])
+                    terminated.append(instance_id)
+        if not page.get("NextToken"):
+            return {"scanned": scanned, "termination_requested": terminated}
+        args["NextToken"] = page["NextToken"]
+
+
+def handler(event, context):
+    started = time.monotonic()
+    ownership = {"GuardId": os.environ["GUARD_ID"], "Project": os.environ["OWNER_PROJECT"],
+                 "Root": "runner", "ManagedBy": "opentofu"}
+    ec2 = boto3.client("ec2", region_name=os.environ["AWS_REGION"],
+                       config=Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 2}))
+    result = sweep(ec2, event, ownership, dt.datetime.now(dt.timezone.utc),
+                   remaining=lambda: min(25 - (time.monotonic() - started), context.get_remaining_time_in_millis() / 1000))
+    # A targeted deadline is not a full recurring-sweep heartbeat.
+    record = {"kind": "heartbeat" if event["kind"] == "sweep" else "lease_result",
+              "guard_id": ownership["GuardId"], "account": os.environ["ACCOUNT_ID"],
+              "region": os.environ["AWS_REGION"], "code_sha256": os.environ["CODE_SHA256"],
+              "observed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **result}
+    print(json.dumps(record, sort_keys=True))
+    return record

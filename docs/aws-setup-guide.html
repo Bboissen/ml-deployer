@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AWS workspace: first-use guide</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f7f8fa; --fg:#1b2838; --sub:#49586a; --panel:#fff; --line:#cbd3dc; --blue:#1753a4; --soft:#eaf1fc; --amber:#81500b; --warm:#fff3dc; --green:#146048; --good:#e7f4ed; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#101720; --fg:#e6edf5; --sub:#bac7d6; --panel:#17212e; --line:#435064; --blue:#9abfff; --soft:#20334d; --amber:#efc577; --warm:#352b1b; --green:#94dcb6; --good:#18362b; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 860px; margin: auto; padding: 32px 20px 72px; }
+    h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15; margin: 8px 0 12px; }
+    h2 { font-size: 1.35rem; margin: 40px 0 10px; }
+    h3 { font-size: 1.05rem; margin: 20px 0 6px; }
+    p { margin: 8px 0; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: .78rem; font-weight: 700; color: var(--sub); }
+    .lead { font-size: 1.1rem; max-width: 720px; }
+    a { color: var(--blue); overflow-wrap: anywhere; }
+    .note { border-left: 4px solid var(--blue); background: var(--soft); padding: 12px 16px; margin: 16px 0; }
+    .warn { border-left-color: var(--amber); background: var(--warm); }
+    .good { border-left-color: var(--green); background: var(--good); }
+    ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+    ol.steps > li { counter-increment: step; background: var(--panel); border: 1px solid var(--line); border-left-width: 6px; border-radius: 12px; padding: 18px 18px 14px 18px; margin: 16px 0; }
+    ol.steps > li > h3 { margin-top: 0; }
+    ol.steps > li > h3::before { content: counter(step) ". "; color: var(--blue); }
+    ol.steps > li.done { border-left-color: var(--green); }
+    ol.steps > li.todo { border-left-color: var(--amber); }
+    .state { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--soft); font-size: .94rem; }
+    li.done .state { background: var(--good); }
+    li.todo .state { background: var(--warm); }
+    .badge { font-weight: 700; margin-right: 8px; }
+    pre { background: #0f1620; color: #e6edf5; padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .92rem; margin: 10px 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    :not(pre) > code { background: var(--soft); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+    .copy { font: inherit; font-size: .85rem; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+    .copy:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .copied { font-size: .85rem; color: var(--sub); margin-left: 8px; }
+    .variant { display: block; }
+    .variant > .label { font-size: .8rem; font-weight: 700; color: var(--sub); text-transform: uppercase; letter-spacing: .06em; }
+    .pick { display: flex; flex-wrap: wrap; gap: 14px 28px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin: 18px 0; }
+    .pick label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; }
+    select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    .meta { color: var(--sub); font-size: .88rem; }
+    .nojs-only { display: block; }
+    .js .nojs-only { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">AWS · Linux and macOS</p>
+  <h1>AWS workspace: first-use guide</h1>
+  <p class="lead">Run <code>make</code> in the repository folder and answer its questions in that terminal. It prepares the tools, saves your project file and offers native sign-in. This page only shows progress; it never logs in, deploys or changes anything.</p>
+
+  <div class="note" id="live">
+    <p><strong>No live readiness.</strong> Run <code>make</code> in the repository folder and open the address it prints to see which steps are done. Opened as a file, this page is a plain checklist.</p>
+  </div>
+
+  <div class="pick" id="pick" hidden>
+    <label>Your ML project's repository
+      <select id="repo"><option value="public">Public GitHub repository</option><option value="private">Private GitHub repository</option><option value="all">Show both</option></select>
+    </label>
+  </div>
+  <p class="nojs-only meta">JavaScript is off: readiness is not shown and both public and private variants are listed.</p>
+
+  <ol class="steps">
+    <li data-step="tools">
+      <h3>Get the source and run make</h3>
+<pre><code>git clone https://github.com/Bboissen/ml-deployer.git
+cd ml-deployer
+make</code></pre>
+      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open; Ctrl+C stops setup and this page. Rerunning <code>make</code> resumes.</p>
+      <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make remote</code> there. It prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
+      <p class="meta">Ubuntu/Debian: if setup reports missing system packages, run <code>./workspace setup --system-packages</code> (sudo installs curl, unzip, tar, dpkg), then <code>make</code> again. macOS: install the Command Line Tools when prompted. Supported: Linux with glibc (x86_64, arm64) and macOS (Intel, Apple Silicon).</p>
+    </li>
+
+    <li data-step="project">
+      <h3>Describe your project</h3>
+      <p><strong>Answer in the terminal running <code>make</code>.</strong> It saves a validated private project file for you; press Enter to keep a suggested value. Credentials are never typed here: sign-in is always the provider's own browser flow.</p>
+      <table><tr><th>Question</th><th>What to answer</th></tr>
+        <tr><td>Project and workspace names</td><td>Short lowercase names for this project and this workspace.</td></tr>
+        <tr><td>AWS profile and region</td><td>A named profile (not <code>default</code>) and <code>us-east-1</code>, the reviewed CPU region.</td></tr>
+        <tr><td>Mode and maximum runtime</td><td><code>job</code> runs setup and run then tears the machine down; <code>workspace</code> keeps it for a terminal. 15 to 60 minutes.</td></tr>
+        <tr><td>Repository URL and ref</td><td>Your ML repository and a branch, tag or commit. Private repositories use the <code>git@github.com:</code> URL.</td></tr>
+        <tr><td>Setup and run commands, output folders</td><td>The commands your repository documents and the folders it writes results to.</td></tr>
+        <tr><td>Dataset</td><td>A file or folder on this machine, an <code>s3://</code> prefix or a public HTTPS file.</td></tr>
+      </table>
+      <p class="meta">The default file is <code>~/aws-workspace/demo/project.json</code>; choose another with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>.</p>
+    </li>
+
+    <li data-step="aws">
+      <h3>Sign in to AWS</h3>
+      <p><code>make</code> offers sign-in with the profile you chose and opens the AWS browser flow. Over SSH it prints a link and a code for your laptop browser. This repository never sees or stores a password or access key.</p>
+<pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
+      <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device. Static access keys are refused. A successful login does not prove permission to create infrastructure; Deploy checks that against its saved plans.</p>
+      <div class="note warn"><p><strong>Browser shows “400 Bad Request”?</strong> Each sign-in link works once, for a few minutes, while the login command still waits. Press Ctrl+C, run the login again and use only the newly opened page.</p></div>
+    </li>
+
+    <li data-step="github">
+      <h3>Connect GitHub only for a private repository</h3>
+      <div class="variant" data-repo="public"><span class="label">Public repository</span>
+        <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>.</p></div>
+      <div class="variant" data-repo="private"><span class="label">Private repository</span>
+        <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, and sign in once with the managed GitHub CLI. You need admin permission on that repository: Deploy registers a read-only deploy key and stores its private half only in AWS Secrets Manager.</p>
+<pre><code>./workspace github-login</code></pre></div>
+    </li>
+
+    <li data-step="deploy">
+      <h3>Review and deploy</h3>
+      <p>The first command resolves your account, zone, repository commit, dataset bytes, machine size, price estimate, retained resources and lifetime into one scope, prints it with its hash, and asks once. Type <code>deploy</code> to launch exactly that scope; press Enter to stop with no cloud change.</p>
+<pre><code>./workspace ~/aws-workspace/demo/project.json
+./workspace ~/aws-workspace/demo/project.json status --wait 30</code></pre>
+      <p class="meta">For automation, rerun with <code>--authorization "approve scope HASH"</code> where HASH is the 16-character scope hash the review printed. Nothing launches without the typed confirmation or that hash. A changed file or source needs a new review.</p>
+    </li>
+
+    <li data-step="outputs">
+      <h3>Find your outputs and confirm cleanup</h3>
+      <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>compute cleanup: success</code> with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable at the printed <code>s3://…/output/</code> prefix.</p>
+<pre><code>./workspace ~/aws-workspace/demo/project.json logs</code></pre>
+      <p class="meta">Kept on purpose: the dataset and output bucket, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can keep costing money; deleting them is a separate reviewed decision. A second Deploy with the same data reuses the retained versions without uploading again.</p>
+    </li>
+  </ol>
+
+  <h2>Something broke</h2>
+  <div class="note warn">
+    <p><strong>Tools half installed or failing:</strong> rebuild them. Logins, project files, state and evidence are untouched, and the previous tools stay selected if the rebuild fails.</p>
+<pre><code>./workspace setup --fresh
+./workspace doctor ~/aws-workspace/demo/project.json --debug</code></pre>
+    <p><strong>A Deploy was interrupted:</strong> <code>./workspace project.json resume</code> reconciles owned resources and never repeats a launch; <code>cancel</code> removes the owned compute.</p>
+    <p><strong>The launcher itself is broken:</strong> <code>git checkout -- workspace scripts</code> restores the tracked files.</p>
+  </div>
+
+  <h2>More</h2>
+  <table>
+    <tr><th>Topic</th><th>Where</th></tr>
+    <tr><td>Commands in one page</td><td><a href="operations/aws-deployer-quickstart.md">Quickstart</a>, <code>./workspace --help</code></td></tr>
+    <tr><td>Installer checks, flags and repair</td><td><a href="operations/aws-workstation-setup.md">Workstation setup</a></td></tr>
+    <tr><td>What Deploy does and how recovery works</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
+    <tr><td>Account prerequisites</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
+    <tr><td>Security, reporting, what is verified</td><td><a href="../SECURITY.md">SECURITY</a></td></tr>
+    <tr><td>Contributing, releases, license</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a>, <a href="../LICENSE">MIT</a></td></tr>
+  </table>
+</main>
+<script src="aws-setup-guide.js"></script>
+</body>
+</html>

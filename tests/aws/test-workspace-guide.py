@@ -1,0 +1,178 @@
+"""Offline checks for the local first-use guide server; no login, no cloud calls."""
+import http.client
+import importlib.util
+import io
+import json
+import os
+import shlex
+from pathlib import Path
+import sys
+import subprocess
+import tempfile
+import threading
+import unittest
+from unittest.mock import patch
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location('workspace_guide', ROOT/'scripts/aws/workspace-guide.py')
+G = importlib.util.module_from_spec(spec); spec.loader.exec_module(G)
+REPORT = {'ready': False, 'checked_at': '2026-10-13T00:00:00Z', 'config': None, 'deploy': None, 'rows': [
+    {'check': 'Managed tools', 'state': 'Ready', 'detail': 'ok', 'next': None},
+    {'check': 'Project config', 'state': 'To do', 'detail': 'no project file yet', 'next': 'cp example project.json'},
+    {'check': 'AWS identity', 'state': 'Not checked', 'detail': 'later', 'next': 'ignored'}]}
+
+
+class GuideServer(unittest.TestCase):
+    def setUp(self):
+        self.calls = 0
+        def run():
+            self.calls += 1; return dict(REPORT)
+        self.doctor = G.Doctor(Path('/nonexistent/project.json')); self.doctor.run = run
+        self.server = G.bind(0, 1, self.doctor)
+        self.addCleanup(self.server.server_close)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True); thread.start()
+        self.addCleanup(self.server.shutdown)
+        self.port = self.server.server_address[1]
+
+    def get(self, path, host=None):
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        connection.request('GET', path, headers={'Host': host or '127.0.0.1:%d' % self.port})
+        response = connection.getresponse(); body = response.read(); connection.close()
+        return response, body
+
+    def test_serves_the_page_bound_to_loopback_with_safe_headers(self):
+        self.assertEqual(self.server.server_address[0], '127.0.0.1')
+        response, body = self.get('/')
+        self.assertEqual(response.status, 200); self.assertIn(b'first-use guide', body)
+        self.assertEqual(response.getheader('Cache-Control'), 'no-store')
+        policy = response.getheader('Content-Security-Policy')
+        self.assertIn("frame-ancestors 'none'", policy); self.assertIn("script-src 'self'", policy); self.assertNotIn('unsafe-inline', policy.split('style-src')[0])
+        self.assertNotIn(b'<script>', body)
+        self.assertEqual(response.getheader('Cross-Origin-Resource-Policy'), 'same-origin')
+        self.assertIsNone(response.getheader('Access-Control-Allow-Origin'))
+        script, text = self.get('/aws-setup-guide.js')
+        self.assertEqual(script.status, 200); self.assertTrue(script.getheader('Content-Type').startswith('text/javascript')); self.assertIn(b'status.json', text)
+
+    def test_status_is_the_cached_doctor_report(self):
+        for _ in range(3):
+            response, body = self.get('/status.json?t=1')
+            self.assertEqual(response.status, 200); self.assertEqual(json.loads(body)['rows'][1]['state'], 'To do')
+        self.assertEqual(self.calls, 1)
+
+    def test_doctor_failure_is_reported_not_raised(self):
+        self.doctor.run = lambda: (_ for _ in ()).throw(ValueError('bad json'))
+        self.assertIn('ValueError', self.doctor.report()['error'])
+
+    def test_expired_cache_picks_up_the_next_step(self):
+        self.get('/status.json')
+        self.doctor.run = lambda: {'ready': False, 'rows': [
+            {'check': 'Project config', 'state': 'Ready', 'detail': 'created', 'next': None},
+            {'check': 'AWS identity', 'state': 'To do', 'detail': 'sign in', 'next': './workspace login'}]}
+        self.doctor.at -= G.CACHE_SECONDS + 1
+        _, body = self.get('/status.json')
+        self.assertEqual(json.loads(body)['rows'][1]['check'], 'AWS identity')
+
+    def test_only_documents_under_docs_are_served(self):
+        self.assertEqual(self.get('/operations/aws-project-configuration.md')[0].status, 200)
+        self.assertEqual(self.get('/CONTRIBUTING.md')[0].status, 200); self.assertEqual(self.get('/SECURITY.md')[0].status, 200)
+        for path in ('/../workspace', '/operations/../../README.md', '/%2e%2e/workspace', '/opentofu-architecture.css', '/missing.md'):
+            self.assertEqual(self.get(path)[0].status, 404, path)
+
+    def test_foreign_host_names_are_refused_but_forwarded_ports_work(self):
+        self.assertEqual(self.get('/status.json', 'attacker.example:%d' % self.port)[0].status, 403)
+        self.assertEqual(self.get('/', 'localhost:9000')[0].status, 200)
+        self.assertEqual(self.get('/', '[::1]:9000')[0].status, 200)
+        self.assertEqual(self.calls, 0)
+
+    def test_post_cannot_trigger_a_readiness_check(self):
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        self.addCleanup(connection.close)
+        connection.request('POST', '/status.json')
+        response = connection.getresponse(); response.read()
+        self.assertEqual(response.status, 501); self.assertEqual(self.calls, 0)
+
+
+class GuideTerminal(unittest.TestCase):
+    def test_ssh_never_opens_a_browser_on_the_server(self):
+        with patch.dict(os.environ, {'SSH_CONNECTION': 'client server', 'DISPLAY': ':0'}), \
+             patch.object(G.subprocess, 'run', side_effect=AssertionError('remote browser opened')):
+            self.assertFalse(G.open_browser('http://127.0.0.1:8765/'))
+
+    def test_laptop_tunnel_uses_the_connected_server_user_and_port(self):
+        with patch.dict(os.environ, {'SSH_CONNECTION': '192.0.2.10 54321 192.0.2.20 2222'}, clear=True), \
+             patch.object(G.pwd, 'getpwuid', return_value=type('User', (), {'pw_name': 'operator'})()):
+            command = shlex.split(G.laptop_tunnel(9000))
+        self.assertEqual(command[-3:], ['-p', '2222', 'operator@192.0.2.20'])
+        self.assertIn('127.0.0.1:9000:127.0.0.1:9000', command)
+        self.assertIn('ExitOnForwardFailure=yes', command)
+
+    def test_laptop_instructions_quote_the_server_name_without_executing_it(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(G.platform, 'node', return_value='server; touch sentinel'), \
+             patch.object(G.pwd, 'getpwuid', return_value=type('User', (), {'pw_name': 'operator'})()):
+            command = shlex.split(G.laptop_tunnel(8765))
+        self.assertEqual(command[-1], 'operator@server; touch sentinel')
+        self.assertEqual(command[-3:-1], ['-p', '22'])
+
+    def test_explicit_remote_mode_has_a_fixed_port_and_never_opens_server_browser(self):
+        doctor = G.Doctor(Path('/nonexistent/project.json')); doctor.run = lambda: dict(REPORT)
+        server = G.bind(0, 1, doctor)
+        output = io.StringIO()
+        with patch.dict(os.environ, {'SSH_CONNECTION': '192.0.2.10 54321 192.0.2.20 2222'}, clear=True), \
+             patch.object(sys, 'argv', ['workspace-guide.py', '/nonexistent/project.json', '--remote', '--port', '9000']), \
+             patch.object(sys, 'stdout', output), patch.object(G, 'interactive', return_value=True), \
+             patch.object(G, 'bind', return_value=server) as bind, patch.object(G, 'Doctor', return_value=doctor), \
+             patch.object(G, 'open_browser', side_effect=AssertionError('server browser opened')), \
+             patch.object(G, 'setup_project', side_effect=KeyboardInterrupt()) as setup:
+            G.main()
+        self.assertEqual(bind.call_args.args[:2], (9000, 1))
+        self.assertTrue(setup.call_args.kwargs['remote'])
+        self.assertIn('laptop terminal outside SSH', output.getvalue())
+        self.assertIn('192.0.2.20', output.getvalue())
+        self.assertIn('setup continues here', output.getvalue())
+        self.assertEqual(server.fileno(), -1)
+
+    def test_doctor_always_checks_the_selected_path_even_before_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)/'custom project.json'
+            result = subprocess.CompletedProcess([], 1, json.dumps(REPORT), '')
+            with patch.object(G.subprocess, 'run', return_value=result) as run:
+                self.assertFalse(G.Doctor(config).run()['ready'])
+            self.assertEqual(run.call_args.args[0][-1], str(config))
+            with patch.object(G.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'null', '')):
+                self.assertIn('ValueError', G.Doctor(config).report()['error'])
+
+    def test_server_is_ready_when_the_browser_opens_and_closes_on_interrupt(self):
+        doctor = G.Doctor(Path('/nonexistent/project.json')); doctor.run = lambda: dict(REPORT)
+        server = G.bind(0, 1, doctor)
+        self.addCleanup(server.server_close)
+        def open_browser(url):
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_address[1], timeout=10)
+            try:
+                connection.request('GET', '/status.json')
+                response = connection.getresponse(); body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(body)['rows'][1]['state'], 'To do')
+            finally:
+                connection.close()
+            raise KeyboardInterrupt()
+        with patch.object(sys, 'argv', ['workspace-guide.py', '/nonexistent/project.json']), \
+             patch.object(G, 'bind', return_value=server), patch.object(G, 'Doctor', return_value=doctor), \
+             patch.object(G, 'open_browser', side_effect=open_browser):
+            G.main()
+        self.assertEqual(server.fileno(), -1)
+
+    def test_browser_opens_only_with_a_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            opened = Path(directory)/'opened'; opener = Path(directory)/'xdg-open'
+            opener.write_text('#!/bin/sh\necho "$1" > "%s"\n' % opened); opener.chmod(0o755)
+            with patch.object(G.platform, 'system', return_value='Linux'), \
+                 patch.dict(os.environ, {'PATH': directory}, clear=True):
+                self.assertFalse(G.open_browser('http://127.0.0.1:1/')); self.assertFalse(opened.exists())
+                os.environ['DISPLAY'] = ':0'
+                self.assertTrue(G.open_browser('http://127.0.0.1:1/'))
+            self.assertEqual(opened.read_text().strip(), 'http://127.0.0.1:1/')
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

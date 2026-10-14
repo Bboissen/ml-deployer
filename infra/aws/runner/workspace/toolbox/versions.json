@@ -1,0 +1,118 @@
+{
+  "releasever": "2023.12.20260930",
+  "ami_id": "ami-03c3da4cfa8e8943a",
+  "ami_name": "al2023-ami-2023.12.20260930.0-kernel-6.1-x86_64",
+  "installer_image": "public.ecr.aws/amazonlinux/amazonlinux@sha256:12052e9b5d3fd85769abbdd863dd038e1890c9ace31d5fdbe1afa78eda97d061",
+  "rpms": {
+    "amazon-ssm-agent": {
+      "name": "amazon-ssm-agent",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "3.3.5226.0",
+      "rel": "1.amzn2023",
+      "sha256": "509ac57549d32f12fa26155a708fd64197837dd4f0b547f60d5191180fca46cc",
+      "location": "../../../../blobstore/509ac57549d32f12fa26155a708fd64197837dd4f0b547f60d5191180fca46cc/amazon-ssm-agent-3.3.5226.0-1.amzn2023.x86_64.rpm"
+    },
+    "curl-minimal": {
+      "name": "curl-minimal",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "8.21.0",
+      "rel": "5.amzn2023.0.2",
+      "sha256": "59e6451f93ba74397fed00079794d118a188358ea9ef551757be4f11ea3349a5",
+      "location": "../../../../blobstore/59e6451f93ba74397fed00079794d118a188358ea9ef551757be4f11ea3349a5/curl-minimal-8.21.0-5.amzn2023.0.2.x86_64.rpm"
+    },
+    "gcc": {
+      "name": "gcc",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "11.5.0",
+      "rel": "5.amzn2023.0.5",
+      "sha256": "417e5f14d74b47832303734e61657e8c6e1ca9ac2f763cf6e3f2e69fed3e31a2",
+      "location": "../../../../blobstore/417e5f14d74b47832303734e61657e8c6e1ca9ac2f763cf6e3f2e69fed3e31a2/gcc-11.5.0-5.amzn2023.0.5.x86_64.rpm"
+    },
+    "git": {
+      "name": "git",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "2.50.1",
+      "rel": "1.amzn2023.0.1",
+      "sha256": "543e1b7ec49aa2077ebe1aab0926491dcff15909c8ecbad26dc6f489909a4645",
+      "location": "../../../../blobstore/543e1b7ec49aa2077ebe1aab0926491dcff15909c8ecbad26dc6f489909a4645/git-2.50.1-1.amzn2023.0.1.x86_64.rpm"
+    },
+    "git-core": {
+      "name": "git-core",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "2.50.1",
+      "rel": "1.amzn2023.0.1",
+      "sha256": "1a266c41e66b0dca131ea2cb616588d75b580d2bfbb8b67a6504280ee90d640c",
+      "location": "../../../../blobstore/1a266c41e66b0dca131ea2cb616588d75b580d2bfbb8b67a6504280ee90d640c/git-core-2.50.1-1.amzn2023.0.1.x86_64.rpm"
+    },
+    "make": {
+      "name": "make",
+      "arch": "x86_64",
+      "epoch": "1",
+      "ver": "4.3",
+      "rel": "5.amzn2023.0.2",
+      "sha256": "a70e9233a140c6fc6bdd2cefdbcad360eea6f5a7635b0020dd08e5d3fae0b97f",
+      "location": "../../../../blobstore/a70e9233a140c6fc6bdd2cefdbcad360eea6f5a7635b0020dd08e5d3fae0b97f/make-4.3-5.amzn2023.0.2.x86_64.rpm"
+    },
+    "python3.13": {
+      "name": "python3.13",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "3.13.15",
+      "rel": "1.amzn2023.0.1",
+      "sha256": "b973b0fb19f05d41dc2d806b760520de686b4247ab0ae0b639a1de92aede3b59",
+      "location": "../../../../blobstore/b973b0fb19f05d41dc2d806b760520de686b4247ab0ae0b639a1de92aede3b59/python3.13-3.13.15-1.amzn2023.0.1.x86_64.rpm"
+    },
+    "python3.13-devel": {
+      "name": "python3.13-devel",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "3.13.15",
+      "rel": "1.amzn2023.0.1",
+      "sha256": "44f86140a74422527c090c2362f80b72610f8c5384c8fd5af39fe6b6f5639645",
+      "location": "../../../../blobstore/44f86140a74422527c090c2362f80b72610f8c5384c8fd5af39fe6b6f5639645/python3.13-devel-3.13.15-1.amzn2023.0.1.x86_64.rpm"
+    },
+    "python3.13-pip": {
+      "name": "python3.13-pip",
+      "arch": "noarch",
+      "epoch": "0",
+      "ver": "24.2",
+      "rel": "259.amzn2023.0.8",
+      "sha256": "d6d810fac07290d317f93a36e9673d036d2f897b5b7cef82a25d6e4a2ce019ff",
+      "location": "../../../../blobstore/d6d810fac07290d317f93a36e9673d036d2f897b5b7cef82a25d6e4a2ce019ff/python3.13-pip-24.2-259.amzn2023.0.8.noarch.rpm"
+    },
+    "unzip": {
+      "name": "unzip",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "6.0",
+      "rel": "68.amzn2023.0.2",
+      "sha256": "62ed7ebfb7a6bae33ce9f36832844954fddf0bd1765a26df220190c43454db64",
+      "location": "../../../../blobstore/62ed7ebfb7a6bae33ce9f36832844954fddf0bd1765a26df220190c43454db64/unzip-6.0-68.amzn2023.0.2.x86_64.rpm"
+    },
+    "openssh-clients": {
+      "name": "openssh-clients",
+      "arch": "x86_64",
+      "epoch": "0",
+      "ver": "9.9p1",
+      "rel": "10.amzn2023.0.2",
+      "sha256": "1f455955d28b306e9ce0c20d9d412778a590efa588f2935a7f30c82651e6eca8"
+    }
+  },
+  "uv": {
+    "version": "0.12.23",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6"
+  },
+  "aws_cli": {
+    "version": "2.36.14",
+    "url": "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.36.14.zip",
+    "sha256": "43b34875482244039716cc3725d1f60e7d47ef3cfb2a19e114759a46db24dc30"
+  },
+  "sdk_version": "1.43.109",
+  "session_plugin_version": "1.2.835.0"
+}

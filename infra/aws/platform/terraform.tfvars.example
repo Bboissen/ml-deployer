@@ -1,0 +1,27 @@
+aws_account_id  = "000000000000"
+aws_region      = "us-east-1"
+availability_zone = "us-east-1a"
+project_name    = "ml-infra"
+resource_prefix = "ml-infra"
+
+state_bucket_arn   = "arn:aws:s3:::replace-ml-infra-aws-state-unique"
+data_bucket_name   = "replace-ml-infra-aws-data-unique"
+results_bucket_name = "replace-ml-infra-aws-results-unique"
+ecr_repository_name = "ml-infra/runner"
+
+deployer_principal_arns = [
+  "arn:aws:iam::000000000000:user/replace-temporary-login-principal",
+]
+
+tags = {
+  Environment = "replace"
+  Owner       = "replace"
+}
+
+# Optional persistent ML project storage, separate from project_name ownership.
+# Keep every previously managed entry in this complete map. New buckets are empty.
+# ml_projects = {
+#   fraud-detection = { ml_project_name = "fraud-detection", storage_mode = "auto" }
+# }
+# For existing storage, use the inspected assignment entry from the AWS workspace
+# quickstart; never infer/import ownership or replace historical bucket names.

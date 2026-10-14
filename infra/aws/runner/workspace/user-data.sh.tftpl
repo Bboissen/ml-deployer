@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+umask 022
+# Only the reviewed run-as document is offered. Agent stays off during bootstrap.
+systemctl stop amazon-ssm-agent
+systemctl disable amazon-ssm-agent
+install -d -m 0755 /opt/workspace /var/lib/workspace
+rm -f /var/lib/workspace/bootstrap-success.json
+printf '%s' '${toolbox_zip_base64}' | base64 --decode > /var/lib/workspace/toolbox.zip
+printf '%s  %s\n' '${toolbox_zip_sha256}' /var/lib/workspace/toolbox.zip | sha256sum --check --status
+python3 - <<'PY'
+import zipfile
+with zipfile.ZipFile('/var/lib/workspace/toolbox.zip') as z:
+    for n in z.namelist():
+        if n.startswith('/') or '..' in n.split('/'):
+            raise ValueError('unsafe toolbox member')
+    z.extractall('/opt/workspace')
+PY
+printf '%s\n' '${workspace_id}' > /var/lib/workspace/workspace-id
+printf '%s\n' '${region}' > /var/lib/workspace/region
+printf '%s\n' '${toolbox_zip_sha256}' > /var/lib/workspace/toolbox-sha256
+chmod 0755 /opt/workspace/install.sh
+cat > /etc/systemd/system/workspace-bootstrap.service <<'UNIT'
+[Unit]
+Description=Reviewed AWS workspace toolbox bootstrap
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/workspace/bootstrap-success.json
+[Service]
+Type=oneshot
+ExecStart=/opt/workspace/install.sh
+RemainAfterExit=yes
+TimeoutStartSec=600
+KillMode=control-group
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStopPost=/bin/bash -c 'if test "$SERVICE_RESULT" != success; then /usr/bin/touch /var/lib/workspace/bootstrap-failed; fi'
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now workspace-bootstrap.service

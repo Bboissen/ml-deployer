@@ -1,0 +1,49 @@
+# Local credentials and configuration
+.env
+*.env
+project.env
+*.pem
+*.key
+id_rsa*
+
+# OpenTofu working material
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan.json
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+crash.log
+crash.*.log
+
+# Local runtime evidence and generated data
+.*-runtime/
+/evidence/*
+!/evidence/.gitignore
+!/evidence/README.md
+.tools/
+artifacts/
+data/
+models/
+logs/
+
+# Python environments and caches are never repository content
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Package manager state
+mise.lock
+uv.lock
+
+# Editor and operating-system state
+.claude/settings.local.json
+.DS_Store
+.vscode/
+.idea/

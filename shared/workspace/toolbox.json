@@ -1,0 +1,24 @@
+{
+  "schema_version": "2.0.0",
+  "profile": "cpu-python-v1",
+  "os": "Linux",
+  "architecture": "x86_64",
+  "python_minor": "3.13",
+  "tools": [
+    "git",
+    "python",
+    "venv",
+    "uv",
+    "cc",
+    "make"
+  ],
+  "provider_tools": {
+    "aws": [
+      "aws",
+      "boto3"
+    ]
+  },
+  "project_environments": "non-root writable venvs separate from toolbox",
+  "reproducibility": "Provider pins immutable OS image and bootstrap SHA256, including CLI/SDK versions; reports actual installed versions.",
+  "container_runtime": "optional; no GPU or distributed capability claim"
+}
