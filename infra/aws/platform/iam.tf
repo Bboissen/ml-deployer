@@ -15,7 +15,7 @@ data "aws_iam_policy_document" "deployer_assume" {
 
 resource "aws_iam_role" "deployer" {
   name                 = "${var.resource_prefix}-tofu-deployer"
-  description          = "Least-privilege OpenTofu deployer for disposable Demo AWS runners"
+  description          = "Least-privilege OpenTofu deployer for disposable ML workspace runners"
   assume_role_policy   = data.aws_iam_policy_document.deployer_assume.json
   max_session_duration = 43200
 
@@ -245,7 +245,7 @@ resource "aws_iam_policy" "runtime_boundary" {
 
 data "aws_iam_policy_document" "scheduler_boundary" {
   statement {
-    sid       = "TerminateTaggedDemoRunner"
+    sid       = "TerminateTaggedWorkspaceRunner"
     effect    = "Allow"
     actions   = ["ec2:TerminateInstances"]
     resources = ["*"]

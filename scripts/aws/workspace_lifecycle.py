@@ -143,35 +143,6 @@ def foundation_extension():
                          'unowned session-policy attachment exists')
 
 
-    def packet(name, artifacts_path, alarm_topic, output):
-        selected = target(L['boundary']['targets']()[name])
-        L['require'](selected['account_id'] == '000000000000' and selected['region'] == 'us-east-1', 'fresh design requires its accepted target')
-        directory = L['checked_path'](output)
-        L['require'](not directory.exists(), 'preserve earlier foundation packet')
-        artifacts = L['read'](artifacts_path)
-        L['verify_artifact'](artifacts['guard_zip_path'], artifacts['guard_zip_sha256'], 'guard')
-        L['verify_artifact'](artifacts['toolbox_zip_path'], artifacts['toolbox_zip_sha256'], 'toolbox')
-        account, region = selected['account_id'], selected['region']
-        bucket = selected['inventory']['buckets'][0]
-        request = {'schema_version':'2.0.0', 'kind':'request', 'provider':'aws', 'account_scope':account,
-            'region':region, 'workspace_id':'demo-dev-01', 'toolbox_profile':'cpu-python-v1',
-            'resources':{'cpus':8, 'memory_mb':60000, 'disk_gb':25}, 'operators':[selected['operator_arn']],
-            'maximum_runtime_minutes':60, 'storage':{'data_uri':f's3://{bucket}/projects/demo/data/',
-            'output_uri':f's3://{bucket}/projects/demo/workspaces/demo-dev-01/output/',
-            'state_uri':f"s3://{selected['backend']['bucket']}/{selected['backend']['runner_prefix']}demo-dev-01.tfstate"}}
-        bootstrap = {'aws_account_id':account, 'aws_region':region, 'project_name':selected['inventory']['resource_prefix'], 'state_bucket_name':selected['backend']['bucket']}
-        platform = {'aws_account_id':account, 'aws_region':region, 'project_name':bootstrap['project_name'], 'resource_prefix':bootstrap['project_name'],
-            'state_bucket_arn':'arn:aws:s3:::'+bootstrap['state_bucket_name'], 'availability_zone':'us-east-1a',
-            'deployer_principal_arns':[selected['operator_arn']], 'ml_projects':{'demo':{'ml_project_name':'demo', 'storage_mode':'auto'}},
-            'workspace_guard':{'zip_path':artifacts['guard_zip_path'], 'zip_sha256':artifacts['guard_zip_sha256'], 'alarm_topic_arn':alarm_topic}}
-        config(platform, selected)
-        directory.mkdir(parents=True, mode=0o700)
-        for label, value in (('request.json', request), ('bootstrap.tfvars.json', bootstrap), ('platform.tfvars.json', platform), ('proposed-target.json', selected), ('artifacts.json', artifacts)):
-            L['write'](directory/label, value)
-        L['run']([L['sys'].executable, 'scripts/workspace/validate.py', str(directory/'request.json')], L['os'].environ.copy(), 15)
-        return {'packet':str(directory), 'compute_enabled':False, 'target_activation':'only after successful fresh platform and verified deployment role'}
-
-
     def bootstrap_recovery(directory, value, selected):
         directory=L['checked_path'](directory)
         review=L['read'](directory/'review.json'); authorization=L['read'](directory/'authorization.json'); started=L['read'](directory/'apply-started.json')
@@ -283,86 +254,6 @@ def foundation_extension():
         require(Path(m['backend']['path']).is_file(), 'bootstrap local state missing')
         L['write'](directory/'apply-result.json', {'status':'success', 'completed_at':L['stamp'](), 'state_sha256':sha(Path(m['backend']['path']).read_bytes()), 'native_workspace_ready':False})
         return {'status':'success', 'evidence':str(directory), 'native_workspace_ready':False}
-
-
-    def applied(directory):
-        directory = L['checked_path'](directory)
-        m, receipt = L['read'](directory/'review.json'), L['read'](directory/'apply-result.json')
-        L['require'](m['stage'] == 'fresh-platform' and m['source'] == L['source']() and receipt['status'] == 'success', 'exact successful fresh platform required')
-        authorization = L['read'](directory/'authorization.json')
-        started = L['read'](directory/'apply-started.json')
-        review_hash = L['sha'](L['canon'](m))
-        L['require'](authorization['review_sha256'] == started['review_sha256'] == review_hash and
-                     authorization['plan_sha256'] == m['plan_sha256'] and
-                     L['sha']((directory/'saved.tfplan').read_bytes()) == m['plan_sha256'] and
-                     L['sha']((directory/'plan.json').read_bytes()) == m['plan_json_sha256'] and
-                     m['root'] == str(L['stage_root']('fresh-platform')), 'fresh applied review/plan/root drift')
-        value = L['read'](directory/'config.tfvars.json')
-        config(value, m['target'])
-        selected, env, base, client, _, _ = L['context'](m['target_name'], 'fresh-platform', value)
-        L['require'](selected == m['target'] and L['sha'](L['canon'](value)) == m['config_sha256'], 'fresh output target/config drift')
-        env.update(TF_DATA_DIR=str(directory/'tofu-data'))
-        platform = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'output', '-json', 'workspace_platform'],env,30))
-        guard = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'output', '-json', 'workspace_guard'],env,30))
-        L['require'](platform['deployer_role_arn'] == selected['deployment_role_arn'] and guard['code_sha256'] == value['workspace_guard']['zip_sha256'], 'fresh outputs mismatch')
-        return directory, m, selected, base, client, platform, guard
-
-
-    def activate(directory, output):
-        directory, m, selected, base, client, platform, guard = applied(directory)
-        # Genuine STS role assumption establishes the desired deployer exists and is usable.
-        _, _, assume = L['sessions'](selected)
-        _, identity = assume(base, selected['deployment_role_arn'])
-        resources = {r['address']:r['values'] for r in L['read'](directory/'plan.json')['planned_values']['root_module']['resources']}
-        iam = client(base, 'iam');role = selected['deployment_role_arn'].rsplit('/',1)[1]
-        actual = iam.get_role(RoleName=role)['Role']
-        L['require'](actual['Arn'] == selected['deployment_role_arn'] and actual['AssumeRolePolicyDocument'] == L['json'].loads(resources['aws_iam_role.deployer']['assume_role_policy']), 'fresh deployer trust drift')
-        policy = resources['aws_iam_role_policy.deployer']
-        if 'policy' not in policy:
-            # On first apply, provider-generated ARNs defer this data source.
-            # Resolve it from the applied compiler output, never the live grant.
-            env = L['boundary']['environment'](selected)
-            env.update(TF_DATA_DIR=str(directory/'tofu-data'))
-            state = L['json'].loads(L['run'](['tofu', f"-chdir={m['root']}", 'show', '-json'], env, 30))
-            policy = L['resolved_deployer_policy'](resources, state)
-        names = iam.list_role_policies(RoleName=role)
-        attached = iam.list_attached_role_policies(RoleName=role)
-        L['require'](not names.get('IsTruncated') and names['PolicyNames'] == [policy['name']] and not attached.get('IsTruncated') and not attached['AttachedPolicies'], 'fresh deployer grant set drift')
-        L['require'](iam.get_role_policy(RoleName=role,PolicyName=policy['name'])['PolicyDocument'] == L['json'].loads(policy['policy']), 'fresh deployer policy drift')
-        destination = L['checked_path'](output)
-        L['require'](not destination.exists(), 'preserve earlier target activation')
-        destination.mkdir(parents=True, mode=0o700)
-        registry = L['REPO']/'evidence/aws/targets.json'
-        before = L['read'](registry)
-        L['write'](destination/'targets-before.json', before)
-        after = copy.deepcopy(before)
-        after['targets'][m['target_name']] = selected
-        L['write'](destination/'targets-after.json', after)
-        # Atomic local metadata change, never a credential, IAM or state modification.
-        temporary = destination/'targets-after.json'
-        replacement = registry.with_name('targets.activation.tmp')
-        with replacement.open('xb') as stream: stream.write(temporary.read_bytes())
-        replacement.replace(registry)
-        L['write'](destination/'activation.json', {'target':m['target_name'], 'review_sha256':L['sha'](L['canon'](m)), 'sdk_deployer':identity, 'cloud_mutations':False})
-        return {'activated_target':m['target_name'], 'cloud_mutations':False, 'native_workspace_ready':False}
-
-
-    def runner_packet(plan_directory, packet_directory, lease_path, output):
-        _, m, selected, _, _, platform, guard = applied(plan_directory)
-        packet_directory = L['checked_path'](packet_directory)
-        L['require'](L['boundary']['targets']()[m['target_name']] == selected and L['read'](packet_directory/'proposed-target.json') == selected, 'activate the exact fresh target before runner preparation')
-        request, artifacts = L['read'](packet_directory/'request.json'), L['read'](packet_directory/'artifacts.json')
-        value = {'aws_account_id':selected['account_id'], 'aws_region':selected['region'], 'resource_prefix':selected['inventory']['resource_prefix'],
-            'project_name':selected['inventory']['resource_prefix'], 'backend_bucket_name':selected['backend']['bucket'], 'state_bucket_arn':platform['state_bucket_arn'],
-            'deployer_role_arn':platform['deployer_role_arn'], 'subnet_id':platform['subnet_id'], 'security_group_id':platform['security_group_id'],
-            'phase':'prepare', 'workspace_identity':{'ml_project_name':'demo', 'request':request, 'bucket_name':selected['inventory']['buckets'][0],
-            'permissions_boundary_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-ws-demo-boundary",
-            'session_policy_arn':f"arn:aws:iam::{selected['account_id']}:policy/{selected['inventory']['resource_prefix']}-session-manager-minimal"},
-            'toolbox_zip_path':artifacts['toolbox_zip_path'], 'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],
-            'instance_type':'r8i.2xlarge', 'ami_id':TOOLBOX['ami_id'], 'guard':guard, 'lease':L['read'](lease_path)}
-        L['validate_config'](value, selected, 'prepare')
-        L['write'](L['checked_path'](output), value)
-        return {'runner_config':str(output), 'compute_enabled':False, 'native_workspace_ready':False}
 
     return locals()
 
@@ -501,38 +392,6 @@ def verify_artifact(path,expected,kind):
             members={p.name:p.read_bytes() for p in (REPO/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
             for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'): members[name]=(REPO/name).read_bytes()
             require(set(zipped.namelist())==set(members) and all(zipped.read(k)==v for k,v in members.items()),'toolbox archive differs from current source')
-
-def packet(target_name,storage_directory,artifacts_path,platform_config_path,alarm_topic,output):
-    target=boundary['targets']()[target_name]; storage_directory=checked_path(storage_directory)
-    storage=read(storage_directory/'storage-preparation.json'); artifacts=read(artifacts_path)
-    require(storage['target']==target_name and storage['configuration_sha256']==sha(canon(target)),'storage target mismatch')
-    require(storage['ml_project_name']=='demo' and storage['workspace_id']=='demo-dev-01','accepted first project/workspace mismatch')
-    directory=checked_path(output); require(not directory.exists(),'packet directory already exists'); directory.mkdir(parents=True)
-    request={'schema_version':'2.0.0','kind':'request','provider':'aws','account_scope':target['account_id'],'region':target['region'],
-             'workspace_id':storage['workspace_id'],'toolbox_profile':'cpu-python-v1','resources':{'cpus':8,'memory_mb':60000,'disk_gb':25},
-             'storage':storage['storage'],'operators':[target['operator_arn']],'maximum_runtime_minutes':60}
-    write(directory/'request.json',request)
-    run([sys.executable,'scripts/workspace/validate.py',str(directory/'request.json')],os.environ.copy(),15)
-    platform=read(platform_config_path); validate_config(platform,target,'platform') if platform.get('workspace_guard') else None
-    entries=read(storage_directory/'platform-project-entry.json')
-    projects=platform.get('ml_projects',{})
-    for name,entry in entries.items():
-        require(name not in projects or projects[name]==entry,'project map conflict; review existing assignment instead')
-        projects[name]=entry
-    platform['ml_projects']=projects
-    platform['workspace_guard']={'zip_path':artifacts['guard_zip_path'],'zip_sha256':artifacts['guard_zip_sha256'],'alarm_topic_arn':alarm_topic}
-    validate_config(platform,target,'platform'); write(directory/'platform.tfvars.json',platform)
-    identity={'ml_project_name':storage['ml_project_name'],'request':request,'bucket_name':storage['storage']['data_uri'].split('/')[2],
-              'permissions_boundary_arn':f"arn:aws:iam::{target['account_id']}:policy/{target['inventory']['resource_prefix']}-ws-demo-boundary",
-              'session_policy_arn':f"arn:aws:iam::{target['account_id']}:policy/{target['inventory']['resource_prefix']}-session-manager-minimal"}
-    skeleton={'aws_account_id':target['account_id'],'aws_region':target['region'],'resource_prefix':target['inventory']['resource_prefix'],
-              'project_name':platform['project_name'],'backend_bucket_name':target['backend']['bucket'],'state_bucket_arn':platform['state_bucket_arn'],
-              'deployer_role_arn':target['deployment_role_arn'],'subnet_id':'subnet-00000000000000000','security_group_id':'sg-00000000000000000',
-              'phase':'prepare','workspace_identity':identity,'toolbox_zip_path':artifacts['toolbox_zip_path'],
-              'toolbox_zip_sha256':artifacts['toolbox_zip_sha256'],'instance_type':'r8i.2xlarge','ami_id':TOOLBOX['ami_id']}
-    require(target['account_id']=='000000000000' and target['region']=='us-east-1','packet network pins require accepted target')
-    write(directory/'runner-skeleton.json',skeleton)
-    return {'packet':str(directory.relative_to(REPO)),'compute_enabled':False,'native_readiness':'unverified','missing_runner_inputs':['guard output','future absolute lease']}
 
 def outputs(target_name,plan_directory,output):
     directory=checked_path(plan_directory); m=read(directory/'review.json'); config=read(directory/'config.tfvars.json')
@@ -1581,13 +1440,9 @@ def main():
     sub=parser.add_subparsers(dest='verb',required=True)
     p=sub.add_parser('build'); p.add_argument('directory')
     p=sub.add_parser('lease'); p.add_argument('request'); p.add_argument('starts_at'); p.add_argument('output')
-    p=sub.add_parser('packet'); p.add_argument('target'); p.add_argument('--storage-directory',required=True); p.add_argument('--artifacts',required=True); p.add_argument('--platform-config',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('outputs'); p.add_argument('target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
     p=sub.add_parser('plan'); p.add_argument('target'); p.add_argument('stage',choices=['platform','fresh-platform','workspace-access','prepare','launch','retire','cleanup']); p.add_argument('config'); p.add_argument('directory'); p.add_argument('--dependency'); p.add_argument('--recover-from',help='prior saved plan with a consumed apply receipt; reconcile only its owned controls without live compute')
-    p=sub.add_parser('foundation-packet'); p.add_argument('target'); p.add_argument('--artifacts',required=True); p.add_argument('--alarm-topic',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('bootstrap-plan'); p.add_argument('target'); p.add_argument('config'); p.add_argument('directory')
-    p=sub.add_parser('activate-target'); p.add_argument('plan_directory'); p.add_argument('--output',required=True)
-    p=sub.add_parser('runner-packet'); p.add_argument('plan_directory'); p.add_argument('--packet',required=True); p.add_argument('--lease',required=True); p.add_argument('--output',required=True)
     p=sub.add_parser('authorize'); p.add_argument('directory'); p.add_argument('--review-sha256',required=True); p.add_argument('--approval',required=True)
     p=sub.add_parser('apply'); p.add_argument('directory')
     p=sub.add_parser('connect'); p.add_argument('target'); p.add_argument('config'); p.add_argument('--instance',required=True)
@@ -1597,13 +1452,9 @@ def main():
     if args.verb=='build': result=build(args.directory)
     elif args.verb=='lease':
         result=lease(read(args.request),args.starts_at); write(checked_path(args.output),result)
-    elif args.verb=='packet': result=packet(args.target,args.storage_directory,args.artifacts,args.platform_config,args.alarm_topic,args.output)
     elif args.verb=='outputs': result=outputs(args.target,args.plan_directory,args.output)
     elif args.verb=='plan': result=native_plan(args.target,args.stage,args.config,args.directory,args.dependency,args.recover_from)
-    elif args.verb=='foundation-packet': result=foundation['packet'](args.target,args.artifacts,args.alarm_topic,args.output)
     elif args.verb=='bootstrap-plan': result=foundation['bootstrap_plan'](args.target,args.config,args.directory)
-    elif args.verb=='activate-target': result=foundation['activate'](args.plan_directory,args.output)
-    elif args.verb=='runner-packet': result=foundation['runner_packet'](args.plan_directory,args.packet,args.lease,args.output)
     elif args.verb=='authorize': result=authorize(args.directory,args.review_sha256,args.approval)
     elif args.verb=='connect': result=connect(args.target,args.config,args.instance)
     elif args.verb=='handoff': result=handoff(args.target,args.plan_directory,args.instance,args.output)
