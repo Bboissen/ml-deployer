@@ -26,7 +26,7 @@ from workspace_setup import Console, setup_project
 from workspace_terminal import interactive, ssh_session
 DOCS = ROOT/'docs'
 PAGE = DOCS/'aws-setup-guide.html'
-EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md', '/SECURITY.md': ROOT/'SECURITY.md'}
+EXTRA = {'/CONTRIBUTING.md': ROOT/'CONTRIBUTING.md', '/SECURITY.md': ROOT/'SECURITY.md', '/LICENSE': ROOT/'LICENSE'}
 TYPES = {'.html': 'text/html; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.js': 'text/javascript; charset=utf-8'}
 LOCAL_HOSTS = {'127.0.0.1', 'localhost', '::1'}
 CACHE_SECONDS = 5

@@ -69,8 +69,8 @@
   <ol class="steps">
     <li data-step="tools">
       <h3>Get the source and run make</h3>
-<pre><code>git clone https://github.com/Bboissen/Ray_terraform.git
-cd Ray_terraform
+<pre><code>git clone https://github.com/Bboissen/ml-deployer.git
+cd ml-deployer
 make</code></pre>
       <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open; Ctrl+C stops setup and this page. Rerunning <code>make</code> resumes.</p>
       <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make remote</code> there. It prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
@@ -141,7 +141,7 @@ make</code></pre>
     <tr><td>What Deploy does and how recovery works</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
     <tr><td>Account prerequisites</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
     <tr><td>Security, reporting, what is verified</td><td><a href="../SECURITY.md">SECURITY</a></td></tr>
-    <tr><td>Contributing and releases</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a></td></tr>
+    <tr><td>Contributing, releases, license</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a>, <a href="../LICENSE">MIT</a></td></tr>
   </table>
 </main>
 <script src="aws-setup-guide.js"></script>

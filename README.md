@@ -1,4 +1,4 @@
-# AWS ML workspace
+# ml-deployer
 
 One command creates a bounded, ML-ready EC2 machine with persistent S3 storage,
 a pinned toolbox, non-root terminal access and a provider-side expiry. You bring
@@ -8,8 +8,8 @@ buckets, the identities and the safe lifetime.
 **Install on Linux or macOS**, from a checkout:
 
 ```sh
-git clone https://github.com/Bboissen/Ray_terraform.git
-cd Ray_terraform
+git clone https://github.com/Bboissen/ml-deployer.git
+cd ml-deployer
 make
 ```
 
@@ -50,4 +50,4 @@ Ubuntu container install pass, and the
 [native acceptance cases](docs/operations/aws-native-acceptance.md) that still
 need a real account run are listed there.
 
-[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Goals](goal/README.md)
+[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Goals](goal/README.md) · [MIT license](LICENSE)

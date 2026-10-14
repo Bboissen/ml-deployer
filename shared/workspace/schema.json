@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ray-terraform.invalid/workspace/2.0.0/schema.json",
+  "$id": "https://ml-deployer.invalid/workspace/2.0.0/schema.json",
   "$comment": "validate.py additionally enforces binding, native URI, identity, deadline and readiness semantics. No cloud calls.",
   "oneOf": [
     {

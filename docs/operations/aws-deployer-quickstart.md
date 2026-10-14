@@ -7,8 +7,8 @@ remain pending; see [native acceptance scope](aws-native-acceptance.md).
 ## 1. Install
 
 ```sh
-git clone https://github.com/Bboissen/Ray_terraform.git
-cd Ray_terraform
+git clone https://github.com/Bboissen/ml-deployer.git
+cd ml-deployer
 make            # or ./workspace guide when make is not installed
 ```
 
@@ -35,7 +35,7 @@ Once a release is published, its standalone installer replaces the clone:
 
 ```sh
 curl -fsSL --proto '=https' --proto-redir '=https' \
-  https://github.com/Bboissen/Ray_terraform/releases/download/vVERSION/install.sh -o install.sh
+  https://github.com/Bboissen/ml-deployer/releases/download/vVERSION/install.sh -o install.sh
 bash install.sh            # add --github for private repositories
 rm install.sh
 ```

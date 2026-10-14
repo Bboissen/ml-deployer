@@ -8,14 +8,14 @@ lists the protections every change must keep.
 
 ## License
 
-No license is tracked yet. The owner decides between Apache-2.0 and MIT before
-the public release; do not add a `LICENSE` file or headers before that decision.
+The repository is released under the [MIT License](LICENSE). Contributions are
+accepted under the same terms.
 
 ## Development setup
 
 ```sh
-git clone https://github.com/Bboissen/Ray_terraform.git
-cd Ray_terraform
+git clone https://github.com/Bboissen/ml-deployer.git
+cd ml-deployer
 make workspace-test-setup   # locked Python 3.13 test environment under .tools/
 make check                  # repository, workspace, AWS and formatting checks
 ```

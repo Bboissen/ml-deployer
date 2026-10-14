@@ -81,7 +81,7 @@ trap 'exit 143' TERM
 mkdir -p "$prefix/releases" "$prefix/bin"
 [[ ! -L "$prefix/releases" && ! -L "$prefix/bin" ]] || fail 'installer directories cannot be symlinks'
 name="aws-workspace-$version.tar.gz"
-url="https://github.com/Bboissen/Ray_terraform/releases/download/v$version"
+url="https://github.com/Bboissen/ml-deployer/releases/download/v$version"
 curl -q -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 180 --max-filesize 1024 -o "$scratch/checksum" "$url/$name.sha256" \
   || fail "release $version checksum download failed; check the version and network access"
 read -r checksum filename < "$scratch/checksum"

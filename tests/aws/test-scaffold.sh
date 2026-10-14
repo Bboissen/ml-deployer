@@ -7,7 +7,7 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 "${REPOSITORY_ROOT}/scripts/aws/validate-scaffold.sh" >/dev/null
 bash "${REPOSITORY_ROOT}/tests/aws/test-workspace-target.sh" >/dev/null
 
-test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ray-terraform-tests-${UID}"
+test_cache_root="${XDG_CACHE_HOME:-/var/tmp}/ml-deployer-tests-${UID}"
 mkdir -p "$test_cache_root"
 chmod 700 "$test_cache_root"
 temporary_console_directory="$(mktemp -d "${test_cache_root}/aws-scaffold.XXXXXX")"

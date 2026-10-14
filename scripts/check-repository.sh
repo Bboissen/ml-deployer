@@ -18,6 +18,7 @@ done
 required_files=(
   AGENTS.md
   CONTRIBUTING.md
+  LICENSE
   README.md
   SECURITY.md
   Makefile

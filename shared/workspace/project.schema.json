@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ray-terraform.invalid/workspace/project/1.0.0/schema.json",
+  "$id": "https://ml-deployer.invalid/workspace/project/1.0.0/schema.json",
   "$comment": "Configuration preparation only. AWS controller enforces source/ref/path and supported-profile semantics. Existing workspace 2.0.0 records are unchanged.",
   "type": "object",
   "additionalProperties": false,
