@@ -143,7 +143,7 @@ class Operations(unittest.TestCase):
         L['write'](directory/'project.json',project); L['write'](directory/'deployment.json',deployment)
         def build(*a): calls.append('build'); return artifacts
         def render(value,selected,control,starts):
-            control=Path(control); control.mkdir(); L['write'](control/'runner.json',{'lease':{'starts_at':'2000-01-01T00:00:00Z'},'instance_type':'r8i.2xlarge','availability_zone':size['availability_zone']})
+            control=Path(control); control.mkdir(); L['write'](control/'runner.json',{'lease':{'starts_at':starts},'instance_type':'r8i.2xlarge','availability_zone':size['availability_zone']})
         def apply_stage(_L,name,stage,inputs,folder,auth,dependency=None,recover_from=None):
             calls.append(stage); folder.mkdir(parents=True,exist_ok=True); L['write'](folder/'apply-started.json',{})
             if stage=='launch' and unknown_launch: raise TimeoutError('lost launch response')
@@ -156,7 +156,8 @@ class Operations(unittest.TestCase):
             calls.append('verify-after' if first else 'verify-before'); out.mkdir(parents=True,exist_ok=True)
             result={'execution':receipt}; L['write'](out/'verification.json',result); return result
         EE=types.SimpleNamespace(payload=E.payload,verify_public=lambda *_:None,run_command=lambda *a,**kw:calls.append('job') or {'status':'Success'},verify_generic_result=verify,safe_error=E.safe_error)
-        with patch.object(D,'extensions',return_value={'onboarding':O,'ingest':I,'e2e':EE}),patch.object(D,'apply_stage',side_effect=apply_stage),patch.object(D,'cleanup_runner',side_effect=cleanup),patch.dict(L,{'build':build,'sessions':lambda _: (None,lambda *a:s3,None)}):
+        with patch.object(D,'extensions',return_value={'onboarding':O,'ingest':I,'e2e':EE}),patch.object(D,'apply_stage',side_effect=apply_stage),patch.object(D,'cleanup_runner',side_effect=cleanup),patch.dict(L,{'build':build,'sessions':lambda _: (None,lambda *a:s3,None)}),\
+             patch.object(D.time,'sleep',side_effect=AssertionError('ready deployment added an idle scheduling delay')):
             result=D.execute({'L':L,'render':render},'config',directory,scope,task)
         return result,calls
     def test_short_config_pipeline_transfers_before_launch_and_verifies_after_cleanup(self):
@@ -164,6 +165,8 @@ class Operations(unittest.TestCase):
         self.assertEqual(result['status'],'success'); self.assertTrue(result['verified_after_compute_deletion'])
         self.assertLess(calls.index('ingestion'),calls.index('prepare')); self.assertLess(calls.index('prepare'),calls.index('launch'))
         self.assertLess(calls.index('cleanup'),calls.index('verify-after'))
+        records=D.Journal(L,self.directory,'b'*64).records
+        self.assertEqual([r['state'] for r in records if r['stage']=='cleanup'],['started','completed'])
     def test_failed_ingestion_launches_no_compute(self):
         result,calls=self.pipeline(ingest_failure=True)
         self.assertEqual(result['status'],'failure'); self.assertNotIn('launch',calls); self.assertNotIn('job',calls)

@@ -356,7 +356,9 @@ def execute(W,config,directory,scope,task,resume=False):
             os.environ['WORKSPACE_CONFIG']=str(technical)
             if reference: E.verify_ssh(L,base,client,value,selected)
             else: E.verify_public(L,value)
-            starts=dt.datetime.now(dt.timezone.utc)+dt.timedelta(minutes=5)
+            # Preparation creates the deadline before the launch role. Native
+            # admission verifies that order; no speculative scheduling delay.
+            starts=dt.datetime.now(dt.timezone.utc)
             if not control.exists(): W['render'](value,selected,str(control),L['stamp'](starts))
             runner=L['read'](control/'runner.json'); starts=L['utc'](runner['lease']['starts_at'])
             if not job:
@@ -390,6 +392,7 @@ def execute(W,config,directory,scope,task,resume=False):
             if cancelled(): result['status']='cancelled'
             if result['status']!='workspace_ready':
                 try:
+                    journal.record('cleanup','started')
                     cleaned=cleanup_runner(L,name,control,runner,authorization) if runner else {'cleanup_status':'not_needed'}
                     result.update(cleaned); journal.record('cleanup','completed',cleaned)
                     if job: abort_outputs(L,s3,scope,job,directory)

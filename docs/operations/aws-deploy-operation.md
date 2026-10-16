@@ -44,6 +44,21 @@ output persistence and cleanup separately. Workspace mode executes setup and
 retains compute until cancel or provider expiry; job mode runs setup and entrypoint
 on every Deploy.
 
+New deployments open their fixed five-minute launch window when runner preparation
+begins, then launch as soon as preparation and native readiness checks pass.
+There is no additional five-minute scheduling buffer. The deadline schedule must
+exist before the launch role can launch: its native creation time is checked
+against the later of the lease opening and the role's creation time. The role's
+unique ID and creation time must match the saved preparation state. Provider-side
+expiry stays fixed, including time spent preparing; slow preparation cannot
+extend the window or the maximum lifetime. Previously saved future leases retain
+their original opening time.
+
+The controller reuses verified SDK clients within each identity and service to
+reuse connections. Every guard, IAM, state and output observation remains a fresh
+API request. Cleanup reports its start before waiting for AWS deletion, then its
+result and the second output verification.
+
 ## Controller loss and ownership
 
 A POSIX lock excludes concurrent controllers for the same project prefix. A

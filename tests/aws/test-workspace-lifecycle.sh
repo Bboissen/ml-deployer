@@ -16,7 +16,7 @@ import subprocess
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.dont_write_bytecode=True
 ROOT=Path.cwd()
@@ -121,6 +121,50 @@ class SDKSessionBoundary(unittest.TestCase):
         base,client,_=self.sessions()
         self.assertEqual(client(base,'iam').meta.region_name,'aws-global')
         self.assertEqual(self.calls[-1][1]['region_name'],'us-east-1')
+    def test_connections_are_reused_only_within_the_same_session_and_service(self):
+        base,client,_=self.sessions()
+        first=client(base,'ec2')
+        self.assertIs(client(base,'ec2'),first)
+        self.assertEqual([s for s,_ in self.calls].count('ec2'),1)
+        self.assertIsNot(client(base,'s3'),first)
+        assumed=types.SimpleNamespace(client=self.session.client)
+        other=client(assumed,'ec2')
+        self.assertIsNot(other,first)
+        self.assertIs(client(assumed,'ec2'),other)
+        self.assertEqual([s for s,_ in self.calls].count('ec2'),2)
+        # Reusing a transport never reuses a prior API response.
+        self.identity={'Account':'changed','Arn':'changed'}
+        self.assertEqual(client(base,'sts').get_caller_identity()['Account'],'changed')
+    def test_rejected_clients_are_not_cached(self):
+        base,client,_=self.sessions()
+        self.responses['ec2']=('us-west-2','https://ec2.us-west-2.amazonaws.com')
+        with self.assertRaises(LIFE['Failure']): client(base,'ec2')
+        self.responses.pop('ec2')
+        self.assertEqual(client(base,'ec2').meta.region_name,'us-east-1')
+    def test_new_role_trust_retries_are_bounded_and_keep_the_exact_identity(self):
+        base,client,assume=self.sessions(); sts=client(base,'sts')
+        class Denied(Exception): response={'Error':{'Code':'AccessDenied'}}
+        arn='arn:aws:iam::000000000000:role/launch'
+        expected='arn:aws:sts::000000000000:assumed-role/launch/workspace-preflight'
+        identity={'Account':self.target['account_id'],'Arn':expected}
+        assumed=types.SimpleNamespace(client=lambda *a,**k:types.SimpleNamespace(meta=sts.meta,get_caller_identity=lambda:identity))
+        self.boto.Session=lambda **kwargs:assumed
+        credentials={'Credentials':{'AccessKeyId':'synthetic','SecretAccessKey':'synthetic','SessionToken':'synthetic'}}
+        for failures in (0,2,6):
+            sts.assume_role=Mock(side_effect=[Denied() for _ in range(failures)]+[credentials])
+            with self.subTest(failures=failures),patch.object(LIFE['time'],'sleep') as sleep:
+                if failures==6:
+                    with self.assertRaises(Denied): assume(base,arn)
+                else:
+                    self.assertEqual(assume(base,arn),(assumed,expected))
+                self.assertEqual(sleep.call_count,min(failures,5))
+                for call in sts.assume_role.call_args_list:
+                    self.assertEqual(call.kwargs,{'RoleArn':arn,'RoleSessionName':'workspace-preflight','DurationSeconds':900})
+        sts.assume_role=Mock(side_effect=ValueError('invalid request'))
+        with patch.object(LIFE['time'],'sleep') as sleep,self.assertRaises(ValueError): assume(base,arn)
+        sleep.assert_not_called()
+        sts.assume_role=Mock(return_value=credentials); identity['Arn']=expected.replace('/launch/','/other/')
+        with self.assertRaisesRegex(LIFE['Failure'],'assumed identity mismatch'): assume(base,arn)
     def test_global_iam_requires_exact_endpoint_and_partition(self):
         for endpoint in ('https://iam.amazonaws.com.evil.example','http://iam.amazonaws.com','https://sts.amazonaws.com'):
             with self.subTest(endpoint=endpoint):
@@ -179,8 +223,10 @@ class HeartbeatObservation(unittest.TestCase):
             {'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':'iam:*',
              'Resource':config['workspace_identity']['request']['operators']}]}
         policies[prefix+'-workspace-deployer']={'workspace-deployer':self.deployer_policy}
+        self.role_created_at=T-dt.timedelta(minutes=2)
+        self.schedule_created_at=T-dt.timedelta(minutes=1)
         def get_role(RoleName):
-            value={'AssumeRolePolicyDocument':trusts[RoleName]}
+            value={'AssumeRolePolicyDocument':trusts[RoleName],'CreateDate':self.role_created_at,'RoleId':'offline-role-id'}
             if RoleName in boundaries: value['PermissionsBoundary']={'PermissionsBoundaryArn':boundaries[RoleName]}
             return {'Role':value}
         def schedule(Name,**kwargs):
@@ -189,7 +235,7 @@ class HeartbeatObservation(unittest.TestCase):
                 'kind':'lease','guard_id':guard['guard_id'],'workspace_id':'demo-dev-01','lease_id':config['lease']['id']}
             expression='rate(1 minute)' if sweep else 'at('+LIFE['stamp'](T+dt.timedelta(minutes=55)).removesuffix('Z')+')'
             return {'State':'ENABLED','ScheduleExpression':expression,'ScheduleExpressionTimezone':'UTC','ActionAfterCompletion':'NONE',
-                    'FlexibleTimeWindow':{'Mode':'OFF'},'CreationDate':T-dt.timedelta(minutes=1),
+                    'FlexibleTimeWindow':{'Mode':'OFF'},'CreationDate':self.schedule_created_at,
                     'Target':{'Arn':guard['function_arn'],'RoleArn':guard['invoker_role_arn'],'Input':json.dumps(event),
                     'RetryPolicy':{'MaximumEventAgeInSeconds':300,'MaximumRetryAttempts':3},'DeadLetterConfig':{'Arn':guard['failure_queue_arn']}}}
         # Every service is injected. No boto3 Session, CLI or account API fallback.
@@ -231,6 +277,39 @@ class HeartbeatObservation(unittest.TestCase):
     def test_single_page_complete_heartbeat(self):
         observation,_=self.observe([{'events':[self.event()]}])
         self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),1)
+    def test_immediate_lease_requires_guard_before_launch_role_existed(self):
+        self.config['lease']['starts_at']=LIFE['stamp'](T-dt.timedelta(minutes=2))
+        self.role_created_at=T-dt.timedelta(seconds=30)
+        _,details=self.observe([{'events':[self.event()]}])
+        self.assertEqual(details['earliest_launch_at'],LIFE['stamp'](self.role_created_at))
+        self.assertEqual(details['launch_role_id'],'offline-role-id')
+        for instant in (self.role_created_at+dt.timedelta(microseconds=1),T+dt.timedelta(seconds=1)):
+            self.schedule_created_at=instant
+            with self.subTest(instant=instant),self.assertRaisesRegex(LIFE['Failure'],'before earliest launch'):
+                self.observe([])
+    def test_future_role_creation_cannot_admit(self):
+        self.role_created_at=T+dt.timedelta(seconds=1)
+        with self.assertRaisesRegex(LIFE['Failure'],'creation time is in the future'):
+            self.observe([])
+    def test_existing_future_lease_keeps_its_reviewed_opening(self):
+        _,details=self.observe([{'events':[self.event()]}])
+        self.assertEqual(details['earliest_launch_at'],self.config['lease']['starts_at'])
+    def test_launch_identity_must_match_saved_preparation_state(self):
+        _,details=self.observe([{'events':[self.event()]}])
+        role=LIFE['role_name'](self.config); wid=self.config['workspace_identity']['request']['workspace_id']
+        resources=[]
+        for address,name,policy in ((f'aws_iam_role.workspace["{wid}"]',role,f'aws_iam_role_policy.workspace_storage["{wid}"]'),
+                                    ('aws_iam_role.launch',role+'-launch','aws_iam_role_policy.launch')):
+            observed=details['roles'][name]
+            resources.extend([{'address':address,'values':{'assume_role_policy':json.dumps(observed['trust']),
+                'unique_id':details['launch_role_id'],'create_date':details['launch_role_created_at']}},
+                {'address':policy,'values':{'policy':json.dumps(next(iter(observed['inline'].values())))}}])
+        resources.append({'address':'aws_ssm_document.terminal','values':{'content':self.clients['ssm'].get_document()['Content']}})
+        plan={'planned_values':{'root_module':{'resources':resources}}}
+        LIFE['compare_prepared_iam'](plan,details,self.config)
+        for key,value in (('launch_role_id','replacement-role'),('launch_role_created_at',LIFE['stamp'](T))):
+            with self.subTest(key=key),self.assertRaisesRegex(LIFE['Failure'],'identity differs'):
+                LIFE['compare_prepared_iam'](plan,{**details,key:value},self.config)
     def test_retained_foundation_without_operator_denial_cannot_launch(self):
         denial=copy.deepcopy(self.deployer_policy['Statement'][0])
         for change in ({'Effect':'Allow'},{'Action':'iam:PutUserPolicy'},{'Resource':'arn:aws:iam::000000000000:user/other'},
@@ -345,6 +424,13 @@ class ProjectConfiguration(unittest.TestCase):
                             '--handoff',str(path)],check=True,capture_output=True)
             self.assertEqual(hand['lifetime']['guard_active_at'],'2026-10-08T23:54:00Z')
             self.assertEqual(hand['bootstrap_sha256'],LIFE['sha'](b'production-shaped bootstrap'))
+        review={'guard_iam':{'guard_active_at':'2026-10-08T23:55:30Z','earliest_launch_at':'2026-10-08T23:55:40Z'}}
+        hand=LIFE['render_handoff'](self.target,config,review,plan,'i-00000000000000001')
+        path=self.directory/'immediate-handoff.json'; LIFE['write'](path,hand)
+        subprocess.run([sys.executable,'scripts/workspace/validate.py',str(self.directory/'run/request.json'),
+                        '--handoff',str(path)],check=True,capture_output=True)
+        self.assertEqual(hand['lifetime']['started_at'],'2026-10-08T23:55:40Z')
+        self.assertEqual(hand['lifetime']['expires_at'],config['lease']['expires_at'])
         commands=WORKSPACE['guest_commands'](self.value,config)
         self.assertIn(self.value['repository']['revision'],commands['clone'])
         self.assertEqual(commands['storage'],request['storage'])
@@ -1098,6 +1184,8 @@ def tofu_tests():
     depends=resources['aws_instance.workspace'].get('depends_on',[])
     for name in ('aws_scheduler_schedule.workspace_deadline','aws_iam_role_policy.launch','aws_iam_instance_profile.workspace','aws_ssm_document.terminal','aws_ssm_document.job','aws_iam_user_policy.operator'):
         if name not in depends: raise AssertionError('missing guard/identity/terminal ordering: '+name)
+    if 'aws_scheduler_schedule.workspace_deadline' not in resources['aws_iam_role.launch'].get('depends_on',[]):
+        raise AssertionError('launch identity can exist before the expiry schedule')
     LIFE['plan_scope']({'resource_changes':[r for r in runner['resource_changes'] if r['address']=='aws_instance.workspace[0]']},'launch')
     return {'workspace_mocked_plans':len(plans['runner']),'workspace_mocked_apply_cases':1,'platform_mocked_plans':len(plans['platform']),'fresh_foundation_mocked_plans':len(plans['fresh-platform'])+len(plans['fresh-bootstrap']),
             'production_handoff_validated':True,

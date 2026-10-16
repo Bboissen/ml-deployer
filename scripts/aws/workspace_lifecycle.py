@@ -410,7 +410,12 @@ def sessions(target):
     require(boto3.__version__ == botocore.__version__ == TOOLBOX['sdk_version'], 'install reviewed SDK lock for native commands')
     cfg = Config(connect_timeout=3,read_timeout=5,retries={'total_max_attempts':2})
     base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
+    clients = {}
     def client(session, service):
+        # Keep the session alive with its clients: a reused object id must never
+        # select another identity's connection pool. API responses stay fresh.
+        pool = clients.setdefault(id(session), (session, {}))[1]
+        if service in pool: return pool[service]
         c = session.client(service,region_name=target['region'],config=cfg)
         # IAM uses AWS's global endpoint even when explicitly given us-east-1.
         # Keep regional services bound to the target; allow only standard IAM.
@@ -418,11 +423,20 @@ def sessions(target):
                       and c.meta.region_name == 'aws-global' and c.meta.endpoint_url == 'https://iam.amazonaws.com')
         require(c.meta.region_name == target['region'] or global_iam, 'SDK region mismatch')
         require(c.meta.endpoint_url.startswith('https://') and c.meta.endpoint_url.split('/')[2].endswith('.amazonaws.com'), 'SDK endpoint mismatch')
+        pool[service] = c
         return c
     observed = client(base,'sts').get_caller_identity()
     require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):
-        credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
+        # New role trust can become visible after the preparation apply returns.
+        # Retry only that denial, with no delay once the exact role is usable.
+        for attempt in range(6):
+            try:
+                credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
+                break
+            except Exception as error:
+                if attempt==5 or getattr(error,'response',{}).get('Error',{}).get('Code')!='AccessDenied': raise
+                time.sleep(2)
         assumed = boto3.Session(aws_access_key_id=credentials['AccessKeyId'],aws_secret_access_key=credentials['SecretAccessKey'],
                                aws_session_token=credentials['SessionToken'],region_name=target['region'])
         result = client(assumed,'sts').get_caller_identity()
@@ -585,7 +599,7 @@ def render_handoff(target,config,review,plan,instance_id):
           'machine_id':instance_id,'user':'workspace','project_directory':'/workspaces/'+request['workspace_id'],
           'storage':request['storage'],'identity':{'mode':'instance_role','selector':f"arn:aws:iam::{target['account_id']}:role/{role_name(config)}"},
           'terminal':{'method':'ssm','argv':terminal_argv(target,config,instance_id)},
-          'lifetime':{'started_at':config['lease']['starts_at'],'expires_at':config['lease']['expires_at'],
+          'lifetime':{'started_at':review['guard_iam'].get('earliest_launch_at',config['lease']['starts_at']),'expires_at':config['lease']['expires_at'],
                       'guard_active_at':review['guard_iam']['guard_active_at'],'guard_id':config['guard']['guard_id'],'expiry_action':'terminate'}}
 
 def collect(target_name,plan_directory,handoff_path,guest_path,output):
@@ -767,7 +781,6 @@ def observe_guard(base, client, config):
     deadline=scheduler.get_schedule(Name=role_name(config)+'-deadline',GroupName='default')
     require(schedule_matches(recurring,config,'sweep') and schedule_matches(deadline,config,'lease'),'inactive/mismatched schedule')
     armed_at=max(recurring['CreationDate'],deadline['CreationDate'])
-    require(armed_at<=utc(config['lease']['starts_at']),'guard/deadline were not armed before earliest launch')
     # Capture all role trust/inline/attached policy versions, profile and document
     # for exact review and subsequent drift checks. IAM eventual visibility gets
     # six bounded read attempts, never an unconditional sleep-before-launch.
@@ -775,6 +788,8 @@ def observe_guard(base, client, config):
     names=[guard['invoker_role_arn'].rsplit('/',1)[1],function['Role'].rsplit('/',1)[1],role_name(config),role_name(config)+'-launch']
     for name in names:
         info=iam.get_role(RoleName=name)['Role']
+        if name==names[-1]:
+            launch_role_created_at=info['CreateDate']; launch_role_id=info['RoleId']
         inline=iam.list_role_policies(RoleName=name)
         attached=iam.list_attached_role_policies(RoleName=name)
         require(not inline.get('IsTruncated') and not attached.get('IsTruncated'),'IAM listing incomplete')
@@ -817,6 +832,12 @@ def observe_guard(base, client, config):
     require(not alarms.get('NextToken') and {a['AlarmName'] for a in alarms['MetricAlarms']}==set(guard['alarm_names'])
             and all(a['StateValue']=='OK' and a['ActionsEnabled'] and a['AlarmActions'] for a in alarms['MetricAlarms']), 'guard alarms not healthy')
     now=dt.datetime.now(dt.timezone.utc)
+    # A role cannot launch before it exists. Preparation orders its creation
+    # after the deadline; bind that native identity to the saved launch plan.
+    # Future/manual leases still use their later IAM-enforced opening time.
+    require(launch_role_created_at<=now,'launch role creation time is in the future')
+    earliest_launch=max(utc(config['lease']['starts_at']),launch_role_created_at)
+    require(armed_at<=earliest_launch,'guard/deadline were not armed before earliest launch')
     query={'logGroupName':guard['log_group'],'startTime':int((now-dt.timedelta(seconds=120)).timestamp()*1000),
            'filterPattern':'{ $.kind = "heartbeat" }','limit':100}
     logs=client(base,'logs'); deadline=time.monotonic()+30
@@ -848,7 +869,9 @@ def observe_guard(base, client, config):
     now=dt.datetime.now(dt.timezone.utc)
     matches=[value for value in matches if 0 <= (now-utc(value)).total_seconds() <= 120]
     require(matches,'no matching fresh completed sweep heartbeat')
-    details={'roles':role_records,'deployer_policies':deployer_policies,'alarms':{a['AlarmName']:alarm_record(a) for a in alarms['MetricAlarms']},'lambda_account_limits':quota,'guard_active_at':stamp(armed_at),'profile_roles':[r['Arn'] for r in profile['Roles']],
+    details={'roles':role_records,'deployer_policies':deployer_policies,'alarms':{a['AlarmName']:alarm_record(a) for a in alarms['MetricAlarms']},'lambda_account_limits':quota,'guard_active_at':stamp(armed_at),
+             'launch_role_created_at':stamp(launch_role_created_at),'launch_role_id':launch_role_id,'earliest_launch_at':stamp(earliest_launch),
+             'profile_roles':[r['Arn'] for r in profile['Roles']],
              'document_sha256':sha(canon(json.loads(doc['Content'])))}
     return {'observed_at':stamp(now),'heartbeat_at':max(matches),'guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],
             'recurrence_enabled':True,'deadline_enabled':True,'iam_verified':True,'alarms_ok':True},details
@@ -856,6 +879,9 @@ def observe_guard(base, client, config):
 def compare_prepared_iam(plan, details, config):
     resources={r['address']:r['values'] for r in plan['planned_values']['root_module']['resources']}
     role=role_name(config); wid=config['workspace_identity']['request']['workspace_id']
+    launch=resources['aws_iam_role.launch']
+    require(launch['unique_id']==details['launch_role_id'] and launch['create_date']==details['launch_role_created_at'],
+            'launch role identity differs from preparation state')
     for address,name,policy_address in [
         (f'aws_iam_role.workspace["{wid}"]',role,f'aws_iam_role_policy.workspace_storage["{wid}"]'),
         ('aws_iam_role.launch',role+'-launch','aws_iam_role_policy.launch')]:
