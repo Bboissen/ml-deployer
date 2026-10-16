@@ -41,7 +41,8 @@ immutable review and launches only after you type `deploy`. Automation passes
 - `make` — start or resume guided setup
 - `make REPO=owner/name DATASET=path` — set up without questions (browser logins only)
 - `make clean` — remove interrupted tool builds; keep installed tools
-- `make fclean` — also remove managed tools; keep settings, logins and evidence
+- `make fclean` — also remove managed tools, the project settings and its AWS sign-in;
+  keep the GitHub login, datasets and evidence
 - `make re` — full clean, then reinstall tools and restart guided setup
 - `make DEBUG=1` — show detailed diagnostics
 - `make check` — run the offline test suite (developers)

@@ -32,7 +32,7 @@ Deploy and operate (Deploy is the default command):
 
 Repair:
   make clean                                  Remove interrupted managed-tool builds
-  make fclean                                 Remove managed tools; keeps logins, config and evidence
+  make fclean                                 Remove managed tools, project settings and AWS sign-in
   make re                                     Full clean, then restart guided setup
   workspace setup --fresh                      Rebuild the managed tools; keeps logins, config and evidence
   workspace setup --check                      Verify managed tools without installing

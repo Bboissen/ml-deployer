@@ -23,8 +23,9 @@ logins and the Deploy confirmation remain. Its companion at
 laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
 `make PROJECT=/path/project.json`. Existing valid settings are reused.
 `make clean` removes interrupted tool builds; `make fclean` also removes the
-installed managed tools. `make re` performs a full clean and restarts setup.
-Stop any running guide first. Settings, logins and evidence are preserved.
+installed managed tools, the project settings file and its AWS sign-in.
+`make re` performs that full clean and restarts setup from the first question.
+Stop any running guide first. The GitHub login, datasets and evidence are preserved.
 `make DEBUG=1` shows diagnostics.
 For a laptop connected over SSH, run `make` on the server. It detects SSH and prints
 the tunnel command to run outside SSH on your laptop and the local browser

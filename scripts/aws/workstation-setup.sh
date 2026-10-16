@@ -12,6 +12,7 @@ github=0
 system_packages=0
 fresh=0
 clean=''
+project=''
 debug=0
 fail() { printf 'workstation-setup: %s\n' "$1" >&2; exit 2; }
 log() {
@@ -35,7 +36,8 @@ while (($#)); do
     --fclean) clean=fclean ;;
     --debug) debug=1 ;;
     --prefix) shift; (($#)) || fail '--prefix needs an absolute path'; prefix="$1" ;;
-    --help) printf '%s\n' 'setup [--check | --fresh | --clean | --fclean] [--github] [--system-packages] [--debug] [--prefix ABSOLUTE_PATH]'; exit 0 ;;
+    --project) shift; (($#)) || fail '--project needs a project file path'; project="$1" ;;
+    --help) printf '%s\n' 'setup [--check | --fresh | --clean | --fclean [--project PROJECT.json]] [--github] [--system-packages] [--debug] [--prefix ABSOLUTE_PATH]'; exit 0 ;;
     *) fail "unknown setup option $1; see setup --help" ;;
   esac
   shift
@@ -43,6 +45,8 @@ done
 (( !check_only || !system_packages )) || fail '--check cannot install system packages'
 (( !check_only || !fresh )) || fail '--check only inspects; use setup --fresh to rebuild'
 [[ -z "$clean" ]] || (( !check_only && !fresh && !github && !system_packages )) || fail 'cleanup cannot be combined with installation or verification options'
+[[ -z "$project" || "$clean" == fclean ]] || fail '--project is only used with --fclean'
+[[ -z "$project" || "$project" == /* ]] || project="$PWD/$project"
 # Ordinary directories, including ones with spaces, are fine. Reject traversal
 # and the few characters that cannot be embedded safely in installer metadata.
 [[ "$prefix" == /* ]] || fail 'choose an absolute --prefix'
@@ -172,7 +176,7 @@ PY
 if [[ -e "$prefix" ]]; then
   [[ -d "$prefix" && -f "$prefix/owner" && ! -L "$prefix/owner" && "$(cat "$prefix/owner")" == "aws-workstation-v1:$(id -u)" && -O "$prefix" ]] || fail "existing directory $prefix is not owned by this installer; choose another --prefix"
 fi
-if [[ -n "$clean" && ! -e "$prefix" ]]; then log 'No managed tools to clean'; exit 0; fi
+if [[ -n "$clean" && ! -e "$prefix" ]] && [[ -z "$project" || ( ! -e "$project" && ! -L "$project" ) ]]; then log 'No managed tools to clean'; exit 0; fi
 previous=''
 if [[ -L "$prefix/current" ]]; then
   current="$(readlink "$prefix/current")"
@@ -258,6 +262,27 @@ if [[ -n "$clean" ]]; then
     [[ ! -e "$1" && ! -L "$1" ]] || fail 'cleanup could not be verified; inspect the cleanup receipt'
     printf 'deleted=%s\n' "$1" >> "$receipt"
   }
+  if [[ -n "$project" && ( -e "$project" || -L "$project" ) ]]; then
+    # Full cleanup forgets the guide's settings and AWS sign-in so the next
+    # make asks again. Shared logins (GitHub), datasets and evidence stay.
+    [[ -f "$project" && ! -L "$project" && -O "$project" ]] || fail 'project settings are not a regular file you own; nothing removed'
+    profile=''
+    if [[ -n "$previous" && -x "$previous/sdk/bin/python" ]]; then
+      profile="$("$previous/sdk/bin/python" -I -c 'import json, re, sys
+try: name = json.load(open(sys.argv[1])).get("profile")
+except (OSError, ValueError, AttributeError): name = None
+print(name if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_+=,.@-]{1,128}", name) else "")' "$project")"
+    fi
+    if [[ -n "$profile" ]]; then
+      # Clears only cached "aws login" credentials; other credential styles are untouched.
+      "$previous/bin/aws" logout --profile "$profile" > /dev/null 2>&1 || fail "could not sign out AWS profile $profile; nothing removed"
+      printf 'aws_logout=%s\n' "$profile" >> "$receipt"
+      log "[DONE] Signed out AWS profile $profile"
+    fi
+    remove_owned "$project"
+    rmdir -- "$(dirname "$project")" 2>/dev/null && printf 'deleted=%s\n' "$(dirname "$project")" >> "$receipt" || true
+    log "[DONE] Removed project settings $project"
+  fi
   if [[ "$clean" == fclean && -L "$prefix/current" ]]; then remove_owned "$prefix/current"; fi
   for candidate in "$prefix"/releases/*; do
     [[ -d "$candidate" && ! -L "$candidate" && -O "$candidate" ]] || continue

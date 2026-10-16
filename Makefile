@@ -19,8 +19,8 @@ guide: ## Guided first use: tools, project, native login and companion (PROJECT=
 clean: ## Remove interrupted managed-tool builds; keep installed tools, settings and logins.
 	@bash ./workspace setup --clean
 
-fclean: ## Remove all managed-tool builds and installed tools; keep settings, logins and evidence.
-	@bash ./workspace setup --fclean
+fclean: ## Remove managed tools, the project settings (PROJECT=path) and its AWS sign-in; keep GitHub login, datasets and evidence.
+	@bash ./workspace setup --fclean --project "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}"
 
 re: fclean ## Full clean, then restart guided setup (also over SSH).
 	+@$(MAKE) guide
@@ -32,7 +32,7 @@ help: ## Show first-use, remote and repair commands.
 		'make PROJECT=/path/project.json' 'Choose the project configuration' \
 		'make REPO=owner/name DATASET=path' 'Set up without questions (logins only)' \
 		'make clean' 'Remove interrupted tool builds; keep installed tools' \
-		'make fclean' 'Remove managed tools; keep settings, logins and evidence' \
+		'make fclean' 'Remove managed tools, project settings and AWS sign-in' \
 		'make re' 'Full clean, then restart guided setup' \
 		'make DEBUG=1' 'Show detailed diagnostics' \
 		'make check' 'Run the offline test suite (developers)' \

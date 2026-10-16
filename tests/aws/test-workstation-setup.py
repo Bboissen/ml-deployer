@@ -344,6 +344,35 @@ class Bootstrap(unittest.TestCase):
         self.assertNotEqual((self.prefix/'current').resolve(), selected)
         self.assertEqual(self.run_setup('--check', '--github').returncode, 0)
 
+    def test_fclean_forgets_project_settings_and_its_aws_login(self):
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        calls = self.root/'aws-calls'
+        (selected/'bin/aws').unlink()
+        executable(selected/'bin/aws', '#!/bin/sh\necho "$*" >> ' + shlex.quote(str(calls)) + '\n')
+        demo = self.host_home/'aws-workspace/demo'; demo.mkdir(parents=True)
+        project = demo/'project.json'; project.write_text(json.dumps({'profile': 'ml-deployer'}))
+        dataset = self.host_home/'aws-workspace/dataset.csv'; dataset.write_text('x\n1\n')
+        link = self.root/'linked.json'; link.symlink_to(dataset)
+        result = subprocess.run(['make', 'fclean', 'PROJECT=' + str(link)], cwd=self.repo, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not a regular file you own', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertFalse(calls.exists())
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text(), 'logout --profile ml-deployer\n')
+        self.assertFalse(demo.exists())
+        self.assertFalse(selected.exists())
+        self.assertEqual(dataset.read_text(), 'x\n1\n')
+        for path in self.protected: self.assertEqual(path.read_text(), 'preserve existing user settings\n')
+        receipt = max((self.repo/'evidence').glob('workstation-cleanup.*'), key=lambda p: p.stat().st_mtime_ns).read_text()
+        self.assertIn('aws_logout=ml-deployer\n', receipt)
+        self.assertIn('deleted=' + str(project) + '\n', receipt)
+        self.assertIn('deleted=' + str(demo) + '\n', receipt)
+        self.assertIn('cleanup_verified=true', receipt)
+
     def test_cleanup_without_an_installation_is_a_noop(self):
         for target in ('clean', 'fclean'):
             result = self.run_make(target)

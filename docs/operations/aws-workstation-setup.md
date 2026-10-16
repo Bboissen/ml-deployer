@@ -11,7 +11,7 @@ installer behaves, which checks it keeps, and how to repair it.
 ./workspace guide [PROJECT.json]    # = make: interactive tools/project/sign-in setup plus companion
 make                               # detects SSH; print laptop tunnel and browser link when remote
 make clean                         # remove interrupted builds; keep installed tools
-make fclean                        # also remove managed tools; preserve settings, logins and evidence
+make fclean                        # also remove managed tools, project settings and AWS sign-in
 make re                            # full clean, then restart guided setup
 ./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
@@ -145,8 +145,11 @@ project file it reports the tools, the project file as `To do` and the rest `Not
 
 Stop the running guide with Ctrl+C before cleanup. `make clean` removes only
 interrupted managed-tool builds, preserving the installed tools. `make fclean`
-also removes the installed managed tools and their selection link. Neither
-command downloads tools, signs in or contacts AWS. Both use the installer's
+also removes the installed managed tools and their selection link, the project
+settings file (`PROJECT`, default `~/aws-workspace/demo/project.json`, and its
+folder when empty) and that project's cached `aws login` credentials
+(`aws logout --profile`; other credential styles are untouched). Neither
+command downloads tools or contacts AWS. Both use the installer's
 ownership checks and installation lock, refuse cleanup while processes use
 the tools prefix (`lsof` is required to verify this), and record exact deleted paths with verified cleanup in
 ignored `evidence/workstation-cleanup.*` receipts. Ownership metadata and
@@ -154,9 +157,11 @@ unrecognized files or symlinks are retained.
 
 After `make fclean`, run `make` to reinstall and resume. `make re` performs
 those steps in order, including with parallel Make enabled. Full cleanup leaves
-no previous managed runtime to fall back to if installation fails. Project
-settings, AWS/GitHub logins, user-installed tools, datasets, infrastructure
-state, plans, authorizations and evidence are preserved. The old `FRESH`
+no previous managed runtime to fall back to if installation fails, and the next
+setup asks for the repository and dataset again. The GitHub login (shared with
+your other tools), user-installed tools, datasets, infrastructure state, plans,
+authorizations and evidence are preserved; a project with deployed resources
+is found again when the same settings are entered. The old `FRESH`
 variable and `remote` Make target are removed; plain `make` detects SSH.
 
 `./workspace setup --fresh` rebuilds the managed runtime even when it verifies.

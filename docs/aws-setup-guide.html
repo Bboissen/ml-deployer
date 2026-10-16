@@ -130,7 +130,7 @@ make</code></pre>
 
   <h2>Something broke</h2>
   <div class="note warn">
-    <p><strong>Tools half installed or failing:</strong> stop the running guide with Ctrl+C. <code>make clean</code> removes interrupted builds and keeps installed tools. <code>make fclean</code> also removes installed managed tools; the next <code>make</code> reinstalls them. <code>make re</code> performs that full clean and restarts setup. Logins, project files, datasets, state and evidence are preserved.</p>
+    <p><strong>Tools half installed or failing:</strong> stop the running guide with Ctrl+C. <code>make clean</code> removes interrupted builds and keeps installed tools. <code>make fclean</code> also removes installed managed tools, the project settings file and its AWS sign-in; the next <code>make</code> reinstalls them and asks again. <code>make re</code> performs that full clean and restarts setup. The GitHub login, datasets, state and evidence are preserved.</p>
 <pre><code>make re
 ./workspace doctor ~/aws-workspace/demo/project.json --debug</code></pre>
     <p><strong>A Deploy was interrupted:</strong> <code>./workspace project.json resume</code> reconciles owned resources and never repeats a launch; <code>cancel</code> removes the owned compute.</p>
