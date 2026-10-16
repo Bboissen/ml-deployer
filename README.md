@@ -66,24 +66,19 @@ outputs.
 
 ```mermaid
 flowchart TD
-    operator["You: make / workspace"] --> controller["Local controller<br/>review, authorize, plan, apply, verify"]
-    source["Dataset source<br/>local path, S3 or HTTPS"] -->|inventory and hash| controller
-    controller --> evidence["Local evidence/<br/>scope, plans, journal, receipts"]
+    source["Dataset source<br/>local, S3 or HTTPS"] -->|inventory and hash| controller["Local controller<br/>make / workspace"]
     subgraph aws["Your AWS account"]
-        state["Private encrypted S3<br/>OpenTofu state"]
-        platform["Foundation<br/>network, IAM, expiry guard"]
-        compute["Temporary EC2 workspace<br/>non-root setup and training"]
-        storage["Private encrypted S3<br/>versioned datasets and outputs"]
-        platform -->|bounds access and lifetime| compute
-        storage -->|verified dataset to DATA_DIR| compute
-        compute -->|declared outputs from OUTPUT_DIR| storage
+        platform["Retained foundation<br/>state bucket, network, IAM, expiry guard"]
+        compute["Temporary EC2<br/>non-root setup and training"]
+        storage["Persistent workload S3<br/>versioned datasets and outputs"]
+        platform -->|access and lifetime| compute
+        storage -->|DATA_DIR| compute
+        compute -->|OUTPUT_DIR| storage
     end
-    controller -->|state read and write| state
-    controller -->|create or verify retained resources| platform
-    controller -->|ingest and verify dataset| storage
-    controller -->|prepare, launch, run via SSM| compute
-    github["Your external ML repository<br/>code, dependencies, make targets"] -->|clone pinned commit| compute
-    operator -->|Session Manager terminal| compute
+    controller -->|reviewed plans| platform
+    controller -->|ingestion| storage
+    controller -->|prepare, launch, SSM job| compute
+    github["External ML repository<br/>code and dependencies"] -->|pinned clone| compute
 ```
 
 The external ML repository owns the dependencies and ML logic. On EC2, its
@@ -91,6 +86,10 @@ commands receive a verified, read-only `DATA_DIR` and an `OUTPUT_DIR` whose
 declared files are persisted to S3. Terminal access uses AWS Systems Manager
 (SSM) Session Manager with no inbound network rules. The local companion page
 only displays progress.
+
+State and workload storage use separate private, encrypted S3 buckets. The
+controller keeps scope, plans, its journal and recovery receipts locally under
+ignored `evidence/`.
 
 ## Deployment lifecycle
 
