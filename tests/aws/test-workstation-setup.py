@@ -5,12 +5,15 @@ import io
 import json
 import os
 from pathlib import Path
+import pty
+import select
 import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -447,11 +450,69 @@ class Authentication(unittest.TestCase):
             A.interactive(['aws','login'])
         call.assert_not_called()
 
-    def test_native_login_accepts_a_proxy_with_terminal_input(self):
-        with patch.object(sys.stdin, 'isatty', return_value=True), \
-             patch.object(sys.stdout, 'isatty', return_value=False), patch.object(subprocess, 'call', return_value=0) as call:
-            A.interactive(['aws', 'login'])
-        call.assert_called_once_with(['aws', 'login'])
+    def test_remote_login_waits_for_code_in_terminal_with_captured_output(self):
+        self.remote_code_prompt()
+
+    @unittest.skipUnless(shutil.which('rtk'), 'RTK is optional for the standalone installer')
+    def test_remote_login_through_rtk_waits_for_code_in_terminal(self):
+        self.remote_code_prompt(relay=True)
+
+    def test_remote_login_with_read_only_terminal_input(self):
+        self.remote_code_prompt(read_only=True)
+
+    def remote_code_prompt(self, relay=False, read_only=False):
+        with tempfile.TemporaryDirectory(dir=BASE) as directory:
+            directory = Path(directory)
+            # Model the pinned CLI's blank-answer failure without contacting AWS.
+            executable(directory/'aws', '#!' + sys.executable + '\n'
+                       'import sys\n'
+                       'print("Browser will not be automatically opened.")\n'
+                       'print("Please visit the following URL: https://example.invalid/login")\n'
+                       'code = input("Enter the authorization code displayed in your browser: ")\n'
+                       'if not code: raise TypeError("empty authorization code")\n'
+                       'sys.exit(0 if code == "synthetic-code" else 7)\n')
+            driver = ('import importlib.util\n'
+                      'spec = importlib.util.spec_from_file_location("auth", ' + repr(str(ROOT/'scripts/aws/workstation-auth.py')) + ')\n'
+                      'auth = importlib.util.module_from_spec(spec); spec.loader.exec_module(auth)\n'
+                      'auth.profile_method = lambda *_: "new"\n'
+                      'auth.auth_check = lambda *_: {}\n'
+                      'auth.login("temporary", "us-east-1", "auto", True)\n')
+            master, slave = pty.openpty()
+            process = None
+            try:
+                if read_only:
+                    readable = os.open(os.ttyname(slave), os.O_RDONLY | os.O_NOCTTY)
+                    os.close(slave); slave = readable
+                # A leftover Enter from setup must not answer the code prompt.
+                os.write(master, b'\n')
+                command = [*([shutil.which('rtk'), 'proxy'] if relay else []), sys.executable, '-B', '-c', driver]
+                process = subprocess.Popen(command, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           env={**os.environ, 'PATH': str(directory) + ':' + os.environ['PATH']})
+                os.close(slave); slave = None
+                transcript = bytearray()
+                prompt = b'Enter the authorization code displayed in your browser: '
+                deadline = time.monotonic() + 10
+                while prompt not in transcript and time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.1)[0]:
+                        transcript.extend(os.read(master, 4096))
+                self.assertIn(prompt, transcript)
+                self.assertIn(b'waiting terminal prompt', transcript)
+                # Prove the child stays alive waiting for actual user input.
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    process.communicate(timeout=0.2)
+                os.write(master, b'synthetic-code\n')
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, stderr.decode())
+                for output in (stdout, stderr):
+                    self.assertNotIn(prompt, output)
+                    self.assertNotIn(b'synthetic-code', output)
+                    self.assertNotIn(b'example.invalid/login', output)
+            finally:
+                if process is not None:
+                    if process.poll() is None: process.kill()
+                    process.communicate(timeout=5)
+                os.close(master)
+                if slave is not None: os.close(slave)
 
     def test_conflicting_credentials_are_rejected_before_new_profile_creation(self):
         with patch.dict(os.environ,{'AWS_ACCESS_KEY_ID':'SECRET'},clear=True), self.assertRaisesRegex(A.B['Failure'],'conflicting environment'):
