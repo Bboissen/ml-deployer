@@ -58,121 +58,94 @@ need a real account run are listed there.
 
 ## How it works
 
-The controller runs on your laptop or SSH server. It reviews the exact AWS
-account, repository commit, dataset, machine, price and lifetime before making
-cloud changes. After your scope-bound approval, it builds and checks saved
-OpenTofu plans, provisions the workspace, runs your project and verifies its
-outputs.
+You provide a GitHub repository and a dataset. The deployer creates a temporary
+machine in your AWS account, runs your project's setup and training commands,
+and keeps the results in S3 after the machine is removed.
+
+Three parts have distinct jobs:
 
 ```mermaid
-flowchart TD
-    source["Dataset source<br/>local, S3 or HTTPS"] -->|inventory and hash| controller["Local controller<br/>make / workspace"]
-    subgraph aws["Your AWS account"]
-        platform["Retained foundation<br/>state bucket, network, IAM, expiry guard"]
-        compute["Temporary EC2<br/>non-root setup and training"]
-        storage["Persistent workload S3<br/>versioned datasets and outputs"]
-        platform -->|access and lifetime| compute
-        storage -->|DATA_DIR| compute
-        compute -->|OUTPUT_DIR| storage
-    end
-    controller -->|reviewed plans| platform
-    controller -->|ingestion| storage
-    controller -->|prepare, launch, SSM job| compute
-    github["External ML repository<br/>code and dependencies"] -->|pinned clone| compute
+flowchart LR
+    local["Your computer<br/>Review and deploy"] -->|controls| compute["Temporary EC2<br/>Run your project"]
+    compute <-->|data and results| storage["Persistent S3<br/>Keep data and results"]
 ```
 
-The external ML repository owns the dependencies and ML logic. On EC2, its
-commands receive a verified, read-only `DATA_DIR` and an `OUTPUT_DIR` whose
-declared files are persisted to S3. Terminal access uses AWS Systems Manager
-(SSM) Session Manager with no inbound network rules. The local companion page
-only displays progress.
+Your computer (or SSH server) runs `make` and `./workspace`. It asks you to
+approve the account, commit, dataset, machine, price and lifetime before making
+cloud changes. The EC2 machine runs your repository's code and dependencies as
+a non-root user. Its commands read the verified dataset from `DATA_DIR` and
+write declared results to `OUTPUT_DIR`; the deployer persists those results to S3.
 
-State and workload storage use separate private, encrypted S3 buckets. The
-controller keeps scope, plans, its journal and recovery receipts locally under
-ignored `evidence/`.
+Compute is temporary; data is persistent. Private, encrypted S3 storage holds
+datasets and results; infrastructure state has its own bucket. AWS enforces the
+machine's expiry even if your computer disconnects. The supporting network,
+permissions and expiry guard are retained for reuse.
 
 ## Deployment lifecycle
 
+The normal path in the default **job** mode is:
+
 ```mermaid
 stateDiagram-v2
-    state "Read-only scope review" as Review
-    state "artifacts through prepare" as Preparing
-    state "launch and job" as Running
-    state "verify outputs" as Verifying
-    state "workspace_ready" as Ready
-    state "cleanup owned compute" as Cleanup
-    state "Recovery required" as Recovery
-    state "success / failure / cancelled" as Finished
-
+    state "Review scope" as Review
+    state "Prepare resources and data" as Prepare
+    state "Run setup and training" as Run
+    state "Save and verify results" as Save
+    state "Remove compute" as Cleanup
     [*] --> Review
-    Review --> [*]: stop without cloud changes
-    Review --> Preparing: approve this scope
-    Preparing --> Running: guard and deadline ready
-    Preparing --> Cleanup: failure or cancel
-    Running --> Verifying: execution receipt available
-    Running --> Cleanup: failure or cancel
-    Verifying --> Cleanup: job mode or verification failure
-    Verifying --> Ready: workspace mode, setup passed
-    Ready --> Cleanup: cancel
-    Ready --> Recovery: provider expiry terminates EC2
-    Cleanup --> Finished: cleanup settled and outputs rechecked if persisted
-    Cleanup --> Recovery: unresolved cleanup or mutation
-    Recovery --> Cleanup: resume reconciles owned resources
-    Finished --> [*]
+    Review --> Prepare: you approve
+    Prepare --> Run
+    Run --> Save
+    Save --> Cleanup
+    Cleanup --> [*]
 ```
 
-In the default **job** mode, every deployment runs setup and training, persists
-outputs and removes its compute. `success` requires successful setup and training,
-verified outputs, successful cleanup and another output check after compute
-deletion. In **workspace** mode, successful setup leaves the machine available
-for `connect` until `cancel` or its fixed provider-side expiry. AWS enforces
-expiry even if the controller disconnects; `resume` reconciles any remaining
-owned resources and receipts. Datasets, outputs, state and the foundation are
-retained; deleting retained resources requires separate authorization.
+`success` means setup and training passed, compute was removed, and the saved
+outputs were verified again after removal. Datasets, outputs and the foundation
+remain; deleting retained resources requires separate authorization.
+
+In **workspace** mode, setup runs without training and the machine stays
+available for `connect` until `cancel` or expiry. Failures and cancellation also
+trigger cleanup; recovery details are in the
+[operations guide](docs/operations/aws-deploy-operation.md).
 
 ## Reading the stage messages
 
-Progress lines are journal events, written to stderr; stdout carries the JSON
-result. For example:
+The diagram groups the work into broad phases. The terminal shows the smaller
+steps inside those phases:
 
 ```text
 stage artifacts    started
 stage artifacts    completed
-stage foundation   started
-stage foundation   completed
-...
-stage prepare      started
 ```
 
-`started` records the intent before work begins; `completed` records that stage's
-result. Completion of a stage does not mean the whole deployment or training
-succeeded. Stages run in this order, with the conditional ones shown below:
+`started` means a step is beginning. `completed` means its result was recorded;
+it does not mean training or the whole deployment succeeded. Progress goes to
+stderr; the JSON result goes to stdout.
 
-| Stage | What happens before `completed` |
+The steps run in this order:
+
+| Stage | What it does |
 | --- | --- |
-| `artifacts` | Build the local toolbox and expiry-watchdog ZIPs, install hash-locked watchdog dependencies and record artifact hashes. These are infrastructure artifacts; your ML dependencies come from your repository's setup command. |
-| `foundation` | Create the state/bootstrap and platform resources, or verify a retained foundation: separate state and workload buckets, network, IAM and provider expiry guard. No EC2 workspace is launched yet. |
-| `foundation-iam` (if needed) | Apply the exact retained deployer-policy tightening included in this review. |
-| `repository` | Resolve repository credentials: register a read-only deploy key and store its private half in Secrets Manager for new private access, reuse an existing reference, or do nothing for a public repository. The EC2 checkout happens during `job`. |
-| `access` (private repository only) | Grant the workspace role access to the selected repository secret, or verify the existing grant. |
-| `ingestion` | Stream the selected dataset into the workload bucket, or reuse matching content after verification. Read exact S3 object versions back and verify hashes; seal a versioned manifest before compute can launch. |
-| `prepare` | Apply runner controls: workspace identity/profile, SSM documents and terminal grants, the absolute expiry schedule and a bounded launch role. The deadline exists before launch permissions; this stage creates no EC2 instance. |
-| `launch` | Check native guard, deadline and IAM readiness, then create the single reviewed EC2 instance within its launch window. |
-| `job` | Wait for guest readiness, clone the pinned commit, remove clone credentials, stage and verify the dataset, then run non-root setup and training. Workspace mode runs setup only. Persist declared outputs, bounded logs and an execution receipt to S3. |
-| `verify` | Independently read the execution receipt and output versions, check their hashes and bind them to this instance, repository commit and dataset. Setup and training exit codes are reported separately. |
-| `cleanup` | Unless retaining a ready workspace, retire launch access, delete owned compute and runner controls, and verify their absence. It also runs after failures; it can complete with nothing to delete. Persisted outputs are checked again afterward. |
+| `artifacts` | Package the toolbox and automatic-expiry code locally. Your ML dependencies are installed later by your project's setup command. |
+| `foundation` | Create or verify reusable AWS storage, network, permissions and the expiry guard. |
+| `foundation-iam` (if needed) | Tighten permissions on an existing foundation as included in the approved scope. |
+| `repository` | Prepare or reuse credentials for a private repository; public repositories need none. Cloning on EC2 happens during `job`. |
+| `access` (private repository only) | Allow the workspace role to read the selected repository credential. |
+| `ingestion` | Copy the selected dataset into S3, or verify a reusable copy, and check its integrity. |
+| `prepare` | Set up the workspace permissions, terminal access and expiry deadline before EC2 can launch. |
+| `launch` | Check that the safety controls are ready, then create the reviewed EC2 machine. |
+| `job` | Clone the pinned commit, stage the dataset, run setup and training, and save declared outputs and execution records to S3. Workspace mode runs setup only. |
+| `verify` | Independently check the saved outputs and execution records. Setup and training exit codes are reported separately. |
+| `cleanup` | Remove owned compute and its temporary controls, unless retaining a ready workspace. Saved outputs are checked again afterward. |
 
-At `stage prepare started`, ingestion has completed and the controller is
-applying the runner's safety controls. Training has not started. The fixed
-five-minute launch window and maximum lifetime begin when runner preparation
-begins; preparation time consumes that allowance. Launch follows successful
-preparation and readiness checks, with no extra scheduling buffer.
+**At `stage prepare started`,** the dataset is verified in S3 and the deployer
+is setting up the machine's safety controls. EC2 has not launched and training
+has not started. The next stages are `launch`, then `job`.
 
-A stage can become `unknown` after an error: its cloud effects may be partial.
-The journal also records controller interruptions and the final operation
-outcome. Completed stages are reused on resume; uncertain mutations must be
-reconciled against owned resources. An interrupted launch or job is never
-silently replayed.
+A stage marked `unknown` may have partially changed AWS resources. `resume`
+checks what actually happened before continuing recovery; it never silently
+repeats an interrupted launch or job. Completed stages are reused.
 
 Use the same project file to inspect progress or recover:
 
@@ -183,9 +156,10 @@ Use the same project file to inspect progress or recover:
 ./workspace ~/aws-workspace/demo/project.json cancel
 ```
 
-`status` and `logs` inspect the operation; `resume` reconciles it and `cancel`
-requests cleanup of its owned compute. Keep ignored `evidence/` intact: it binds
-recovery to the approved scope, saved plans and exact resource ownership. See
-[deployment and recovery details](docs/operations/aws-deploy-operation.md).
+`status` and `logs` inspect progress; `resume` recovers an interrupted operation;
+`cancel` requests cleanup. Keep ignored `evidence/` intact: it holds the approved
+scope, saved plans and receipts needed for recovery. See the
+[operations guide](docs/operations/aws-deploy-operation.md) for plan validation,
+launch deadlines and recovery rules.
 
 [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Goals](goal/README.md) · [MIT license](LICENSE)
