@@ -71,7 +71,7 @@ def describe_result(config,result):
     if status=='review_required': lines.append('  next: review the scope above, then rerun '+command+' and type deploy, or pass --authorization "approve scope '+str(result.get('scope_sha256',''))[:16]+'"')
     elif status=='success': lines.append('  next: a second Deploy reuses the retained data; '+command+' logs shows events')
     elif status=='workspace_ready': lines.append('  next: '+command+' connect; '+command+' cancel ends compute before expiry')
-    elif status in ('failure','cancelled') and result.get('cleanup_status') in ('success','not_needed'): lines.append('  next: owned compute is gone; fix the cause and run '+command+' for a new review')
+    elif status in ('failure','cancelled') and result.get('cleanup_status') in ('success','not_needed') and not result.get('recovery_required'): lines.append('  next: owned compute is gone; fix the cause and run '+command+' for a new review')
     elif status in ('failure','cancelled','cancellation_requested'): lines.append('  next: '+command+' resume reconciles owned resources; provider expiry stays armed')
     return lines
 
@@ -144,6 +144,17 @@ class Journal:
             except BaseException as error:
                 self.record(name,'unknown',{'error_type':type(error).__name__}); raise
         self.record(name,'completed',result); return result
+
+
+def pending_mutations(directory,journal):
+    """Compute cleanup alone cannot settle partial foundation or access changes."""
+    if any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown')
+           for stage in ('foundation-iam','repository','access')):
+        return True
+    foundation=journal.latest('foundation')
+    # Even a successful bootstrap apply needs recovery if the rest of the
+    # foundation was never captured; a fresh operation must not adopt it.
+    return not (foundation and foundation['state']=='completed') and any((directory/'foundation').rglob('apply-started.json'))
 
 
 def selection(L,P,config):
@@ -271,7 +282,7 @@ def execute(W,config,directory,scope,task,resume=False):
         os.environ['WORKSPACE_CONFIG']=str(identity_file)
         base,client,_=L['sessions'](selected); s3=client(base,'s3')
         result={'status':'failure','operation_id':directory.name,'infrastructure_ready':False,'setup_exit':None,'job_exit':None,
-                'outputs_persisted':False,'cleanup_status':'not_needed','verified_after_compute_deletion':False}
+                'outputs_persisted':False,'cleanup_status':'not_needed','verified_after_compute_deletion':False,'recovery_required':True}
         runner=L['read'](control/'runner.json') if (control/'runner.json').exists() else None
         job=L['read'](directory/'job.json') if (directory/'job.json').exists() else None
         def cancelled(): return (directory/'cancel.json').exists()
@@ -387,14 +398,12 @@ def execute(W,config,directory,scope,task,resume=False):
                         result['verified_after_compute_deletion']=True
                     if not cancelled() and result['setup_exit']==0 and result['job_exit']==0 and result['outputs_persisted'] and result['verified_after_compute_deletion']:
                         result['status']='success'
+                    result['recovery_required']=result['cleanup_status'] not in ('success','not_needed') or pending_mutations(directory,journal)
                     if (control/'prepare/apply-started.json').exists() and result['cleanup_status']=='success': active.unlink()
                     elif not (control/'prepare/apply-started.json').exists():
-                        uncertain_access=any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown') for stage in ('foundation-iam','repository','access'))
-                        completed=journal.latest('foundation') and journal.latest('foundation')['state']=='completed'
-                        uncertain_foundation=not completed and any(p.name=='apply-started.json' and not (p.parent/'apply-result.json').exists() for p in (directory/'foundation').rglob('apply-started.json'))
-                        if not uncertain_access and not uncertain_foundation: active.unlink()
+                        if not result['recovery_required']: active.unlink()
                 except BaseException as error:
-                    result.update(cleanup_status='unknown',cleanup_error=E.safe_error(error),recovery='use resume; provider expiry remains armed')
+                    result.update(cleanup_status='unknown',cleanup_error=E.safe_error(error),recovery_required=True,recovery='use resume; provider expiry remains armed')
                     journal.record('cleanup','unknown',result['cleanup_error'])
             atomic(L,directory/'result.json',result); journal.record('operation',result['status'],result)
             for sig,handler in old_handlers.items(): signal.signal(sig,handler)
@@ -422,7 +431,15 @@ def completed_result(L,directory):
     result_path=directory/'result.json'
     if result_path.exists():
         result=L['read'](result_path)
-        if result['status'] in ('success','cancelled') and result['cleanup_status'] in ('success','not_needed'):
+        if result['status'] in ('success','cancelled','failure') and result.get('cleanup_status') in ('success','not_needed'):
+            if result.get('recovery_required'): return None
+            # Older receipts have no recovery flag. Inspect their durable
+            # mutation evidence before allowing a new review or ending resume.
+            if (directory/'scope.json').exists() and (directory/'journal').is_dir():
+                scope=L['read'](directory/'scope.json')
+                journal=Journal(L,directory,L['sha'](L['canon'](scope)))
+                if pending_mutations(directory,journal): return None
+            elif result['status']=='failure': return None
             return result
     return None
 

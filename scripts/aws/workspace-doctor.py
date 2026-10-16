@@ -181,11 +181,14 @@ def check_operation(report, config):
         directory = L['checked_path'](L['read'](pointer)['directory'])
         result = L['read'](directory/'result.json') if (directory/'result.json').exists() else None
         status = L['read'](directory/'status.json') if (directory/'status.json').exists() else None
+        completed = D.completed_result(L, directory)
     except Exception as exc:
         report.add('Last operation', UNKNOWN, 'operation record unreadable: ' + text_of(exc), cli(config) + ' status'); return
     report.note('last operation directory: ' + str(directory))
     if result:
-        if result['status'] in ('success', 'cancelled') and result.get('cleanup_status') in ('success', 'not_needed'):
+        if completed is not None:
+            if result['status'] == 'failure':
+                report.add('Last operation', READY, 'previous deployment failed; no unresolved cloud changes; ready for a new review'); return
             where = ('; outputs at ' + result['output_uri']) if result.get('output_uri') else ''
             report.facts.update(deployed=True, output_uri=result.get('output_uri'))
             report.add('Last operation', READY, result['status'] + ', compute cleanup ' + result['cleanup_status'] + where); return

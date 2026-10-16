@@ -173,6 +173,45 @@ class Doctor(unittest.TestCase):
         self.assertEqual(page['repository'], 'public'); self.assertEqual(page['deploy'], './workspace ' + str(self.config))
         self.assertEqual([row['check'] for row in page['rows']], [row['check'] for row in report.rows])
 
+    def test_failed_operation_reviews_again_only_when_mutations_are_settled(self):
+        cases = [
+            ('pre-apply', 'foundation', 'unknown', None, 'not_needed', M.READY),
+            ('partial-bootstrap', 'foundation', 'unknown', 'success', 'not_needed', M.ACTION),
+            ('uncertain-bootstrap', 'foundation', 'unknown', 'unknown', 'not_needed', M.ACTION),
+            ('uncertain-iam', 'foundation-iam', 'unknown', None, 'not_needed', M.ACTION),
+            ('uncertain-repository', 'repository', 'unknown', None, 'not_needed', M.ACTION),
+            ('uncertain-access', 'access', 'unknown', None, 'not_needed', M.ACTION),
+            ('ingestion-failure', 'ingestion', 'unknown', None, 'not_needed', M.READY),
+            ('job-failure', 'job', 'unknown', None, 'success', M.READY),
+            ('uncertain-cleanup', 'job', 'unknown', None, 'unknown', M.ACTION),
+        ]
+        for name, stage, state, applied, cleanup, expected in cases:
+            with self.subTest(name=name):
+                operation = self.directory/name; operation.mkdir()
+                self.pointer.write_text(json.dumps({'directory': str(operation)}))
+                scope = {'operation_id': name}
+                M.L['write'](operation/'scope.json', scope)
+                journal = M.D.Journal(M.L, operation, M.L['sha'](M.L['canon'](scope)))
+                if stage != 'foundation': journal.record('foundation', 'completed', {})
+                journal.record(stage, state)
+                if applied:
+                    bootstrap = operation/'foundation/bootstrap'
+                    M.L['write'](bootstrap/'apply-started.json', {})
+                    if applied == 'success': M.L['write'](bootstrap/'apply-result.json', {'status': 'success'})
+                M.L['write'](operation/'result.json', {'status': 'failure', 'cleanup_status': cleanup})
+                before = {p: p.read_bytes() for p in operation.rglob('*.json')}
+                with patch.object(M.A, 'profile_method', return_value='console'), \
+                     patch.object(M.A, 'auth_check', return_value={'identity': IDENTITY}):
+                    report, text = M.doctor(self.config, 'ok', False)
+                self.assertEqual(self.states(report)['Last operation'], expected, text)
+                self.assertEqual(report.ready, expected == M.READY, text)
+                if expected == M.READY:
+                    self.assertIn('new review', text)
+                    self.assertNotIn('deployed', report.facts)
+                else:
+                    self.assertIn(str(self.config)+' resume', text)
+                self.assertEqual({p: p.read_bytes() for p in operation.rglob('*.json')}, before)
+
     def test_guide_json_without_configuration_points_to_project_file(self):
         report, _ = M.doctor(None, 'pinned tools verified', False)
         page = json.loads(M.as_json(report, None))
