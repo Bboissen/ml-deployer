@@ -1,12 +1,15 @@
 """Shared no-symlink local stream handling for inputs and outputs."""
 from contextlib import contextmanager
+import hashlib
 import os
 from pathlib import Path
 import stat
+import time
 
 # Keep execution receipts large enough for ordinary directory outputs and small
 # enough for the controller's bounded, pretty-printed local evidence reader.
 EXECUTION_RECEIPT_BYTES = 8 * 1024 * 1024
+CHUNK = 8 * 1024 * 1024
 
 def require(condition, reason):
     if not condition: raise ValueError(reason)
@@ -30,3 +33,15 @@ def local_stamp(stream):
     value=os.fstat(stream.fileno())
     return [value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns]
 
+
+def stream_hash(stream,size,deadline,cancelled=None,sink=None):
+    """Hash exactly size bytes before deadline, optionally copying each chunk."""
+    digest=hashlib.sha256(); count=0
+    while True:
+        require(time.monotonic()<deadline and not (cancelled and cancelled()),'dataset transfer cancelled/time bound exhausted')
+        chunk=stream.read(CHUNK)
+        if not chunk: break
+        count+=len(chunk); require(count<=size,'source grew beyond reviewed bytes'); digest.update(chunk)
+        if sink: sink.write(chunk)
+    require(count==size,'source size changed or incomplete read')
+    return digest.hexdigest()

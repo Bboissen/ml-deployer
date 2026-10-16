@@ -18,9 +18,9 @@ import uuid
 
 spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
 files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
-local_file,local_stamp=files.local_file,files.local_stamp
+local_file,local_stamp,stream_hash=files.local_file,files.local_stamp,files.stream_hash
 
-CHUNK=8*1024*1024
+CHUNK=files.CHUNK
 MAX_PART=64*1024*1024
 
 def require(condition, reason):
@@ -33,16 +33,6 @@ def relative(path):
     require(isinstance(path,str) and path and not path.startswith('/') and '\\' not in path and
             all(p not in ('','.','..') for p in path.split('/')), 'relative dataset path without traversal required')
     return path
-
-def stream_hash(stream,size,deadline,cancelled=None):
-    digest=hashlib.sha256(); count=0
-    while True:
-        require(time.monotonic()<deadline and not (cancelled and cancelled()),'dataset transfer cancelled/time bound exhausted')
-        chunk=stream.read(CHUNK)
-        if not chunk: break
-        count+=len(chunk); require(count<=size,'source grew beyond reviewed bytes'); digest.update(chunk)
-    require(count==size,'source size changed or incomplete read')
-    return digest.hexdigest()
 
 def inventory_bound(adapter, size, used=0):
     require(size>=0 and size<=640*1024**3 and used+size<=getattr(adapter,'maximum_bytes',640*1024**3),'dataset exceeds selected byte bound')
