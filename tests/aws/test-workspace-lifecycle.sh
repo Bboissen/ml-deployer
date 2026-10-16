@@ -260,7 +260,7 @@ class HeartbeatObservation(unittest.TestCase):
         guard=self.config['guard']
         return {'message':json.dumps({'kind':'heartbeat','guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],
                 'account':self.config['aws_account_id'],'region':self.config['aws_region'],'observed_at':LIFE['stamp'](T),**changes})}
-    def observe(self,pages,admission=T,ticks=None):
+    def observe(self,pages,admission=T,ticks=None,heartbeat_max_age=120):
         self.calls=[]; responses=iter(pages); instants=iter([T,admission])
         class Clock(dt.datetime):
             @classmethod
@@ -271,9 +271,17 @@ class HeartbeatObservation(unittest.TestCase):
             return value
         self.clients['logs']=types.SimpleNamespace(filter_log_events=logs)
         with patch.dict(LIFE,{'dt':types.SimpleNamespace(datetime=Clock,timedelta=dt.timedelta,timezone=dt.timezone)}):
-            if ticks is None: return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config)
+            if ticks is None: return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config,heartbeat_max_age)
             with patch.object(LIFE['time'],'monotonic',side_effect=ticks):
-                return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config)
+                return LIFE['observe_guard'](None,lambda _,service:self.clients[service],self.config,heartbeat_max_age)
+    def test_planning_freshness_budget_is_stricter_than_runtime_admission(self):
+        for age in (30,31):
+            pages=[{'events':[self.event(observed_at=LIFE['stamp'](T-dt.timedelta(seconds=age)))]}]
+            self.observe(pages)
+            if age==30: self.observe(pages,heartbeat_max_age=30)
+            else:
+                with self.assertRaisesRegex(LIFE['Failure'],'no matching fresh'):
+                    self.observe(pages,heartbeat_max_age=30)
     def test_single_page_complete_heartbeat(self):
         observation,_=self.observe([{'events':[self.event()]}])
         self.assertEqual(observation['heartbeat_at'],LIFE['stamp'](T)); self.assertEqual(len(self.calls),1)
@@ -380,6 +388,133 @@ class HeartbeatObservation(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'offline access denied'):
             self.observe([RuntimeError('offline access denied')])
         self.assertEqual(len(self.calls),1)
+
+class LaunchTiming(unittest.TestCase):
+    """Exercise real plan/authorization/apply sequencing with delayed native calls."""
+    def setUp(self):
+        self.directory=OUT/self.id().rsplit('.',1)[1]; self.directory.mkdir()
+        self.launch=self.directory/'launch'; self.preparation=self.directory/'prepare'; self.preparation.mkdir()
+        self.elapsed=0; self.calls=[]; self.apply_init_seconds=15; self.heartbeat_mode='scheduled'
+        self.native_run=LIFE['run']
+        self.fixture=HeartbeatObservation(); self.fixture.setUp()
+        self.config=copy.deepcopy(self.fixture.config)
+        self.config['lease']['launch_before']=LIFE['stamp'](T+dt.timedelta(minutes=5))
+        artifact=self.directory/'toolbox.zip'; artifact.write_bytes(b'offline-artifact')
+        self.config.update(toolbox_zip_path=str(artifact),toolbox_zip_sha256=LIFE['sha'](artifact.read_bytes()))
+        self.input=self.directory/'input.json'; LIFE['write'](self.input,self.config)
+        self.target={'backend':{'bucket':'offline-state'},'region':'us-east-1','profile':'offline','account_id':'000000000000'}
+        self.state={'key':'offline.tfstate','serial':1}
+        prior={'stage':'prepare','target_name':'offline','source':LIFE['source'](),'target':self.target}
+        LIFE['write'](self.preparation/'review.json',prior)
+        LIFE['write'](self.preparation/'apply-result.json',{'status':'success'})
+        LIFE['write'](self.preparation/'config.tfvars.json',self.config)
+        self.plan={'resource_changes':[{'address':'aws_instance.workspace[0]','mode':'managed','type':'aws_instance',
+            'change':{'actions':['create'],'after':{'instance_type':'r8i.2xlarge','ami':LIFE['TOOLBOX']['ami_id'],
+            'user_data_base64':'','root_block_device':[{'encrypted':True,'delete_on_termination':True,'volume_size':30}],
+            'metadata_options':[{'http_tokens':'required','http_put_response_hop_limit':1}]}}}]}
+        platform={'planned_values':{'root_module':{'resources':[{
+            'address':'aws_iam_policy.workspace_launch_boundary["active"]','values':{'policy':'{}'}}]}}}
+        owner=self
+        class Clock(dt.datetime):
+            @classmethod
+            def now(cls,tz=None): return T+dt.timedelta(seconds=owner.elapsed)
+        def logs(**kwargs):
+            self.calls.append('observe')
+            # Reproduce the 68-second-old initial heartbeat from the live failure.
+            when=T-dt.timedelta(seconds=68)
+            if self.heartbeat_mode=='future': when=T+dt.timedelta(hours=1)
+            elif self.heartbeat_mode=='fresh' or (self.heartbeat_mode=='scheduled' and self.elapsed>=25):
+                when=T+dt.timedelta(seconds=int(self.elapsed//20)*20)
+            return {'events':[self.fixture.event(observed_at=LIFE['stamp'](when))]}
+        self.fixture.clients['logs']=types.SimpleNamespace(filter_log_events=logs)
+        def context(*args):
+            if (self.launch/'review.json').exists(): self.advance(14)
+            return self.target,{'TF_VAR_ambient':'removed'},None,lambda _,service:self.fixture.clients[service],{},self.state
+        self.patches=patch.dict(LIFE,{
+            'dt':types.SimpleNamespace(datetime=Clock,timedelta=dt.timedelta,timezone=dt.timezone),
+            'time':types.SimpleNamespace(monotonic=lambda:self.elapsed,sleep=self.advance),
+            'context':context,'run':self.run_command,'capacity':lambda *a:None,
+            'verify_artifact':lambda *a:None,
+            'runner_provider_scope':lambda *a:None,'compare_prepared_iam':lambda *a:None,
+            'reviewed_platform_plan':lambda *a:(platform,[]),'compare_platform_alarms':lambda *a:None,
+            'bound_instance':lambda *a:{'InstanceId':'i-offline','BlockDeviceMappings':[{'Ebs':{'VolumeId':'vol-offline'}}],
+                'NetworkInterfaces':[{'NetworkInterfaceId':'eni-offline','Attachment':{'DeviceIndex':0}}]},
+            'snapshot':lambda *a:self.state})
+        self.patches.start(); self.addCleanup(self.patches.stop)
+    def advance(self,seconds): self.elapsed+=seconds
+    def run_command(self,args,env,seconds=None):
+        if 'version' in args: return json.dumps({'terraform_version':'offline'})
+        self.assertFalse(any(k.startswith('TF_VAR_') for k in env))
+        if args[0]!='tofu': return ''
+        if 'init' in args:
+            applying='-reconfigure' in args
+            self.calls.append('apply-init' if applying else 'plan-init')
+            self.assertFalse((self.launch/'apply-started.json').exists())
+            self.advance(self.apply_init_seconds if applying else 20)
+        elif 'validate' in args: self.calls.append('validate'); self.advance(3)
+        elif 'plan' in args:
+            self.calls.append('plan'); self.advance(14)
+            (self.launch/'saved.tfplan').write_bytes(b'immutable-offline-plan')
+        elif 'show' in args: return json.dumps(self.plan)
+        elif 'apply' in args:
+            self.calls.append('apply')
+            self.assertTrue((self.launch/'apply-started.json').exists())
+            saved=LIFE['read'](self.launch/'config.tfvars.json')['guard_observation']
+            self.assertTrue(all(0 <= (T+dt.timedelta(seconds=self.elapsed)-LIFE['utc'](saved[k])).total_seconds()<=120
+                                for k in ('observed_at','heartbeat_at')))
+        elif 'output' in args: return json.dumps({'instance_id':'i-offline'})
+        else: self.fail('unexpected native command')
+        return ''
+    def prepare(self):
+        LIFE['native_plan']('offline','launch',self.input,self.launch,self.preparation)
+        review=LIFE['read'](self.launch/'review.json')
+        LIFE['authorize'](self.launch,LIFE['sha'](LIFE['canon'](review)),'Explicit offline timing test')
+        return review
+    def test_initialization_precedes_observation_and_old_heartbeat_waits_for_next_sweep(self):
+        self.prepare()
+        immutable={name:(self.launch/name).read_bytes() for name in ('saved.tfplan','config.tfvars.json','review.json','authorization.json')}
+        result=LIFE['apply'](self.launch)
+        self.assertEqual(result['status'],'success')
+        self.assertEqual(self.calls,['plan-init','validate','observe','observe','plan','apply-init','observe','apply'])
+        self.assertEqual(self.elapsed,68)
+        for name,content in immutable.items(): self.assertEqual((self.launch/name).read_bytes(),content)
+        with self.assertRaisesRegex(LIFE['Failure'],'single-use authorization consumed'): LIFE['apply'](self.launch)
+    def test_slow_apply_initialization_rejects_saved_heartbeat_despite_fresh_live_readback(self):
+        review=self.prepare(); self.apply_init_seconds=60
+        with self.assertRaisesRegex(LIFE['Failure'],'saved launch heartbeat/observation lacks apply headroom'):
+            LIFE['apply'](self.launch)
+        self.assertNotIn('apply',self.calls); self.assertFalse((self.launch/'apply-started.json').exists())
+        now=T+dt.timedelta(seconds=self.elapsed)
+        self.assertEqual((now-LIFE['utc'](review['guard_observation']['observed_at'])).total_seconds(),88)
+        self.assertEqual((now-LIFE['utc'](review['guard_observation']['heartbeat_at'])).total_seconds(),93)
+    def test_future_and_missing_recent_heartbeats_exhaust_bounded_readiness_without_plan(self):
+        for mode in ('future','old'):
+            with self.subTest(mode=mode):
+                self.launch=self.directory/mode; self.heartbeat_mode=mode; self.elapsed=0; self.calls=[]
+                with self.assertRaisesRegex(LIFE['Failure'],'90-second readiness bound'):
+                    LIFE['native_plan']('offline','launch',self.input,self.launch,self.preparation)
+                self.assertLessEqual(self.elapsed,113)
+                self.assertFalse((self.launch/'saved.tfplan').exists())
+                self.assertFalse((self.launch/'apply-started.json').exists())
+    def test_ready_guard_adds_no_sleep(self):
+        self.heartbeat_mode='fresh'
+        with patch.object(LIFE['time'],'sleep',side_effect=AssertionError('ready guard must not sleep')):
+            self.prepare(); LIFE['apply'](self.launch)
+        self.assertEqual(self.calls.count('observe'),2)
+    def test_live_guard_drift_still_rejects_immutable_plan(self):
+        self.prepare(); self.fixture.role_created_at-=dt.timedelta(seconds=1)
+        with self.assertRaisesRegex(LIFE['Failure'],'guard/IAM/document drift'): LIFE['apply'](self.launch)
+        self.assertNotIn('apply',self.calls); self.assertFalse((self.launch/'apply-started.json').exists())
+    def test_native_admission_errors_are_classified_without_raw_diagnostics(self):
+        for message,category in (
+            ('Launch requires fresh matching native\n guard/deadline/IAM/heartbeat/alarm readback.','guard_admission_failed'),
+            ('Launch lease is not open; review a fresh lease/plan instead of extending it.','lease_window_closed'),
+            ('unrecognized provider error','request_failed_unknown')):
+            response=types.SimpleNamespace(returncode=1,stderr=message+' SENTINEL_SECRET',stdout='')
+            with patch.dict(LIFE['boundary'],{'request':lambda *a:response}):
+                with self.assertRaisesRegex(LIFE['Failure'],'^command failed; '+category+'$'):
+                    # Use the real wrapper rather than this fixture's delayed CLI.
+                    self.native_run(['tofu','apply'],{})
 
 class ProjectConfiguration(unittest.TestCase):
     def setUp(self):

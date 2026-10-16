@@ -44,6 +44,14 @@ output persistence and cleanup separately. Workspace mode executes setup and
 retains compute until cancel or provider expiry; job mode runs setup and entrypoint
 on every Deploy.
 
+Launch planning initializes OpenTofu before observing the guard and requires a
+heartbeat at most 30 seconds old, waiting only within a bounded readiness check.
+Apply initializes before its final native checks and requires both saved timestamps
+to have at least 30 seconds remaining in the two-minute admission window. A fresh
+live heartbeat never substitutes for the heartbeat embedded in the immutable plan.
+Expired evidence is rejected before consuming launch authorization; the OpenTofu
+precondition still enforces the full two-minute limit at resource admission.
+
 New deployments open their fixed five-minute launch window when runner preparation
 begins, then launch as soon as preparation and native readiness checks pass.
 There is no additional five-minute scheduling buffer. The deadline schedule must
