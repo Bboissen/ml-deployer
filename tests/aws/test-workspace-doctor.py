@@ -1,8 +1,10 @@
 """Doctor readiness states without cloud credentials, managed tools or network."""
+import base64
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,6 +20,23 @@ M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
 BASE = ROOT/'evidence/aws/tests/doctor'
 BASE.mkdir(parents=True, exist_ok=True)
 IDENTITY = {'Account': '111111111111', 'Arn': 'arn:aws:iam::111111111111:user/operator'}
+MAKEFILE = base64.b64encode(b'setup:\n\ttrue\ntrain: setup\n\ttrue\n').decode()
+
+
+def gh_api(repository, makefile=MAKEFILE, calls=None):
+    """Fake read-only `gh api` behind the request boundary; None means not signed in."""
+    def request(command, env, seconds):
+        if calls is not None: calls.append(command)
+        if command[:2] == ['gh', 'auth']: return subprocess.CompletedProcess(command, 0, '', '')
+        assert command[:6] == ['gh', 'api', '--hostname', 'github.com', '--method', 'GET'], command
+        if repository is None: return subprocess.CompletedProcess(command, 4, '', 'not logged in')
+        if '/contents/' not in command[6]: return subprocess.CompletedProcess(command, 0, json.dumps(repository), '')
+        if makefile is None: return subprocess.CompletedProcess(command, 1, '', 'gh: Not Found (HTTP 404)')
+        return subprocess.CompletedProcess(command, 0, json.dumps({'type': 'file', 'encoding': 'base64', 'content': makefile}), '')
+    return request
+
+
+PUBLIC = {'full_name': 'owner/project', 'private': False, 'visibility': 'public', 'default_branch': 'main'}
 
 
 class Doctor(unittest.TestCase):
@@ -32,6 +51,9 @@ class Doctor(unittest.TestCase):
         self.write()
         self.pointer = self.directory/'selection.json'
         patcher = patch.object(M.D, 'selection', lambda *_: self.pointer); patcher.start(); self.addCleanup(patcher.stop)
+        # Repository checks use a fake signed-in gh: tests never call GitHub.
+        for patcher in (patch.object(shutil, 'which', lambda name: '/usr/bin/' + name), patch.dict(M.B, {'request': gh_api(PUBLIC)})):
+            patcher.start(); self.addCleanup(patcher.stop)
         for name in ('AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE'):
             (self.directory/name).write_text('')
         self.files = {'AWS_CONFIG_FILE': str(self.directory/'AWS_CONFIG_FILE'),
@@ -49,7 +71,8 @@ class Doctor(unittest.TestCase):
         self.assertEqual(self.states(report)['Managed tools'], M.READY)
         self.assertEqual(self.states(report)['AWS identity'], M.UNKNOWN)
         self.assertEqual([row['check'] for row in report.rows][:2], ['Managed tools', 'Project config'])
-        self.assertIn('next: mkdir -p ~/aws-workspace/demo', text); self.assertIn('Not ready yet', text)
+        self.assertIn('next: ./workspace guide ~/aws-workspace/demo/project.json --repo OWNER/NAME --dataset PATH', text)
+        self.assertIn('Not ready yet', text)
 
     def test_missing_login_is_action_needed_without_network(self):
         with patch.dict(os.environ, self.files, clear=True), patch.object(M.A, 'auth_check', side_effect=AssertionError('network call')):
@@ -100,6 +123,31 @@ class Doctor(unittest.TestCase):
             report, text = M.doctor(self.config, 'ok', False)
         self.assertEqual(self.states(report)['GitHub access'], M.READY); self.assertIn('repository admin permission', text)
 
+    def test_repository_checks_report_visibility_and_makefile_with_next_commands(self):
+        def row(request):
+            with patch.dict(M.B, {'request': request}), patch.object(M.A, 'profile_method', return_value='console'), \
+                 patch.object(M.A, 'auth_check', return_value={'identity': IDENTITY}):
+                report, text = M.doctor(self.config, 'ok', False)
+            return {r['check']: r for r in report.rows}['GitHub repository'], report, text
+        result, report, text = row(gh_api(PUBLIC))
+        self.assertEqual(result['state'], M.READY); self.assertIn('owner/project (public)', result['detail'])
+        self.assertIn('Makefile has setup, train targets', result['detail']); self.assertTrue(report.ready, text)
+        result, _, _ = row(gh_api(None))
+        self.assertEqual(result['state'], M.ACTION); self.assertEqual(result['next'], './workspace github-login')
+        result, _, _ = row(gh_api({**PUBLIC, 'private': True, 'visibility': 'private'}))
+        self.assertEqual(result['state'], M.ACTION); self.assertIn('git@github.com:owner/project.git', result['detail'])
+        self.assertEqual(result['next'], './workspace guide ' + M.shell(self.config) + ' --repo owner/project')
+        result, _, text = row(gh_api(PUBLIC, base64.b64encode(b'run:\n\ttrue\n').decode()))
+        self.assertEqual(result['state'], M.ACTION); self.assertIn('add Makefile targets setup, train', result['detail'])
+        self.assertIn('runtime-contract', result['detail']); self.assertEqual(result['next'], M.doctor_command(self.config))
+        result, _, _ = row(gh_api(PUBLIC, None))
+        self.assertIn('add a Makefile with targets setup, train', result['detail'])
+        self.project['commands'] = {'setup': ['python', 'setup.py'], 'run': ['python', 'train.py']}; self.write()
+        calls = []
+        result, _, _ = row(gh_api(PUBLIC, None, calls))
+        self.assertEqual(result['state'], M.READY); self.assertIn('custom commands; Makefile not checked', result['detail'])
+        self.assertFalse(any('/contents/' in ' '.join(c) for c in calls))
+
     def test_invalid_configuration_names_the_field(self):
         self.project['maximum_runtime_minutes'] = 5; self.write()
         report, text = M.doctor(self.config, 'ok', False)
@@ -139,11 +187,8 @@ class Doctor(unittest.TestCase):
             report, _ = M.doctor(config, 'ok', False)
         row = report.rows[1]
         self.assertEqual(row['state'], M.ACTION)
-        create, edit = row['next'].split('\n')
-        result = subprocess.run(['bash', '-c', create], cwd=ROOT, capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(config.read_bytes(), (ROOT/'infra/aws/project.example.json').read_bytes())
-        self.assertEqual(edit, '"${EDITOR:-nano}" ' + M.shell(config))
+        self.assertEqual(row['next'], './workspace guide ' + M.shell(config) + ' --repo OWNER/NAME --dataset PATH')
+        self.assertEqual(shlex.split(row['next'])[2], str(config), 'the path is quoted as one shell word')
         self.assertEqual(self.states(report)['AWS identity'], M.UNKNOWN)
         self.assertEqual(json.loads(M.as_json(report, config))['expected_config'], str(config))
 
@@ -155,14 +200,17 @@ class Doctor(unittest.TestCase):
         self.assertIn('free disk', text)
 
     def test_launcher_runs_doctor_from_another_directory_without_credentials(self):
-        environment = {**os.environ, **self.files, 'WORKSPACE_PYTHON': sys.executable}
+        shims = self.directory/'shims'; shims.mkdir()
+        (shims/'gh').write_text('#!/bin/sh\nexit 4\n'); (shims/'gh').chmod(0o755)
+        environment = {**os.environ, **self.files, 'WORKSPACE_PYTHON': sys.executable, 'PATH': str(shims) + ':' + os.environ['PATH']}
         for key in list(environment):
             if key.startswith(('AWS_', 'GH_', 'GITHUB_')) and key not in self.files: del environment[key]
         result = subprocess.run(['bash', str(ROOT/'workspace'), 'doctor', 'project.json'], cwd=self.directory,
                                 env=environment, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn('Project config  Ready', result.stdout); self.assertIn('GitHub access   Ready', result.stdout)
-        self.assertIn('AWS identity    To do', result.stdout)
+        self.assertRegex(result.stdout, r'Project config +Ready'); self.assertRegex(result.stdout, r'GitHub access +Ready')
+        self.assertRegex(result.stdout, r'AWS identity +To do')
+        self.assertRegex(result.stdout, r'GitHub repository +To do .*\n.*next: ./workspace github-login')
         self.assertIn('./workspace login --profile reviewed-temporary --region us-east-1', result.stdout)
         self.assertIn(str(self.config), result.stdout)
 

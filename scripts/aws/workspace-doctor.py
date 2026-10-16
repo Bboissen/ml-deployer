@@ -127,6 +127,33 @@ def check_github(report, project):
     report.add('GitHub access', READY, 'GitHub login active; Deploy registers a read-only deploy key and needs repository admin permission')
 
 
+def check_repository(report, project, config):
+    """Read-only GitHub API checks: reachable, visibility matches the URL, Makefile targets."""
+    repository = project['repository']
+    try:
+        name = P.repository_name(repository['url'])
+    except ValueError:
+        return  # GitHub access already reports the URL form.
+    if not shutil.which('gh'):
+        report.add('GitHub repository', ACTION, 'repository checks need the managed GitHub CLI', cli() + ' setup --github'); return
+    try:
+        facts = P.github_repository(L, name, repository['ref'], project['commands'])
+    except Exception as exc:
+        reason = text_of(exc)
+        report.add('GitHub repository', UNKNOWN if 'timed out' in reason else ACTION, name + ': ' + reason, cli() + ' github-login'); return
+    visibility = 'private' if facts['private'] else 'public'
+    if facts['private'] and not repository['url'].startswith('git@github.com:'):
+        report.add('GitHub repository', ACTION, facts['name'] + ' is private: use its SSH URL ' + facts['url'] +
+                   ' so Deploy can register a read-only deploy key', cli() + ' guide ' + shell(config) + ' --repo ' + facts['name']); return
+    todo = P.makefile_todo(facts)
+    if todo:
+        report.add('GitHub repository', ACTION, todo + '; Deploy runs make setup then make train (template: ' + P.MAKEFILE_DOC + ')',
+                   doctor_command(config)); return
+    goals = P.make_goals(project['commands'])
+    detail = ('Makefile has ' + ', '.join(goals) + ' target' + ('s' if len(goals) > 1 else '')) if goals else 'custom commands; Makefile not checked'
+    report.add('GitHub repository', READY, facts['name'] + ' (' + visibility + ') at ' + repository['ref'] + '; ' + detail)
+
+
 def check_project(report, config):
     try:
         project = P.validate_project(L, config)
@@ -216,18 +243,18 @@ def doctor(config, tools_detail, debug):
     project = None
     if config is None or not config.exists():
         target = '~/aws-workspace/demo/project.json' if config is None else shell(config)
-        parent = '~/aws-workspace/demo' if config is None else shell(config.parent)
         report.add('Project config', ACTION, 'no project file yet' + ('' if config is None else ' at ' + str(config)) +
-                   '; copy the example, then edit it for your profile, dataset and ML repository',
-                   'mkdir -p ' + parent + ' && cp infra/aws/project.example.json ' + target + '\n"${EDITOR:-nano}" ' + target)
+                   '; guided setup creates it from your GitHub repository and dataset',
+                   cli() + ' guide ' + target + ' --repo OWNER/NAME --dataset PATH')
         if config is not None: report.facts['expected_config'] = str(config)
         report.add('AWS identity', UNKNOWN, 'checked once the project file names your AWS profile')
-        report.add('GitHub access', UNKNOWN, 'public repositories need no login; checked once the project file names the repository')
+        report.add('GitHub access', UNKNOWN, 'checked once the project file names the repository')
     else:
         project = check_project(report, config)
         if project:
             check_aws(report, project)
             check_github(report, project)
+            check_repository(report, project, config)
             check_operation(report, config)
     if debug: debug_lines(report, config)
     text = render(report)

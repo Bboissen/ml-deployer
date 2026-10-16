@@ -8,14 +8,16 @@ export WORKSPACE_PYTHON
 PROJECT ?=
 FRESH ?= 0
 DEBUG ?= 0
-export PROJECT
+REPO ?=
+DATASET ?=
+export PROJECT REPO DATASET
 
 .PHONY: guide remote help help-all check workspace-test-setup workspace-test aws-automation-test repository-check scaffold-test fmt fmt-check
 
 remote: ## Run setup here; show instructions for opening the guide on another device.
-guide: ## Guided first use: tools, project questions, native login and companion (PROJECT=path, FRESH=1, DEBUG=1).
+guide: ## Guided first use: tools, project, native login and companion (PROJECT=path, REPO=owner/name, DATASET=path, FRESH=1, DEBUG=1).
 guide remote:
-	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $(if $(filter remote,$@),--remote) $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
+	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $${REPO:+--repo "$$REPO"} $${DATASET:+--dataset "$$DATASET"} $(if $(filter remote,$@),--remote) $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
 
 help: ## Show first-use, remote and repair commands.
 	@printf '\nAWS workspace\n\n'
@@ -23,6 +25,7 @@ help: ## Show first-use, remote and repair commands.
 		'make' 'Start or resume guided setup' \
 		'make remote' 'Run setup here; guide in your laptop browser' \
 		'make PROJECT=/path/project.json' 'Choose the project configuration' \
+		'make REPO=owner/name DATASET=path' 'Set up without questions (logins only)' \
 		'make FRESH=1' 'Rebuild tools; keep settings and logins' \
 		'make DEBUG=1' 'Show detailed diagnostics' \
 		'make check' 'Run the offline test suite (developers)' \

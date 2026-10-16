@@ -1,17 +1,18 @@
 (() => {
   'use strict';
   document.documentElement.classList.add('js');
-  const checks = {tools: 'Managed tools', project: 'Project config', aws: 'AWS identity', github: 'GitHub access'};
+  const checks = {tools: ['Managed tools'], project: ['Project config'], aws: ['AWS identity'], github: ['GitHub access', 'GitHub repository']};
   const labels = {Ready: '✓ Done', 'To do': '○ To do', 'Not checked': '… Not checked yet', Next: '→ Next', Waiting: '… Waiting'};
   const live = document.getElementById('live');
   let refreshing = false;
 
   function stepState(status, rows, step) {
     if (step in checks) {
-      const row = rows[checks[step]];
+      const found = checks[step].map((name) => rows[name]).filter(Boolean);
+      const row = found.find((r) => r.state !== 'Ready') || found[0];
       if (!row) return null;
       if (status.setup_mode === 'interactive' && row.state !== 'Ready') {
-        const instructions = {tools: 'Tools are being prepared in the setup terminal.', project: 'Answer the project questions in the terminal running make. The file is saved automatically.', aws: 'Continue with the sign-in prompt in the setup terminal.', github: 'Continue with the repository access prompt in the setup terminal.'};
+        const instructions = {tools: 'Tools are being prepared in the setup terminal.', project: 'Enter your GitHub repository and dataset in the terminal running make. The file is saved automatically.', aws: 'Continue with the sign-in prompt in the setup terminal.', github: 'Continue with the GitHub prompt in the setup terminal.'};
         return {...row, detail: instructions[step], next: null};
       }
       return row;

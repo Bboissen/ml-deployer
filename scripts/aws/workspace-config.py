@@ -129,6 +129,19 @@ def github_repository(L, name, ref=None, commands=None):
     return facts
 
 
+MAKEFILE_GUIDE = ('Deploy runs make setup then make train in your repository, with DATA_DIR (dataset, read-only) and '
+                  'OUTPUT_DIR (saved outputs) set. Add the targets, push, then run make again. Template:')
+MAKEFILE_DOC = 'docs/operations/aws-deployer-quickstart.md#runtime-contract'
+
+
+def makefile_todo(facts):
+    """The repository change the default commands still need, or None."""
+    if not facts['missing']: return None
+    where = ' at ' + facts['name'] + ' ' + facts['ref']
+    if facts['makefile'] is False: return 'add a Makefile with targets ' + ', '.join(facts['missing']) + where
+    return 'add Makefile target' + ('s ' if len(facts['missing']) > 1 else ' ') + ', '.join(facts['missing']) + where
+
+
 def supported_profile(L, region):
     profile = L['load_json'](L['REPO']/'infra/aws/workspace-profiles.json')['profiles']['cpu-python-v1']
     L['require'](region == profile['region'], 'unsupported region for the reviewed cpu-python-v1 profile')
