@@ -152,6 +152,13 @@ class Onboarding(unittest.TestCase):
             with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
                 result=O.prepare(L,deployment,Path(temporary)/'foundation',{'guard_zip_path':'guard.zip','guard_zip_sha256':'a'*64},
                     {'selected':{**L['supported_sizes']()['r8i.4xlarge'],'instance_type':'r8i.4xlarge','availability_zone':'us-east-1b','hourly_usd':1}},operator)
+                target_name='aws-'+selected['inventory']['resource_prefix']
+                target_config=Path(temporary)/'target-config.json'
+                L['write'](target_config,{'target_name':target_name,'target':L['read'](Path(result['directory'])/'target.json')})
+                with patch.dict(os.environ,{'WORKSPACE_CONFIG':str(target_config)}):
+                    validated=L['boundary']['targets']()[target_name]
+                self.assertEqual(validated,selected)
+                self.assertEqual(validated['inventory']['schedule_groups'],['default'])
                 config=L['read'](Path(result['directory'])/'platform.tfvars.json')
                 self.assertEqual(list(config['ml_projects']),[project])
                 plan={'variables':{'ml_projects':{'value':config['ml_projects']},'provision_alert_topic':{'value':True}},

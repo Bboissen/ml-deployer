@@ -37,7 +37,8 @@ def target(deployment, operator):
             'deployment_role_arn': names['deployer_role_arn'], 'backend': deployment['backend'],
             'inventory': {'resource_prefix': prefix, 'buckets': [names['workload_bucket']], 'repositories': [],
                           'roles': [prefix+'-workspace-deployer', prefix+'-workspace-watchdog', prefix+'-workspace-watchdog-invoke'],
-                          'policies': [prefix+'-ws-'+project+'-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal']}}
+                          'policies': [prefix+'-ws-'+project+'-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal'],
+                          'schedule_groups': ['default']}}
 
 
 def pages(L, api, operation, result, **arguments):
