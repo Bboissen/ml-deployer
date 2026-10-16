@@ -58,45 +58,53 @@ need a real account run are listed there.
 
 ## How it works
 
-You provide a GitHub repository and a dataset. The deployer creates a temporary
-machine in your AWS account, runs your project's setup and training commands,
-and keeps the results in S3 after the machine is removed.
+The local controller turns a project file into a bounded AWS workspace. It
+resolves the repository commit, inventories the dataset, selects compute and
+shows the account, price and lifetime for approval. It then inspects and applies
+saved OpenTofu plans bound to that approval.
 
-Three parts have distinct jobs:
+The workload follows this path:
 
 ```mermaid
 flowchart LR
-    local["Your computer<br/>Review and deploy"] -->|controls| compute["Temporary EC2<br/>Run your project"]
-    compute <-->|data and results| storage["Persistent S3<br/>Keep data and results"]
+    repo["GitHub repository<br/>Pinned commit"] -->|clone| compute["EC2 workspace<br/>make setup / make train"]
+    data["S3 dataset<br/>Verified versions"] -->|DATA_DIR| compute
+    compute -->|OUTPUT_DIR| results["S3 results<br/>Outputs, logs, receipt"]
 ```
 
-Your computer (or SSH server) runs `make` and `./workspace`. It asks you to
-approve the account, commit, dataset, machine, price and lifetime before making
-cloud changes. The EC2 machine runs your repository's code and dependencies as
-a non-root user. Its commands read the verified dataset from `DATA_DIR` and
-write declared results to `OUTPUT_DIR`; the deployer persists those results to S3.
+The controller ingests a local, S3 or HTTPS dataset into the project's S3 bucket
+and verifies its object versions and checksums before launching compute. EC2
+clones the pinned commit, stages the verified dataset as read-only `DATA_DIR`,
+and runs your commands as a non-root user. Your repository owns ML dependencies
+and logic; the deployer uploads declared `OUTPUT_DIR` files and execution records.
 
-Compute is temporary; data is persistent. Private, encrypted S3 storage holds
-datasets and results; infrastructure state has its own bucket. AWS enforces the
-machine's expiry even if your computer disconnects. The supporting network,
-permissions and expiry guard are retained for reuse.
+Underneath the workload, a reusable **foundation** provides the network, scoped
+IAM permissions, separate private encrypted buckets for infrastructure state
+and workload data, and the expiry guard. A per-workspace deadline is armed
+before launch permissions are created. AWS terminates expired compute even if
+the controller is gone. Terminal access uses Session Manager with no inbound
+network rules; datasets, results and the foundation survive compute cleanup.
 
 ## Deployment lifecycle
 
-The normal path in the default **job** mode is:
+The lifecycle separates preparation, execution and retention. Job mode runs
+setup and training; workspace mode runs setup and leaves a terminal available.
 
 ```mermaid
 stateDiagram-v2
     state "Review scope" as Review
-    state "Prepare resources and data" as Prepare
-    state "Run setup and training" as Run
-    state "Save and verify results" as Save
-    state "Remove compute" as Cleanup
+    state "Prepare foundation, access and dataset" as Prepare
+    state "Arm expiry, then launch EC2" as Launch
+    state "Execute project and verify S3 outputs" as Run
+    state "Workspace ready for connect" as Ready
+    state "Remove compute and recheck S3 outputs" as Cleanup
     [*] --> Review
     Review --> Prepare: you approve
-    Prepare --> Run
-    Run --> Save
-    Save --> Cleanup
+    Prepare --> Launch
+    Launch --> Run
+    Run --> Cleanup: job mode
+    Run --> Ready: workspace mode
+    Ready --> Cleanup: cancel
     Cleanup --> [*]
 ```
 
@@ -104,10 +112,11 @@ stateDiagram-v2
 outputs were verified again after removal. Datasets, outputs and the foundation
 remain; deleting retained resources requires separate authorization.
 
-In **workspace** mode, setup runs without training and the machine stays
-available for `connect` until `cancel` or expiry. Failures and cancellation also
-trigger cleanup; recovery details are in the
-[operations guide](docs/operations/aws-deploy-operation.md).
+The diagram shows normal completion. A workspace also ends at its fixed AWS
+expiry; `resume` reconciles remaining controls and receipts afterward. Failures
+and cancellation trigger owned-resource cleanup. If effects are uncertain,
+recovery checks recorded ownership before continuing; it never silently
+launches a second machine or reruns an interrupted job.
 
 ## Reading the stage messages
 
@@ -127,17 +136,17 @@ The steps run in this order:
 
 | Stage | What it does |
 | --- | --- |
-| `artifacts` | Package the toolbox and automatic-expiry code locally. Your ML dependencies are installed later by your project's setup command. |
-| `foundation` | Create or verify reusable AWS storage, network, permissions and the expiry guard. |
-| `foundation-iam` (if needed) | Tighten permissions on an existing foundation as included in the approved scope. |
-| `repository` | Prepare or reuse credentials for a private repository; public repositories need none. Cloning on EC2 happens during `job`. |
-| `access` (private repository only) | Allow the workspace role to read the selected repository credential. |
-| `ingestion` | Copy the selected dataset into S3, or verify a reusable copy, and check its integrity. |
-| `prepare` | Set up the workspace permissions, terminal access and expiry deadline before EC2 can launch. |
-| `launch` | Check that the safety controls are ready, then create the reviewed EC2 machine. |
-| `job` | Clone the pinned commit, stage the dataset, run setup and training, and save declared outputs and execution records to S3. Workspace mode runs setup only. |
-| `verify` | Independently check the saved outputs and execution records. Setup and training exit codes are reported separately. |
-| `cleanup` | Remove owned compute and its temporary controls, unless retaining a ready workspace. Saved outputs are checked again afterward. |
+| `artifacts` | Build the toolbox and expiry-watchdog ZIPs from pinned inputs and record their hashes. These are infrastructure packages; your ML dependencies are installed by your project's setup command. |
+| `foundation` | Create or verify the reusable state/workload buckets, network, IAM permissions and expiry guard. No workspace EC2 instance is created. |
+| `foundation-iam` (if needed) | Apply the permission tightening for a retained foundation that was included in the approved scope. |
+| `repository` | Register a read-only GitHub deploy key and store its private half in Secrets Manager, or reuse an existing reference. Public repositories need no credential. EC2 cloning happens during `job`. |
+| `access` (private repository only) | Grant or verify the workspace role's access to the selected repository secret. |
+| `ingestion` | Stream the selected dataset to S3 or reuse matching content. Read exact object versions back and verify checksums before recording the dataset manifest. |
+| `prepare` | Create the workspace identity, Session Manager documents and terminal grants, absolute expiry schedule and bounded launch role. The deadline must exist before launch permissions. |
+| `launch` | Check the native guard, deadline and IAM readiness, then create the single reviewed EC2 instance within its launch window. |
+| `job` | Clone the pinned commit, remove clone credentials, stage the verified dataset, and run non-root setup and training. Save declared outputs, logs and an execution receipt to S3. Workspace mode runs setup only. |
+| `verify` | Independently read the saved receipt and output versions, check hashes, and bind them to the reviewed commit, dataset and instance. Report setup and training exit codes separately. |
+| `cleanup` | Remove owned compute and temporary runner controls, and verify their absence, unless retaining a ready workspace. Recheck persisted outputs after compute deletion. |
 
 **At `stage prepare started`,** the dataset is verified in S3 and the deployer
 is setting up the machine's safety controls. EC2 has not launched and training
