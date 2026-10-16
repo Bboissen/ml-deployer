@@ -32,6 +32,30 @@ run "preparation_arms_deadline_without_compute" {
   }
 }
 
+run "reserved_ssm_prefix_uses_account_owned_document_names" {
+  command = plan
+  variables {
+    resource_prefix = "aws-example"
+    workspace_identity = merge(var.workspace_identity, {
+      permissions_boundary_arn = replace(var.workspace_identity.permissions_boundary_arn, ":policy/ml-infra-", ":policy/aws-example-")
+      session_policy_arn       = replace(var.workspace_identity.session_policy_arn, ":policy/ml-infra-", ":policy/aws-example-")
+    })
+    guard = merge(var.guard, {
+      guard_id         = substr(sha256("000000000000/us-east-1/aws-example/workspace-v1"), 0, 32)
+      function_arn     = replace(var.guard.function_arn, ":function:ml-infra-", ":function:aws-example-")
+      invoker_role_arn = replace(var.guard.invoker_role_arn, ":role/ml-infra-", ":role/aws-example-")
+    })
+  }
+  assert {
+    condition     = startswith(aws_ssm_document.terminal.name, "ml-aws-example-") && startswith(aws_ssm_document.job.name, "ml-aws-example-")
+    error_message = "SSM document names must avoid the reserved AWS namespace without renaming IAM roles."
+  }
+  assert {
+    condition     = startswith(aws_iam_role.workspace["fraud-detection-dev-01"].name, "aws-example-")
+    error_message = "The document naming fix must preserve existing runner role ownership."
+  }
+}
+
 run "git_runtime_reads_only_workspace_secret" {
   command = plan
   variables {
