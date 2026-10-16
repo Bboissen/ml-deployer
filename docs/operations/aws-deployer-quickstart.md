@@ -12,8 +12,13 @@ cd ml-deployer
 make            # or ./workspace guide when make is not installed
 ```
 
-`make` prepares the tools, asks for project settings, saves the configuration,
-and offers native sign-in in the same terminal. Its companion at
+`make` prepares the tools, signs you in to GitHub, asks for your GitHub
+repository and dataset, derives every other setting, saves the configuration
+and offers native AWS sign-in in the same terminal. To skip the questions:
+`make REPO=owner/name DATASET=/path/to/data` (or
+`./workspace guide PROJECT.json --repo owner/name --dataset PATH`, plus
+`--profile NAME` when several native AWS profiles exist); only the browser
+logins and the Deploy confirmation remain. Its companion at
 `http://127.0.0.1:8765/` shows progress (over SSH, forward that port from your
 laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
 `make PROJECT=/path/project.json`. Existing valid settings are reused.
@@ -36,7 +41,7 @@ Once a release is published, its standalone installer replaces the clone:
 ```sh
 curl -fsSL --proto '=https' --proto-redir '=https' \
   https://github.com/Bboissen/ml-deployer/releases/download/vVERSION/install.sh -o install.sh
-bash install.sh            # add --github for private repositories
+bash install.sh            # add --github to install the GitHub CLI now (make adds it otherwise)
 rm install.sh
 ```
 
@@ -47,16 +52,40 @@ appears below.
 
 ## 2. Configure
 
-```sh
-mkdir -p ~/aws-workspace/demo
-cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
-"${EDITOR:-nano}" ~/aws-workspace/demo/project.json
-```
+`make` writes the project file from two answers, the GitHub repository and the
+dataset (local path relative to the JSON file, `s3://` prefix or public HTTPS
+file), and derives the rest:
 
-Set the profile, project/workspace names, dataset (local path relative to the
-JSON file, `s3://` prefix or public HTTPS file), repository URL and ref, the
-external project's setup/run argument arrays, output paths and a 15–60 minute
-lifetime. Field reference: [project configuration](aws-project-configuration.md).
+| Field | Derived from |
+| --- | --- |
+| `repository.url` | GitHub visibility: private → `git@github.com:owner/name.git` (deploy key), public → `https://github.com/owner/name.git` |
+| `repository.ref` | the repository's default branch |
+| `project` | repository name, lowercased to `[a-z][a-z0-9-]`, 3–24 characters |
+| `profile`, `region` | `AWS_PROFILE` or the only console/SSO profile (asked only among several; `ml-deployer` when none exists); `us-east-1` |
+| `mode`, `maximum_runtime_minutes` | `job`, 60 (the schema maximum) |
+| `commands`, `outputs.paths` | `make setup` / `make train`, `outputs` |
+
+A rerun keeps existing values; edit the file (field reference:
+[project configuration](aws-project-configuration.md)) or pass `--repo`,
+`--dataset` or `--profile` to change them. The template is
+`infra/aws/project.example.json`.
+
+### Runtime contract
+
+Your repository needs a `Makefile` with `setup` and `train` targets; setup and
+`doctor` check this on the configured ref and show a To-do when one is missing.
+On the instance the checkout runs, as a non-root user, `make setup` and then
+`make train` with:
+
+- `DATA_DIR`: the verified dataset, read-only;
+- `OUTPUT_DIR`: `<checkout>/outputs`, persisted to S3 after the job.
+
+```make
+setup:
+	python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+train:
+	.venv/bin/python train.py --data "$(DATA_DIR)" --out "$(OUTPUT_DIR)"
+```
 
 ## 3. Sign in
 
@@ -75,13 +104,13 @@ or was already used: each link works once, for a few minutes, while the login
 command still waits. Press Ctrl+C, rerun the login and use only the newly opened
 page; add `--remote` if it still fails.
 
-## 4. Private GitHub access, only when needed
+## 4. GitHub access
 
-Public repositories use an `https://github.com/owner/project.git` URL and need
-no login. Private repositories use `git@github.com:owner/project.git`, the
-managed GitHub CLI and one browser login; Deploy then registers a read-only
-deploy key (repository admin permission required) and stores the private key
-only in Secrets Manager.
+Setup reads repository settings with the managed GitHub CLI after one browser
+login (read-only API calls). Public repositories are cloned over HTTPS and need
+nothing more. Private repositories use `git@github.com:owner/project.git`;
+Deploy registers a read-only deploy key (repository admin permission required)
+and stores the private key only in Secrets Manager.
 
 ```sh
 ./workspace setup --github
@@ -94,7 +123,10 @@ only in Secrets Manager.
 ./workspace doctor ~/aws-workspace/demo/project.json
 ```
 
-Each line is `Ready`, `To do` or `Not checked` with the next command. Repeat
+Each line is `Ready`, `To do` or `Not checked` with the next command. The
+`GitHub repository` line checks that the repository is reachable, that a
+private repository uses its SSH URL and that the Makefile has the `setup` and
+`train` targets. Repeat
 until the last line is `Ready: review and deploy with …`. `--debug` adds
 bounded, redacted diagnostics. `make` runs the same checks and shows them on the
 companion page.

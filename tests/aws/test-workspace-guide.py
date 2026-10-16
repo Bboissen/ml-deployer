@@ -132,6 +132,26 @@ class GuideTerminal(unittest.TestCase):
         self.assertIn('setup continues here', output.getvalue())
         self.assertEqual(server.fileno(), -1)
 
+    def test_scripted_flags_set_up_without_a_terminal_then_hand_over_to_the_scope_review(self):
+        doctor = G.Doctor(Path('/nonexistent/project.json')); doctor.run = lambda: {**REPORT, 'ready': True}
+        server = G.bind(0, 1, doctor)
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['workspace-guide.py', '/nonexistent/project.json', '--repo', 'owner/name', '--dataset', 'data']), \
+             patch.object(sys, 'stdout', output), patch.object(G, 'interactive', return_value=False), \
+             patch.object(G, 'bind', return_value=server), patch.object(G, 'Doctor', return_value=doctor), \
+             patch.object(G, 'open_browser', return_value=False), \
+             patch.object(G, 'setup_project', return_value=True) as setup, patch.object(G.subprocess, 'call') as review:
+            G.main()
+        self.assertEqual({k: setup.call_args.kwargs[k] for k in ('repo', 'dataset', 'profile')},
+                         {'repo': 'owner/name', 'dataset': 'data', 'profile': None})
+        # The deployer itself shows the scope and requires `deploy` or --authorization quoting its hash.
+        self.assertEqual(review.call_args.args[0][-1], '/nonexistent/project.json')
+        self.assertEqual(server.fileno(), -1)
+
+    def test_guide_flags_need_values(self):
+        result = subprocess.run(['bash', str(ROOT/'scripts/aws/workspace-guide.sh'), '--repo'], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 2); self.assertIn('--repo needs a value', result.stderr)
+
     def test_doctor_always_checks_the_selected_path_even_before_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory)/'custom project.json'

@@ -299,6 +299,60 @@ class Discovery(unittest.TestCase):
         P.validate_discovery(L, project, result)
 
 
+class GitHubDerivation(unittest.TestCase):
+    """Repository settings from the read-only GitHub API; responses and input are data."""
+    def api(self, *responses):
+        calls = []; answers = iter(responses)
+        def request(command, env, seconds):
+            calls.append(command); code, out, err = next(answers)
+            return subprocess.CompletedProcess(command, code, out, err)
+        return calls, patch.dict(L['boundary'], {'request': request})
+
+    def test_repository_names_accept_short_and_url_forms_and_never_echo_rejections(self):
+        for text in ('owner/repo', ' https://github.com/owner/repo.git ', 'git@github.com:owner/repo.git', 'github.com/owner/repo/'):
+            self.assertEqual(P.repository_name(text), 'owner/repo')
+        for text in ('owner', 'owner/..', 'https://SECRET@github.com/owner/repo', 'http://github.com/owner/repo',
+                     'owner/repo;SECRET', '-owner/repo', 'https://gitlab.com/owner/repo', 'owner/repo/tree/main'):
+            with self.assertRaises(ValueError) as caught: P.repository_name(text)
+            self.assertNotIn('SECRET', str(caught.exception))
+
+    def test_project_slug_matches_the_schema(self):
+        import re
+        schema = json.loads((ROOT/'shared/workspace/project.schema.json').read_text())['properties']['project']['pattern']
+        for name, slug in (('aws-workspace-e2e', 'aws-workspace-e2e'), ('My_Model.v2', 'my-model-v2'), ('1x', 'ml-x'),
+                           ('123', 'ml-project'), ('A'*60, 'a'*24), ('ab-', 'ml-ab'), ('x' * 23 + '-y', 'x' * 23)):
+            self.assertEqual(P.project_slug(name), slug); self.assertRegex(slug, schema)
+        self.assertTrue(all(re.fullmatch(schema, P.project_slug(n)) for n in ('a', '_', '.github', 'Z--z', '9-to-5')))
+
+    def test_make_targets_is_a_simple_rule_parse(self):
+        text = ('SHELL := /bin/bash\nVAR ::= x\nX = a:b\n.PHONY: setup train\n# setup: comment\n'
+                'run:\n\tnot: a-target\nsetup train: deps\ncheck::\n%.o: %.c\n')
+        self.assertEqual(P.make_targets(text), {'run', 'setup', 'train', 'check'})
+        self.assertEqual(P.make_goals({'setup': ['make', 'setup'], 'run': ['make', 'train']}), ['setup', 'train'])
+        self.assertEqual(P.make_goals({'setup': ['make', '-C', 'x', 'setup'], 'run': ['python', 'train.py']}), [])
+
+    def test_private_repository_derives_ssh_url_default_branch_and_missing_targets(self):
+        import base64
+        repository = json.dumps({'full_name': 'Owner/Repo', 'private': True, 'visibility': 'private', 'default_branch': 'feat/x'})
+        makefile = json.dumps({'type': 'file', 'encoding': 'base64', 'content': base64.b64encode(b'run:\n\ttrue\n').decode()})
+        calls, boundary = self.api((0, repository, ''), (0, makefile, ''))
+        with boundary:
+            facts = P.github_repository(L, 'owner/repo', None, {'setup': ['make', 'setup'], 'run': ['make', 'train']})
+        self.assertEqual((facts['url'], facts['ref'], facts['missing']), ('git@github.com:Owner/Repo.git', 'feat/x', ['setup', 'train']))
+        self.assertEqual(calls[1][-1], 'repos/Owner/Repo/contents/Makefile?ref=feat%2Fx')
+        self.assertTrue(all(c[:6] == ['gh', 'api', '--hostname', 'github.com', '--method', 'GET'] for c in calls))
+        self.assertIn('add Makefile targets setup, train', P.makefile_todo(facts))
+
+    def test_unexpected_or_failed_responses_fail_closed_without_echoing_them(self):
+        for response in ((0, json.dumps({'full_name': 'owner/repo; SECRET', 'private': False, 'default_branch': 'main'}), ''),
+                         (0, json.dumps({'full_name': 'owner/repo', 'private': False, 'default_branch': '../SECRET'}), ''),
+                         (0, 'SECRET not json', ''), (1, '', 'SECRET HTTP 500'), (1, '', 'gh: Not Found (HTTP 404)')):
+            _, boundary = self.api(response)
+            with boundary, self.assertRaises(L['Failure']) as caught:
+                P.github_repository(L, 'owner/repo')
+            self.assertNotIn('SECRET', str(caught.exception))
+
+
 class AccessMigration(unittest.TestCase):
     def test_public_repository_can_plan_exact_iam_update_without_git_secret(self):
         directory = OUT/'public-access'

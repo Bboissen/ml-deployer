@@ -94,6 +94,22 @@ def profile_method(profile, region):
     raise B['Failure']('this profile uses a credential process, temporary credentials or a source profile; renew its original native login instead')
 
 
+def native_profiles(region):
+    """Named console/SSO profiles; AWS_PROFILE first when it is one of them."""
+    B['check_environment']()
+    config, _ = B['profile_documents']()
+    names = sorted(s[len('profile '):] for s in config.sections() if s.startswith('profile '))
+    found = []
+    for name in names:
+        if name == 'default' or not re.fullmatch(r'[A-Za-z0-9_+=,.@-]{1,128}', name): continue
+        try:
+            if profile_method(name, region) in ('console', 'sso'): found.append(name)
+        except B['Failure']:
+            continue
+    selected = os.environ.get('AWS_PROFILE')
+    return [selected] + [n for n in found if n != selected] if selected in found else found
+
+
 def interactive(command):
     require(user_terminal(), 'login needs an interactive terminal for browser consent/MFA; run this command in your terminal')
     # Native login output (including device URLs) goes only to the user's terminal.

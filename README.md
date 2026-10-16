@@ -13,8 +13,11 @@ cd ml-deployer
 make
 ```
 
-`make` prepares hash-pinned tools, asks for your project settings in the same
-terminal, saves a private project file and offers native AWS sign-in. Completed
+`make` prepares hash-pinned tools, signs you in to GitHub, asks for two things
+(your GitHub repository and dataset), derives the rest through the GitHub API
+and your AWS profile, saves a private project file and offers native AWS
+sign-in. Your repository provides `make setup` and `make train`
+([runtime contract](docs/operations/aws-deployer-quickstart.md#runtime-contract)). Completed
 steps are skipped on rerun. A companion page at `http://127.0.0.1:8765/` shows
 progress; it never logs in or deploys.
 
@@ -37,6 +40,7 @@ immutable review and launches only after you type `deploy`. Automation passes
 
 - `make` — start or resume guided setup
 - `make remote` — same, with the guide in your laptop browser
+- `make REPO=owner/name DATASET=path` — set up without questions (browser logins only)
 - `make FRESH=1` — rebuild the tools; keep settings and logins
 - `make DEBUG=1` — show detailed diagnostics
 - `make check` — run the offline test suite (developers)

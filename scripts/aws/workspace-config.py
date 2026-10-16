@@ -1,12 +1,15 @@
 """AWS configuration preparation; never applies plans or executes project code."""
+import base64
 import copy
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import time
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 import uuid
 
 
@@ -28,11 +31,7 @@ def validate_project_value(L, value):
     repo = value['repository']
     L['require'](re.fullmatch(r'(?:https://github\.com/|git@github\.com:)[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+\.git', repo['url']),
                  'repository requires a credential-free GitHub HTTPS or SSH URL')
-    ref = repo['ref']
-    L['require'](re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,254}', ref) and
-                 not any(s in ref for s in ('..', '//', '@{')) and
-                 not any(p.startswith('.') or p.endswith(('.', '.lock')) for p in ref.split('/')) and
-                 not ref.endswith('/'), 'invalid repository branch, tag or full commit')
+    L['require'](valid_ref(repo['ref']), 'invalid repository branch, tag or full commit')
     for path in value['outputs']['paths']:
         parts = path.split('/')
         L['require'](not path.startswith(('/', '-')) and '\\' not in path and
@@ -42,6 +41,105 @@ def validate_project_value(L, value):
     value = copy.deepcopy(value)
     value.setdefault('mode', 'job')
     return value
+
+
+def valid_ref(ref):
+    return bool(isinstance(ref, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,254}', ref) and
+                not any(s in ref for s in ('..', '//', '@{')) and
+                not any(p.startswith('.') or p.endswith(('.', '.lock')) for p in ref.split('/')) and
+                not ref.endswith('/'))
+
+
+GITHUB_NAME = r'[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}'
+
+
+def repository_name(text):
+    """OWNER/NAME from OWNER/NAME, a github.com URL or SSH address; errors never echo the input."""
+    match = re.fullmatch(r'(?:(?:https://)?github\.com/|git@github\.com:)?(' + GITHUB_NAME + r')/?', text.strip())
+    name = match.group(1) if match else ''
+    name = name[:-4] if name.endswith('.git') else name
+    if not re.fullmatch(GITHUB_NAME, name) or name.split('/')[1] in ('.', '..'):
+        raise ValueError('enter a GitHub repository as OWNER/NAME or its github.com URL')
+    return name
+
+
+def project_slug(name):
+    """A project name from a repository name: lowercase, letter first, 3-24 characters."""
+    slug = re.sub(r'^[^a-z]+', '', re.sub(r'[^a-z0-9]+', '-', name.lower()))[:24].strip('-')
+    return slug if len(slug) >= 3 else ('ml-' + slug).strip('-') if slug else 'ml-project'
+
+
+def make_targets(text):
+    """Explicit rule targets of a Makefile: a simple parse, not GNU make."""
+    targets = set()
+    for line in text.splitlines():
+        match = re.match(r'([A-Za-z0-9_][A-Za-z0-9_./ -]*?)\s*(?:::|:)(?![:=])', line)
+        if match: targets.update(match.group(1).split())
+    return targets
+
+
+def make_goals(commands):
+    """Targets named by plain `make TARGET` commands; custom commands are not checked."""
+    return [argv[1] for argv in commands.values() if len(argv) == 2 and argv[0] == 'make' and not argv[1].startswith('-')]
+
+
+def github_api(L, path):
+    """One read-only GitHub API call through the signed-in gh; None when not found. Responses are data."""
+    try:
+        result = L['boundary']['request'](['gh', 'api', '--hostname', 'github.com', '--method', 'GET', path], os.environ.copy(), 30)
+    except subprocess.TimeoutExpired:
+        L['require'](False, 'GitHub API request timed out')
+    except OSError:
+        L['require'](False, 'GitHub CLI unavailable; run ./workspace github-login')
+    if result.returncode != 0:
+        if re.search(r'\(HTTP 404\)', result.stderr): return None
+        L['require'](False, 'GitHub API request failed; run ./workspace github-login and check repository access')
+    L['require'](len(result.stdout) <= 4*1024*1024, 'GitHub API response too large')
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        L['require'](False, 'GitHub API returned an invalid response')
+
+
+def github_repository(L, name, ref=None, commands=None):
+    """Canonical name, visibility, clone URL, default branch and Makefile goals of one repository."""
+    data = github_api(L, 'repos/' + name)
+    L['require'](data is not None, 'GitHub repository not found, or not visible to your GitHub login')
+    L['require'](isinstance(data, dict) and isinstance(data.get('full_name'), str) and re.fullmatch(GITHUB_NAME, data['full_name']) and
+                 isinstance(data.get('private'), bool) and valid_ref(data.get('default_branch')), 'unexpected GitHub repository response')
+    private = data['private'] or data.get('visibility') != 'public'
+    full = data['full_name']; ref = ref or data['default_branch']
+    L['require'](valid_ref(ref), 'invalid repository branch, tag or full commit')
+    facts = {'name': full, 'private': private, 'default_branch': data['default_branch'], 'ref': ref,
+             'url': ('git@github.com:' if private else 'https://github.com/') + full + '.git', 'makefile': None, 'missing': []}
+    goals = make_goals(commands) if commands else []
+    if goals:
+        content = github_api(L, 'repos/' + full + '/contents/Makefile?ref=' + quote(ref, safe=''))
+        if content is not None:
+            L['require'](isinstance(content, dict) and content.get('type') == 'file' and content.get('encoding') == 'base64' and
+                         isinstance(content.get('content'), str), 'unexpected GitHub Makefile response')
+            try:
+                text = base64.b64decode(content['content']).decode('utf-8', 'replace')
+            except ValueError:
+                L['require'](False, 'unexpected GitHub Makefile response')
+            facts['makefile'] = True
+            facts['missing'] = [goal for goal in goals if goal not in make_targets(text)]
+        else:
+            facts['makefile'] = False; facts['missing'] = goals
+    return facts
+
+
+MAKEFILE_GUIDE = ('Deploy runs make setup then make train in your repository, with DATA_DIR (dataset, read-only) and '
+                  'OUTPUT_DIR (saved outputs) set. Add the targets, push, then run make again. Template:')
+MAKEFILE_DOC = 'docs/operations/aws-deployer-quickstart.md#runtime-contract'
+
+
+def makefile_todo(facts):
+    """The repository change the default commands still need, or None."""
+    if not facts['missing']: return None
+    where = ' at ' + facts['name'] + ' ' + facts['ref']
+    if facts['makefile'] is False: return 'add a Makefile with targets ' + ', '.join(facts['missing']) + where
+    return 'add Makefile target' + ('s ' if len(facts['missing']) > 1 else ' ') + ', '.join(facts['missing']) + where
 
 
 def supported_profile(L, region):

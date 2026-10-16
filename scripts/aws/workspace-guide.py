@@ -140,12 +140,16 @@ def main():
     parser.add_argument('--read-only', action='store_true', help='serve the companion without terminal setup')
     parser.add_argument('--debug', action='store_true', help='show diagnostic details')
     parser.add_argument('--remote', action='store_true', help='run setup here with the browser on another device')
+    parser.add_argument('--repo', help='GitHub repository OWNER/NAME or URL; with --dataset, setup asks nothing')
+    parser.add_argument('--dataset', help='dataset path, s3:// or https:// URL')
+    parser.add_argument('--profile', help='AWS profile, when several native profiles exist')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535: parser.error('port must be between 1 and 65535')
     remote = args.remote or ssh_session()
     if remote: tunnel = laptop_tunnel(args.port)
     doctor = Doctor(args.config.expanduser().absolute())
     doctor.interactive = interactive() and not args.read_only
+    scripted = args.repo is not None and args.dataset is not None
     exact_port = 'WORKSPACE_GUIDE_PORT' in os.environ or '--port' in sys.argv or remote
     server = bind(args.port, 1 if exact_port else min(10, 65536 - args.port), doctor)
     port = server.server_address[1]; url = 'http://127.0.0.1:%d/' % port
@@ -166,9 +170,10 @@ def main():
         else:
             ui.hint('Companion:')
             ui.command(url)
-        if doctor.interactive:
+        if doctor.interactive or scripted:
             try:
-                complete = setup_project(doctor.config, ui, doctor, remote=remote)
+                complete = setup_project(doctor.config, ui, doctor, remote=remote,
+                                         repo=args.repo, dataset=args.dataset, profile=args.profile)
             except Exception as exc:
                 if args.debug: raise
                 ui.status('error', str(exc) if isinstance(exc, ValueError) else 'Setup could not finish; rerun make DEBUG=1 for details')
@@ -177,12 +182,18 @@ def main():
             report = doctor.report()
             if complete and report.get('ready'):
                 ui.status('done', 'Setup complete')
-                if ui.confirm('Review deployment now?'):
+                if scripted or ui.confirm('Review deployment now?'):
                     # The existing deployer displays its scope and requires its
-                    # own scope-bound confirmation before cloud changes.
+                    # own scope-bound confirmation (or --authorization quoting
+                    # the scope hash) before cloud changes.
                     subprocess.call(['bash', str(ROOT/'workspace'), str(doctor.config)])
             else:
+                for row in report.get('rows', []):
+                    if row['state'] != 'Ready':
+                        ui.status('wait', row['check'] + ': ' + row['detail'])
+                        if row.get('next'): ui.command(row['next'].splitlines()[0])
                 ui.status('wait', 'Setup paused · run make again to continue')
+            if scripted and not doctor.interactive: return
         else:
             report = doctor.report()
             for row in report.get('rows', []):

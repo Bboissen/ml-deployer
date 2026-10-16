@@ -11,7 +11,10 @@ while (($#)); do
     --debug) setup_options+=(--debug); guide_options+=(--debug); debug=1 ;;
     --read-only) guide_options+=(--read-only) ;;
     --remote) guide_options+=(--remote) ;;
-    --help) printf '%s\n' 'workspace guide [PROJECT.json] [--fresh] [--debug] [--read-only] [--remote]'; exit 0 ;;
+    --repo|--dataset|--profile)
+      (($# > 1)) || { printf 'workspace guide: %s needs a value\n' "$1" >&2; exit 2; }
+      guide_options+=("$1" "$2"); shift ;;
+    --help) printf '%s\n' 'workspace guide [PROJECT.json] [--repo OWNER/NAME --dataset PATH|URL] [--profile NAME] [--fresh] [--debug] [--read-only] [--remote]'; exit 0 ;;
     -*) printf 'workspace guide: unknown option %s\n' "$1" >&2; exit 2 ;;
     *) [[ -z "$config" ]] || { printf 'workspace guide: provide one project path\n' >&2; exit 2; }; config="$1" ;;
   esac
@@ -25,7 +28,8 @@ ui_color '1;36' '  1/4  Tools'; printf '\n' >&2
 setup_log="$(mktemp "${TMPDIR:-/tmp}/workspace-setup.XXXXXX")"
 trap 'ui_busy_stop; rm -f "$setup_log"' EXIT
 ui_busy_start 'Checking and preparing pinned tools'
-if bash "$repo_root/workspace" setup ${setup_options[@]+"${setup_options[@]}"} >"$setup_log" 2>&1 && [[ -x "$python" ]]; then
+# GitHub CLI is part of first use: repository settings come from the GitHub API.
+if bash "$repo_root/workspace" setup --github ${setup_options[@]+"${setup_options[@]}"} >"$setup_log" 2>&1 && [[ -x "$python" ]]; then
   ui_busy_stop
   (( !debug )) || cat "$setup_log" >&2
   ui_status done 'Tools ready'

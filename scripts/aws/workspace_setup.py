@@ -118,106 +118,141 @@ def checked_config(path):
     return path
 
 
-def argv(text):
-    try:
-        parts = shlex.split(text)
-    except ValueError:
-        raise ValueError('use matching quotes around arguments with spaces') from None
-    if not parts or any(part in (';', '|', '||', '&&', '>', '>>', '<', '&') for part in parts):
-        raise ValueError('enter one executable and its arguments; shell operators are unsupported')
-    return parts
+DEFAULT_PROFILE = 'ml-deployer'
 
 
-def create_project(config, ui, M):
-    """Collect ordinary settings, validate them, then atomically save once."""
+def given_or_asked(ui, label, given, parse, validate):
+    """A flag value passes the same checks as an answer; without one, ask until valid."""
+    if given is None: return ui.ask(label, None, parse, validate)
+    value = parse(given); validate(value)
+    return value
+
+
+def failure_text(M, check):
+    """Run one check; controller failures become retryable answer errors."""
+    def run(answer):
+        try: check(answer)
+        except M.B['Failure'] as exc: raise ValueError(str(exc)) from None
+    return run
+
+
+def github_login(ui, M):
+    # Reuse the existing locked installer and native browser login.
+    import subprocess
+    subprocess.run(['bash', str(ROOT/'workspace'), 'setup', '--github'], check=True)
+    failure_text(M, lambda _: M.A.github_login())(None)
+    ui.status('done', 'GitHub sign-in verified')
+
+
+def github_ready(ui, M, scripted):
+    """Repository settings come from the GitHub API, which needs gh signed in."""
+    if shutil.which('gh'):
+        import subprocess
+        try:
+            command = ['gh', 'auth', 'status', '--hostname', 'github.com', '--active']
+            if M.B['request'](command, os.environ.copy(), 30).returncode == 0: return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if not scripted and not ui.confirm('Sign in to GitHub to read your repository settings?'):
+        raise ValueError('GitHub sign-in is needed to read the repository settings; run make again when ready')
+    github_login(ui, M)
+
+
+def aws_profile(ui, M, region, scripted):
+    """AWS_PROFILE or the only native profile; a new profile name when none exists; ask only between several."""
+    names = []
+    failure_text(M, lambda _: names.extend(M.A.native_profiles(region)))(None)
+    if not names: return DEFAULT_PROFILE
+    if len(names) == 1 or os.environ.get('AWS_PROFILE') == names[0]: return names[0]
+    if scripted: raise ValueError('several AWS profiles found; add --profile NAME')
+    def listed(answer):
+        if answer not in names: raise ValueError('choose one of the listed AWS profiles')
+    return ui.ask('AWS profile (' + ', '.join(names) + ')', names[0], validate=listed)
+
+
+def create_project(config, ui, M, repo=None, dataset=None, profile=None):
+    """Derive settings from GitHub and AWS, ask only for what cannot be derived, then save once."""
     from jsonschema import Draft202012Validator
     config = checked_config(config)
     if config.exists() and config.stat().st_size > 16*1024*1024:
         raise ValueError('project configuration exceeds the 16 MiB input limit')
     before = config.read_bytes() if config.exists() else None
     template = M.L['load_json'](ROOT/'infra/aws/project.example.json')
-    defaults = copy.deepcopy(template)
+    schema = M.L['load_json'](ROOT/'shared/workspace/project.schema.json')
+    scripted = repo is not None and dataset is not None
+    existing = {}
     if before is not None:
         original = M.L['load_json'](config)
-        schema = M.L['load_json'](ROOT/'shared/workspace/project.schema.json')
         # Do not silently remove unknown fields from an existing configuration.
         if not isinstance(original, dict) or set(original) - set(schema['properties']):
             raise ValueError('existing project has unknown fields; preserve it and choose a new project path')
         for error in Draft202012Validator(schema).iter_errors(original):
             if error.validator in ('additionalProperties', 'type', 'required'):
                 raise ValueError('existing project structure is invalid; preserve it and choose a new project path')
-        if not ui.confirm('Repair this existing project file?'): return None
-        defaults.update(original)
-    else:
-        defaults['profile'] = 'my-workspace'
-        defaults['project'] = 'my-project'
-    schema = M.L['load_json'](ROOT/'shared/workspace/project.schema.json')
-    value = copy.deepcopy(defaults)
+        if repo is None and dataset is None and profile is None and not ui.confirm('Repair this existing project file?'):
+            return None
+        existing = original
 
-    def field(label, keys, default=None, parse=str, extra=None):
-        definition = schema
-        for key in keys: definition = definition['properties'][key]
-        validator = Draft202012Validator({**definition, '$defs': schema['$defs']})
-        def validate(answer):
-            if not validator.is_valid(answer): raise ValueError('invalid ' + label.lower() + '; check the expected format')
-            if extra:
-                try: extra(answer)
-                except M.B['Failure'] as exc: raise ValueError(str(exc)) from None
-        if default is not None:
-            try: validate(parse(str(default)))
-            except (ValueError, TypeError): default = None
-        answer = ui.ask(label, default, parse, validate)
-        target = value
-        for key in keys[:-1]: target = target[key]
-        target[keys[-1]] = answer
-        return answer
+    def kept(keys, check=None):
+        """An existing value that is still valid on its own; None means derive it again."""
+        current, definition = existing, schema
+        for key in keys:
+            if not isinstance(current, dict) or key not in current: return None
+            current, definition = current[key], definition['properties'][key]
+        if not Draft202012Validator({**definition, '$defs': schema['$defs']}).is_valid(current): return None
+        try:
+            if check: check(current)
+        except (ValueError, M.B['Failure']):
+            return None
+        return copy.deepcopy(current)
 
-    ui.hint('Answer here; make creates project.json for you. Press Enter to keep a value in brackets.')
-    field('Project name', ('project',), defaults['project'])
-    def workspace_name(answer):
-        if len(value['project'] + '-' + answer) > 48: raise ValueError('project and workspace names must total at most 47 characters')
-    field('Workspace name', ('workspace',), defaults['workspace'], extra=workspace_name)
-    def profile_name(answer):
-        if answer == 'default': raise ValueError('choose a named AWS profile, such as my-workspace')
-    field('AWS profile', ('profile',), defaults['profile'], extra=profile_name)
-    ui.hint('Supported CPU workspace region: us-east-1')
-    field('AWS region', ('region',), defaults['region'], extra=lambda region: M.P.supported_profile(M.L, region))
-    field('Mode (job or workspace)', ('mode',), defaults.get('mode', 'job'))
-    field('Maximum runtime in minutes', ('maximum_runtime_minutes',), defaults['maximum_runtime_minutes'], int)
+    def supported(region): M.P.supported_profile(M.L, region)
+    def named(name): M.A.selection(name, value['region'])
+    def runnable(commands):
+        if any(argv[0].startswith('-') for argv in commands.values()): raise ValueError('invalid command')
+    def dataset_ok(source): M.P.dataset_metadata(M.L, source, config.parent)
 
-    ui.hint('Your ML repository. Commands run there later, when you approve Deploy.')
-    def changed(keys, answer):
-        candidate = copy.deepcopy(template); target = candidate
-        for key in keys[:-1]: target = target[key]
-        target[keys[-1]] = answer
-        M.P.validate_project_value(M.L, candidate)
-    def repository(answer):
-        changed(('repository', 'url'), answer)
-        if answer.endswith('/owner/project.git') or answer.endswith(':owner/project.git'):
-            raise ValueError('enter your actual repository URL')
-    url_default = defaults['repository']['url']
-    if 'owner/project.git' in url_default: url_default = None
-    field('GitHub repository URL', ('repository', 'url'), url_default, extra=repository)
-    def ref(answer):
-        changed(('repository', 'ref'), answer)
-    field('Branch, tag or commit', ('repository', 'ref'), defaults['repository']['ref'], extra=ref)
-    field('Setup command', ('commands', 'setup'), shlex.join(defaults['commands']['setup']), argv,
-          lambda answer: changed(('commands', 'setup'), answer))
-    field('Run command', ('commands', 'run'), shlex.join(defaults['commands']['run']), argv,
-          lambda answer: changed(('commands', 'run'), answer))
-    def output_paths(answer):
-        changed(('outputs', 'paths'), answer)
-    field('Output folders (comma-separated)', ('outputs', 'paths'), ', '.join(defaults['outputs']['paths']),
-          lambda text: [p.strip() for p in text.split(',')], output_paths)
-
-    ui.hint('Dataset already on this server, or an S3/HTTPS source. Relative paths use the project file folder.')
-    def dataset(answer):
-        M.P.dataset_metadata(M.L, answer, config.parent)
-    source = defaults['dataset']['source']
-    if before is None: source = None
-    field('Dataset path or URL', ('dataset', 'source'), source,
-          lambda text: str(Path(text).expanduser()) if '://' not in text else text, dataset)
-    project = M.P.validate_project_value(M.L, value)
+    value = {**copy.deepcopy(template), **copy.deepcopy(existing)}
+    value['region'] = kept(('region',), supported) or template['region']
+    value['commands'] = kept(('commands',), runnable) or template['commands']
+    previous = kept(('repository', 'url'))
+    try:
+        previous_name = M.P.repository_name(previous) if previous and 'owner/project.git' not in previous else None
+    except ValueError:
+        previous_name = None
+    ui.hint('Two answers: your GitHub repository and dataset. Everything else comes from GitHub and AWS.')
+    if repo is None: repo = previous_name
+    github_ready(ui, M, scripted)
+    facts = {}
+    def same(name): return previous_name is not None and name.lower() == previous_name.lower()
+    def lookup(name):
+        ref = kept(('repository', 'ref'), lambda r: M.L['require'](M.P.valid_ref(r), 'invalid ref')) if same(name) else None
+        facts.update(M.P.github_repository(M.L, name, ref, value['commands']))
+    given_or_asked(ui, 'GitHub repository (OWNER/NAME or URL)', repo, M.P.repository_name, failure_text(M, lookup))
+    # Keep a chosen SSH URL (it also works for public repositories); otherwise visibility decides.
+    url = previous if same(facts['name']) and previous.startswith('git@') else facts['url']
+    value['repository'] = {'url': url, 'ref': facts['ref']}
+    value['project'] = kept(('project',)) or M.P.project_slug(facts['name'].split('/')[1])
+    value['workspace'] = kept(('workspace',)) or template['workspace']
+    if profile is not None:
+        failure_text(M, named)(profile)
+    value['profile'] = profile or kept(('profile',), named) or aws_profile(ui, M, value['region'], scripted)
+    value['mode'] = kept(('mode',)) or 'job'
+    value['maximum_runtime_minutes'] = (kept(('maximum_runtime_minutes',)) or
+                                        schema['properties']['maximum_runtime_minutes']['maximum'])
+    value['outputs'] = kept(('outputs',)) or template['outputs']
+    value['resources'] = kept(('resources',)) or template['resources']
+    source = kept(('dataset', 'source'), dataset_ok) if dataset is None else None
+    if source is None:
+        ui.hint('Dataset already on this server, or an S3/HTTPS source. Relative paths use the project file folder.')
+        source = given_or_asked(ui, 'Dataset path or URL', dataset,
+                                lambda text: str(Path(text).expanduser()) if '://' not in text else text,
+                                failure_text(M, dataset_ok))
+    value['dataset'] = {**(kept(('dataset',)) or {}), 'source': source}
+    try:
+        project = M.P.validate_project_value(M.L, value)
+    except M.B['Failure'] as exc:
+        raise ValueError(str(exc)) from None
     M.P.supported_profile(M.L, project['region'])
     checked_config(config)
     if before is not None and config.read_bytes() != before:
@@ -225,12 +260,35 @@ def create_project(config, ui, M):
     M.D.atomic({**M.L, 'checked_path': checked_config}, config, project, exclusive=before is None)
     ui.status('done', 'Project saved')
     ui.hint(str(config))
+    summary(ui, M, project, facts)
     return project
 
 
-def setup_project(config, ui, doctor, M=None, remote=None):
-    """Skip completed setup; carry out selected missing actions in this terminal."""
+def summary(ui, M, project, facts):
+    """One view of every derived value; the file or flags change them."""
+    repository = project['repository']
+    access = 'private, SSH deploy key' if repository['url'].startswith('git@') else 'public, HTTPS'
+    ui.status('done', 'Repository ' + facts['name'] + ' (' + access + ') at ' + repository['ref'])
+    ui.status('done', 'Project ' + project['project'] + ' · workspace ' + project['workspace'] +
+              ' · AWS profile ' + project['profile'] + ' in ' + project['region'])
+    ui.status('done', project['mode'].capitalize() + ': ' + ' then '.join(shlex.join(argv) for argv in project['commands'].values()) +
+              ' · up to ' + str(project['maximum_runtime_minutes']) + ' min · outputs ' + ', '.join(project['outputs']['paths']))
+    ui.status('done', 'Dataset ' + project['dataset']['source'])
+    todo = M.P.makefile_todo(facts)
+    if todo:
+        ui.status('wait', 'To do: ' + todo)
+        ui.hint(M.P.MAKEFILE_GUIDE)
+        ui.command(M.P.MAKEFILE_DOC)
+    ui.hint('To change a value, edit the project file above or rerun with --repo, --dataset or --profile.')
+
+
+def setup_project(config, ui, doctor, M=None, remote=None, repo=None, dataset=None, profile=None):
+    """Skip completed setup; carry out selected missing actions in this terminal.
+
+    With --repo and --dataset nothing is asked: native logins start directly.
+    """
     M = M or support()
+    scripted = repo is not None and dataset is not None
     ui.step(2, 'Project')
     project = None
     if config.is_file():
@@ -240,8 +298,8 @@ def setup_project(config, ui, doctor, M=None, remote=None):
             M.P.dataset_metadata(M.L, project['dataset']['source'], config.parent)
         except (ValueError, OSError, M.B['Failure']):
             ui.status('wait', 'Project configuration needs attention')
-    if project is None:
-        project = create_project(config, ui, M)
+    if project is None or repo is not None or dataset is not None or profile is not None:
+        project = create_project(config, ui, M, repo, dataset, profile)
         if project is None: return False
     else:
         ui.status('done', 'Existing project is valid')
@@ -254,10 +312,10 @@ def setup_project(config, ui, doctor, M=None, remote=None):
     aws = rows.get('AWS identity', {})
     if aws.get('state') == M.READY:
         ui.status('done', 'AWS profile ' + project['profile'] + ' is signed in')
-    elif ui.confirm('Sign in to AWS now?'):
+    elif scripted or ui.confirm('Sign in to AWS now?'):
         def login_method(value):
             if value not in ('auto', 'console', 'sso'): raise ValueError('choose auto, console or sso')
-        method = ui.ask('AWS login (auto, console or sso)', 'auto', validate=login_method)
+        method = 'auto' if scripted else ui.ask('AWS login (auto, console or sso)', 'auto', validate=login_method)
         try:
             M.A.login(project['profile'], project['region'], method,
                       ssh_session() if remote is None else remote)
@@ -270,12 +328,8 @@ def setup_project(config, ui, doctor, M=None, remote=None):
         github = rows.get('GitHub access', {})
         if github.get('state') == M.READY:
             ui.status('done', 'GitHub sign-in ready')
-        elif ui.confirm('Sign in to GitHub for this private repository?'):
-            # Reuse the existing locked installer and native browser login.
-            import subprocess
-            subprocess.run(['bash', str(ROOT/'workspace'), 'setup', '--github'], check=True)
-            M.A.github_login()
-            ui.status('done', 'GitHub sign-in verified')
+        elif scripted or ui.confirm('Sign in to GitHub for this private repository?'):
+            github_login(ui, M)
     else:
         ui.status('done', 'Public repository · no GitHub sign-in needed')
     with doctor.lock:
