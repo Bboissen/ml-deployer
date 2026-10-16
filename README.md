@@ -63,6 +63,10 @@ resolves the repository commit, inventories the dataset, selects compute and
 shows the account, price and lifetime for approval. It then inspects and applies
 saved OpenTofu plans bound to that approval.
 
+**It provisions the AWS environment, including the S3 buckets.** On the first
+deployment it creates the foundation in your existing AWS account; later
+deployments verify and reuse that retained foundation.
+
 The workload follows this path:
 
 ```mermaid
@@ -78,11 +82,16 @@ clones the pinned commit, stages the verified dataset as read-only `DATA_DIR`,
 and runs your commands as a non-root user. Your repository owns ML dependencies
 and logic; the deployer uploads declared `OUTPUT_DIR` files and execution records.
 
-Underneath the workload, a reusable **foundation** provides the network, scoped
-IAM permissions, separate private encrypted buckets for infrastructure state
-and workload data, and the expiry guard. A per-workspace deadline is armed
-before launch permissions are created. AWS terminates expired compute even if
-the controller is gone. Terminal access uses Session Manager with no inbound
+The **foundation** includes two separate private, encrypted, versioned S3 buckets:
+
+- **State bucket:** OpenTofu infrastructure state.
+- **Workload bucket:** datasets, outputs, logs and execution receipts in separate prefixes.
+
+The dataset and results shown above use the same workload bucket. The deployer
+also creates the network, scoped IAM permissions and expiry guard. A
+per-workspace deadline is armed before launch permissions are created.
+AWS terminates expired compute even if the controller is gone. Terminal access
+uses Session Manager with no inbound
 network rules; datasets, results and the foundation survive compute cleanup.
 
 ## Deployment lifecycle
@@ -93,13 +102,15 @@ setup and training; workspace mode runs setup and leaves a terminal available.
 ```mermaid
 stateDiagram-v2
     state "Review scope" as Review
-    state "Prepare foundation, access and dataset" as Prepare
+    state "Create / verify AWS:<br/>S3 buckets, network, IAM, guard" as Foundation
+    state "Configure access and ingest dataset" as Prepare
     state "Arm expiry, then launch EC2" as Launch
     state "Execute project and verify S3 outputs" as Run
     state "Workspace ready for connect" as Ready
     state "Remove compute and recheck S3 outputs" as Cleanup
     [*] --> Review
-    Review --> Prepare: you approve
+    Review --> Foundation: you approve
+    Foundation --> Prepare
     Prepare --> Launch
     Launch --> Run
     Run --> Cleanup: job mode
@@ -137,7 +148,7 @@ The steps run in this order:
 | Stage | What it does |
 | --- | --- |
 | `artifacts` | Build the toolbox and expiry-watchdog ZIPs from pinned inputs and record their hashes. These are infrastructure packages; your ML dependencies are installed by your project's setup command. |
-| `foundation` | Create or verify the reusable state/workload buckets, network, IAM permissions and expiry guard. No workspace EC2 instance is created. |
+| `foundation` | On first deployment, create the state S3 bucket, workload S3 bucket, network, IAM permissions and expiry guard. On later deployments, verify and reuse them. No workspace EC2 instance is created yet. |
 | `foundation-iam` (if needed) | Apply the permission tightening for a retained foundation that was included in the approved scope. |
 | `repository` | Register a read-only GitHub deploy key and store its private half in Secrets Manager, or reuse an existing reference. Public repositories need no credential. EC2 cloning happens during `job`. |
 | `access` (private repository only) | Grant or verify the workspace role's access to the selected repository secret. |
