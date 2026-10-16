@@ -29,8 +29,13 @@ the checkout; `WORKSPACE_TOOLS_DIR` or `--prefix` chooses another user-owned
 absolute directory. Spaces in paths are fine. Nothing edits shell startup files,
 and a different AWS CLI or OpenTofu on the host PATH is left alone.
 
-`make` keeps the guide running in the foreground until Ctrl+C. It opens a
-graphical browser when available and always prints the URL and, for remote
+`make` closes the companion when the deployment command finishes, including when
+its review is declined or deployment fails. `workspace guide` preserves that
+command's exit code, so a failed deployment also fails the `make` target.
+When setup is paused or the deployment review is deferred, the companion stays
+in the foreground until Ctrl+C. `./workspace guide PROJECT.json --read-only`
+keeps only the companion running until Ctrl+C. It opens a graphical browser
+when available and always prints the URL and, for remote
 use, an SSH forwarding command. The page refreshes readiness every 20 seconds
 while visible and when focused, with doctor results cached for five seconds.
 These checks can read the selected AWS identity and GitHub repository; they

@@ -22,6 +22,9 @@ logins and the Deploy confirmation remain. Its companion at
 `http://127.0.0.1:8765/` shows progress (over SSH, forward that port from your
 laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
 `make PROJECT=/path/project.json`. Existing valid settings are reused.
+When the deployment command finishes, `make` closes the companion and exits;
+a failed deployment fails the target. To keep a companion open separately, run
+`./workspace guide ~/aws-workspace/demo/project.json --read-only` (Ctrl+C to stop).
 `make clean` removes interrupted tool builds; `make fclean` also removes the
 installed managed tools, the project settings file and its AWS sign-in.
 `make re` performs that full clean and restarts setup from the first question.
@@ -170,10 +173,26 @@ and compute cleanup separately, with `output_uri` pointing at your declared
 outputs and bounded logs in S3. `compute cleanup: success` plus
 `outputs verified after compute deletion: True` confirms teardown. A second
 Deploy with the same data reuses the retained versions without another upload.
-Dataset, output and state buckets, the network, IAM boundaries and the expiry
+The workload and state buckets, the network, IAM boundaries and the expiry
 guard are retained and may continue to cost money; deleting them is a separate
 reviewed decision. Workspace mode keeps the machine until `cancel` or expiry;
 `connect` opens its non-root terminal.
+
+There are two buckets: the **state bucket** stores OpenTofu's infrastructure
+records for later updates and recovery; the **workload bucket** stores both
+datasets and results. The machine's permissions exclude the state bucket.
+The dataset is the input you selected during setup, copied to a verified
+snapshot under `projects/<project>/data/snapshots/<content-hash>/`. Your commands
+read its staged files through `DATA_DIR`. The hash identifies the input file
+names, sizes and contents, so unchanged data can be reused across runs.
+
+Results are files your commands generate in `OUTPUT_DIR` (`outputs/` in the
+checkout by default). Declared output paths are uploaded under
+`projects/<project>/workspaces/<workspace>/output/<run-id>/files/`; `job.log` and
+`execution.json` sit alongside `files/`. Project/workspace prefixes scope access,
+and each run has its own prefix so results from different runs stay separate.
+Use the printed `output_uri` to open results directly; the dataset snapshot
+prefix contains inputs rather than results.
 
 ## Repair
 

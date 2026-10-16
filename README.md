@@ -18,6 +18,8 @@ make
 `~/aws-workspace/demo/project.json`, and guides GitHub/AWS sign-in. Valid completed
 steps are reused. Your repository supplies
 [`make setup` and `make train`](docs/operations/aws-deployer-quickstart.md#runtime-contract).
+After the deployment command finishes, `make` exits and closes its companion.
+To keep only the companion running, use `./workspace guide --read-only`.
 
 ```sh
 ./workspace doctor ~/aws-workspace/demo/project.json  # verify tools, config and access

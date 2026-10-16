@@ -16,6 +16,7 @@ First use:
                                                --fresh rebuilds tools; --debug shows details; --read-only skips questions
                                                SSH is detected automatically; --remote forces browser access from another device
                                                --repo OWNER/NAME --dataset PATH|URL sets up without questions (make REPO=... DATASET=...)
+                                               Exits after deployment; --read-only keeps the companion open until Ctrl+C
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
   workspace github-login                       GitHub login; reads repository settings and registers private deploy keys
