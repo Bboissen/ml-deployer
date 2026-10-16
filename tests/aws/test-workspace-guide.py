@@ -94,6 +94,42 @@ class GuideServer(unittest.TestCase):
 
 
 class GuideTerminal(unittest.TestCase):
+    def test_deployment_returns_to_the_shell_with_its_exit_code_and_closes_the_companion(self):
+        # A separate process and timeout catch the old foreground server wait.
+        # Setup, readiness and deploy are mocked; the HTTP server is real.
+        script = '''
+import importlib.util
+from pathlib import Path
+import sys
+from unittest.mock import patch
+root, code, mode = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+spec = importlib.util.spec_from_file_location('guide', root/'scripts/aws/workspace-guide.py')
+guide = importlib.util.module_from_spec(spec); spec.loader.exec_module(guide)
+bind, servers = guide.bind, []
+def isolated_bind(port, tries, doctor):
+    server = bind(0, 1, doctor); servers.append(server); return server
+argv = ['workspace-guide.py', '/nonexistent/project.json']
+if mode == 'scripted': argv += ['--repo', 'owner/name', '--dataset', 'data']
+with patch.object(sys, 'argv', argv), patch.object(guide, 'bind', side_effect=isolated_bind), \\
+     patch.object(guide, 'interactive', return_value=mode == 'interactive'), \\
+     patch.object(guide, 'open_browser', return_value=False), \\
+     patch.object(guide, 'setup_project', return_value=True), \\
+     patch.object(guide.Doctor, 'report', return_value={'ready': True, 'rows': []}), \\
+     patch.object(guide.Console, 'confirm', return_value=True), \\
+     patch.object(guide.subprocess, 'call', return_value=code) as deploy:
+    result = guide.main()
+    deploy.assert_called_once_with(['bash', str(root/'workspace'), '/nonexistent/project.json'])
+assert servers[0].fileno() == -1, 'companion listener left open'
+sys.exit(result)
+'''
+        for mode in ('interactive', 'scripted'):
+            for code in (0, 7):
+                with self.subTest(mode=mode, code=code):
+                    result = subprocess.run([sys.executable, '-B', '-c', script, str(ROOT), str(code), mode],
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                    self.assertNotIn('Companion stays available', result.stdout)
+
     def test_ssh_never_opens_a_browser_on_the_server(self):
         with patch.dict(os.environ, {'SSH_CONNECTION': 'client server', 'DISPLAY': ':0'}), \
              patch.object(G.subprocess, 'run', side_effect=AssertionError('remote browser opened')):

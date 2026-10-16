@@ -1,7 +1,8 @@
 """Serve the first-use guide on 127.0.0.1 with live doctor readiness.
 
 The browser exposes read-only documentation and doctor reports. Interactive
-terminal setup creates configuration and offers native login. Stops on Ctrl+C.
+terminal setup creates configuration and offers native login. Exits after the
+deployment command; the read-only companion stops on Ctrl+C.
 """
 import argparse
 import errno
@@ -186,7 +187,7 @@ def main():
                     # The existing deployer displays its scope and requires its
                     # own scope-bound confirmation (or --authorization quoting
                     # the scope hash) before cloud changes.
-                    subprocess.call(['bash', str(ROOT/'workspace'), str(doctor.config)])
+                    return subprocess.call(['bash', str(ROOT/'workspace'), str(doctor.config)])
             else:
                 for row in report.get('rows', []):
                     if row['state'] != 'Ready':
@@ -212,4 +213,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
