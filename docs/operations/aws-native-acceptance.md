@@ -35,7 +35,7 @@ it does not enforce a multi-operation campaign spending cap.
 | Linux/macOS installation and login | Four platform branches, corrupt downloads, installer faults, archive/config round trip | Clean-host runtime pins, CLI/SDK identity and supported operator grants on both OS families |
 | Foundation/access | Multiple accounts/projects/roles, scope/lineage checks, partial-state recovery boundaries | Least-privilege operator, actual IAM propagation, outputs, private key ownership and alarm delivery |
 | Local/S3/public HTTPS ingestion | Streaming, multipart aborts, source change, checksum/version checks | >1 MiB input, same-region source, immutable destination manifest, failed transfer before any launch |
-| Generic projects | Two command styles; setup/job/output failures; non-root and timeout boundaries | Two ordinary repositories and durable declared outputs without fixture-specific result hashes |
+| Generic projects | Two command styles; setup/job/output failures; non-root and timeout boundaries; mocked dataset staging and its rejections | Two ordinary repositories reading `DATA_DIR` and writing `OUTPUT_DIR`, with durable declared outputs without fixture-specific result hashes |
 | Retained reuse | Two mocked Deploys reuse exact manifests without another upload | Second native operation rereads exact source/output versions and retains storage after compute absence |
 | Controller loss/cancel | Locks, fsynced journal, uncertain launch refusal, ownership recovery | Terminal/network loss, expired login, partial apply and SIGKILL leave no duplicate VM and preserve expiry |
 | Teardown | Guarded mocked retirement and exact owned absence checks | Instance, root disk and interface absence; output versions still readable; unrelated resources unchanged |

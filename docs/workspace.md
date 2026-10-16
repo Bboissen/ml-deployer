@@ -45,6 +45,36 @@ collects those natively. The nine readiness checks are `toolbox`, `terminal`,
 provider-side guard active at or before compute creation, with absolute expiry
 within the maximum, including failed bootstrap and partial apply.
 
+## Runtime contract v1
+
+A generic job clones the pinned repository, then stages the dataset, then runs
+`setup` (default `make setup`) and, in job mode, `run` (default `make train`).
+Both commands run as the non-root `workspace` user with a cleared environment,
+in the repository checkout, with exactly these variables:
+
+| Variable | Value |
+| --- | --- |
+| `DATA_DIR` | `/workspaces/<workspace_id>/<run_id>/data`, outside the checkout. Every manifest object sits at its manifest `path`; files are `0444` and directories `0555`. |
+| `OUTPUT_DIR` | `<checkout>/outputs`, created empty with mode `0700`. The default `outputs.paths` of `["outputs"]` persists it to `OUTPUT_URI/files/outputs/...`. |
+| `RUN_ID`, `OUTPUT_URI` | The unique run ID and its versioned output prefix. |
+| `AWS_REGION`, `AWS_DEFAULT_REGION` | The reviewed region; credentials come only from the instance role. |
+| `DATA_MANIFEST_URI`, `DATA_MANIFEST_VERSION_ID`, `DATA_MANIFEST_SHA256` | The sealed manifest, for projects that want its provenance. |
+
+The `data` stage reads the manifest by exact version, checks
+`DATA_MANIFEST_SHA256`, its `dataset-manifest` schema, the job bucket, the
+project data prefix, at most 100,000 objects and a `total_bytes` that equals
+the object sum and fits the free disk. It then streams each object by key and
+version ID, checking its size and SHA-256 before `setup` starts. Paths are
+relative without empty, `.`, `..` or `.git` components. Staging counts against
+the job timeout. Any failure, including a checkout that already contains
+`outputs/`, records `execution_error.stage` `data` and skips setup. The
+execution receipt reports `dataset_staged` and `dataset_staged_bytes`.
+
+The root volume is fixed (30 GiB gp3, 25 GiB usable in every supported size).
+The Deploy review refuses a dataset when its bytes, the declared
+`outputs.maximum_bytes` and an 8 GiB checkout/environment reserve exceed the
+usable disk; the scope prints this budget and adds no cost.
+
 ## Storage and the acceptance example
 
 `data_uri` and `output_uri` are distinct prefixes ending in `/`; state lives in a

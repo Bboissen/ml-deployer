@@ -35,7 +35,8 @@ Configuration paths are resolved before the CLI changes its working directory.
 
 The ordered stages are artifacts, state/bootstrap and platform, any reviewed
 retained IAM update, optional private repository access, ingestion, guarded
-preparation, one launch, non-root setup/run, output verification, compute teardown
+preparation, one launch, guest dataset staging, non-root setup/run, output
+verification, compute teardown
 and a second output verification. Completed
 immutable manifests may be reused only after exact native object versions and
 SHA256 hashes are read again. Generic outcomes report infrastructure, setup, job,
