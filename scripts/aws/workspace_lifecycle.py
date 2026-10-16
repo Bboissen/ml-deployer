@@ -666,9 +666,23 @@ def alarm_record(alarm):
             'dimensions':{item['Name']:item['Value'] for item in alarm.get('Dimensions',[])}}
 
 def compare_platform_alarms(plan,details):
-    expected={r['values']['alarm_name']:{**{k:r['values'][k] for k in ALARM_FIELDS},'dimensions':r['values'].get('dimensions') or {}}
-              for r in plan['planned_values']['root_module']['resources']
-              if r['address'].startswith('aws_cloudwatch_metric_alarm.workspace_guard')}
+    resources={r['address']:r['values'] for r in plan['planned_values']['root_module']['resources']}
+    unknown={r['address']:r['change'].get('after_unknown',{}) for r in plan.get('resource_changes',[])}
+    expected={}
+    for address,values in resources.items():
+        if not address.startswith('aws_cloudwatch_metric_alarm.workspace_guard'): continue
+        values=values.copy()
+        if 'alarm_actions' not in values:
+            variables=plan.get('variables',{})
+            topic=resources.get('aws_sns_topic.workspace_alerts[0]',{})
+            require(unknown.get(address,{}).get('alarm_actions') is True and
+                    variables.get('provision_alert_topic',{}).get('value') is True and
+                    isinstance(topic.get('name'),str) and topic['name'] and
+                    all(isinstance(variables.get(k,{}).get('value'),str) for k in ('aws_region','aws_account_id')),
+                    'unknown alarm destination must bind the reviewed new topic')
+            values['alarm_actions']=[f"arn:aws:sns:{variables['aws_region']['value']}:{variables['aws_account_id']['value']}:{topic['name']}"]
+        require(all(k in values for k in ALARM_FIELDS),'guard alarm field absent from reviewed plan')
+        expected[values['alarm_name']]={**{k:values[k] for k in ALARM_FIELDS},'dimensions':values.get('dimensions') or {}}
     require(len(expected)==4 and details['alarms']==expected,'guard alarm settings differ from exact reviewed platform plan')
 
 def reviewed_platform_plan(preparation):
