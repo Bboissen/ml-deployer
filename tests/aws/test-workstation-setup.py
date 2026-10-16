@@ -40,9 +40,11 @@ class Bootstrap(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root/'repo'
         (self.repo/'scripts/aws').mkdir(parents=True)
+        (self.repo/'evidence').mkdir()
         for name in ('workstation-setup.sh', 'workstation-ui.sh'):
             shutil.copy(ROOT/'scripts/aws'/name, self.repo/'scripts/aws'/name)
         shutil.copy(ROOT/'workspace', self.repo/'workspace')
+        shutil.copy(ROOT/'Makefile', self.repo/'Makefile')
         self.shims = self.root/'shims'; self.shims.mkdir()
         self.cache = self.root/'archives'; self.cache.mkdir()
         self.prefix = self.root/'tools'
@@ -301,6 +303,115 @@ class Bootstrap(unittest.TestCase):
         leftover = self.prefix/'releases/abandoned.partial'; leftover.mkdir(); (leftover/'bin').mkdir()
         self.assertEqual(self.run_setup('--fresh').returncode, 0)
         self.assertFalse(leftover.exists())
+
+    def run_make(self, target):
+        return subprocess.run(['make', target], cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, timeout=30)
+
+    def test_clean_then_fclean_preserve_settings_and_evidence_and_allow_reinstall(self):
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        downloads = self.ledger.read_text()
+        incomplete = self.prefix/'releases'/('a'*64+'.ABC123'); incomplete.mkdir()
+        (incomplete/'archive.part').write_text('unfinished download')
+        protected = [*self.protected, self.root/'project.json', self.root/'dataset.csv',
+                     self.repo/'evidence/saved.tfplan', self.repo/'evidence/authorization.json']
+        for path in protected: path.write_text('preserve existing user settings\n')
+        # Cleanup must not execute or verify the installed tools.
+        (selected/'bin/tofu').write_text('#!/bin/sh\nexit 9\n')
+        result = self.run_make('clean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(incomplete.exists())
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertTrue(selected.exists())
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.prefix/'current').is_symlink())
+        self.assertFalse(selected.exists())
+        self.assertEqual(self.ledger.read_text(), downloads)
+        self.assertFalse((self.prefix/'install.lock').exists())
+        receipts = list((self.repo/'evidence').glob('workstation-cleanup.*'))
+        self.assertEqual(len(receipts), 2)
+        deleted = []
+        for receipt in receipts:
+            self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+            self.assertIn('cleanup_verified=true', receipt.read_text())
+            deleted += [line.removeprefix('deleted=') for line in receipt.read_text().splitlines() if line.startswith('deleted=')]
+        self.assertCountEqual(deleted, [str(incomplete), str(self.prefix/'current'), str(selected),
+                                       str(self.prefix/'install.lock'), str(self.prefix/'install.lock')])
+        for path in protected: self.assertEqual(path.read_text(), 'preserve existing user settings\n')
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        self.assertNotEqual((self.prefix/'current').resolve(), selected)
+        self.assertEqual(self.run_setup('--check', '--github').returncode, 0)
+
+    def test_cleanup_without_an_installation_is_a_noop(self):
+        for target in ('clean', 'fclean'):
+            result = self.run_make(target)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.prefix.exists())
+        self.assertFalse(self.ledger.exists())
+
+    def test_cleanup_refuses_foreign_prefix_and_live_install_lock(self):
+        self.prefix.mkdir(); sentinel = self.prefix/'keep'; sentinel.write_text('foreign')
+        for target in ('clean', 'fclean'):
+            result = self.run_make(target)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('not owned by this installer', result.stderr)
+        self.assertEqual(sentinel.read_text(), 'foreign')
+        (self.prefix/'owner').write_text('aws-workstation-v1:' + str(os.getuid()))
+        process = subprocess.Popen(['sleep', '30']); self.addCleanup(process.wait); self.addCleanup(process.kill)
+        self.lock(str(process.pid)+'\n'+os.uname().nodename+'\n')
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.prefix/'install.lock/owner').exists())
+        self.assertEqual(sentinel.read_text(), 'foreign')
+
+    def test_fclean_refuses_tools_in_use_and_preserves_release_symlinks(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        foreign = self.root/'foreign'; foreign.mkdir(); (foreign/'keep').write_text('foreign')
+        link = self.prefix/'releases/foreign'; link.symlink_to(foreign)
+        unknown = self.prefix/'releases/user-directory'; unknown.mkdir(); (unknown/'keep').write_text('foreign')
+        binary = selected/'bin/busy-tool'; shutil.copy2(shutil.which('sleep'), binary)
+        # An aliased argv[0] must not hide a running managed executable.
+        process = subprocess.Popen(['busy-tool', '30'], executable=str(binary))
+        try:
+            result = self.run_make('fclean')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('managed tools are in use', result.stderr)
+            self.assertEqual((self.prefix/'current').resolve(), selected)
+        finally:
+            process.kill(); process.wait(timeout=5)
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(selected.exists())
+        self.assertTrue(link.is_symlink())
+        self.assertEqual((foreign/'keep').read_text(), 'foreign')
+        self.assertEqual((unknown/'keep').read_text(), 'foreign')
+
+    def test_cleanup_refuses_when_runtime_usage_cannot_be_verified(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        executable(self.shims/'lsof', '#!/bin/sh\necho "cannot inspect processes" >&2\nexit 1\n')
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('cannot verify whether managed tools are in use', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertTrue(selected.exists())
+
+    def test_fclean_handles_missing_current_release_but_refuses_foreign_selection(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        shutil.rmtree(selected)
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.prefix/'current').is_symlink())
+        foreign = self.root/'foreign'; foreign.mkdir(); (foreign/'keep').write_text('foreign')
+        (self.prefix/'current').symlink_to(foreign)
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('outside owned releases', result.stderr)
+        self.assertEqual((foreign/'keep').read_text(), 'foreign')
 
     def test_debug_diagnostics_are_bounded_and_never_show_values(self):
         self.assertEqual(self.run_setup().returncode, 0)

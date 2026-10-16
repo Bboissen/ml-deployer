@@ -9,7 +9,10 @@ installer behaves, which checks it keeps, and how to repair it.
 
 ```bash
 ./workspace guide [PROJECT.json]    # = make: interactive tools/project/sign-in setup plus companion
-make remote                        # run on the server; print laptop tunnel and browser link
+make                               # detects SSH; print laptop tunnel and browser link when remote
+make clean                         # remove interrupted builds; keep installed tools
+make fclean                        # also remove managed tools; preserve settings, logins and evidence
+make re                            # full clean, then restart guided setup
 ./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
@@ -45,18 +48,17 @@ and symlinked paths are refused. Interrupted answers leave no partial file.
 Native sign-in is offered in the same terminal, using remote browser login over
 SSH. Public repositories skip GitHub sign-in. An optional deployment review uses
 the existing scope-bound confirmation; answering setup questions never launches
-compute. `make FRESH=1` rebuilds tools and `make DEBUG=1` exposes diagnostic output.
+compute. `make re` reinstalls tools and restarts setup; `make DEBUG=1` exposes diagnostic output.
 Tool setup has one active spinner with elapsed time, then a completed check mark.
 Terminal detection supports RTK's output relay; `NO_COLOR` disables colors.
 Noninteractive output stays plain.
 
-For SSH, keep the checkout on the server and run `make remote` there. It prints
+For SSH, keep the checkout on the server and run `make` there. It detects SSH and prints
 a tunnel command using the connected server's address, port and current user.
 Run that command from a separate laptop terminal outside SSH, keep it open,
 then open the printed URL in the laptop's browser. Skip the tunnel when the
 selected guide port is already forwarded. Answer setup questions in the original
-SSH terminal. `remote` selects browser access from another device; installation
-and configuration run on the repository host. Plain `make` detects SSH automatically too.
+SSH terminal. Installation and configuration run on the repository host.
 No laptop checkout, launcher or cloud tools are required. Under SSH the guide
 uses its exact selected port rather than falling back silently to another port;
 an occupied port is reported. To choose another port, set `WORKSPACE_GUIDE_PORT`
@@ -140,6 +142,22 @@ Doctor never installs, logs in, registers keys or creates resources. Without a
 project file it reports the tools, the project file as `To do` and the rest `Not checked`.
 
 ## Repair
+
+Stop the running guide with Ctrl+C before cleanup. `make clean` removes only
+interrupted managed-tool builds, preserving the installed tools. `make fclean`
+also removes the installed managed tools and their selection link. Neither
+command downloads tools, signs in or contacts AWS. Both use the installer's
+ownership checks and installation lock, refuse cleanup while processes use
+the tools prefix (`lsof` is required to verify this), and record exact deleted paths with verified cleanup in
+ignored `evidence/workstation-cleanup.*` receipts. Ownership metadata and
+unrecognized files or symlinks are retained.
+
+After `make fclean`, run `make` to reinstall and resume. `make re` performs
+those steps in order, including with parallel Make enabled. Full cleanup leaves
+no previous managed runtime to fall back to if installation fails. Project
+settings, AWS/GitHub logins, user-installed tools, datasets, infrastructure
+state, plans, authorizations and evidence are preserved. The old `FRESH`
+variable and `remote` Make target are removed; plain `make` detects SSH.
 
 `./workspace setup --fresh` rebuilds the managed runtime even when it verifies.
 It reuses the committed pins, builds the replacement in a new directory, verifies

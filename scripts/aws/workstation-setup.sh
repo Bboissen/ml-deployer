@@ -11,6 +11,7 @@ check_only=0
 github=0
 system_packages=0
 fresh=0
+clean=''
 debug=0
 fail() { printf 'workstation-setup: %s\n' "$1" >&2; exit 2; }
 log() {
@@ -30,15 +31,18 @@ while (($#)); do
     --github) github=1 ;;
     --system-packages) system_packages=1 ;;
     --fresh) fresh=1 ;;
+    --clean) clean=clean ;;
+    --fclean) clean=fclean ;;
     --debug) debug=1 ;;
     --prefix) shift; (($#)) || fail '--prefix needs an absolute path'; prefix="$1" ;;
-    --help) printf '%s\n' 'setup [--check] [--fresh] [--github] [--system-packages] [--debug] [--prefix ABSOLUTE_PATH]'; exit 0 ;;
+    --help) printf '%s\n' 'setup [--check | --fresh | --clean | --fclean] [--github] [--system-packages] [--debug] [--prefix ABSOLUTE_PATH]'; exit 0 ;;
     *) fail "unknown setup option $1; see setup --help" ;;
   esac
   shift
 done
 (( !check_only || !system_packages )) || fail '--check cannot install system packages'
 (( !check_only || !fresh )) || fail '--check only inspects; use setup --fresh to rebuild'
+[[ -z "$clean" ]] || (( !check_only && !fresh && !github && !system_packages )) || fail 'cleanup cannot be combined with installation or verification options'
 # Ordinary directories, including ones with spaces, are fine. Reject traversal
 # and the few characters that cannot be embedded safely in installer metadata.
 [[ "$prefix" == /* ]] || fail 'choose an absolute --prefix'
@@ -80,7 +84,7 @@ missing=()
 for tool in "${prerequisites[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
-if [[ -n "${missing[*]-}" ]]; then
+if [[ -z "$clean" && -n "${missing[*]-}" ]]; then
   if ((system_packages)) && [[ "$platform" == linux-* ]] && command -v apt-get >/dev/null; then
     command -v sudo >/dev/null || fail 'sudo is missing; ask the host administrator to install curl ca-certificates unzip tar dpkg coreutils'
     sudo apt-get update >&2
@@ -168,11 +172,13 @@ PY
 if [[ -e "$prefix" ]]; then
   [[ -d "$prefix" && -f "$prefix/owner" && ! -L "$prefix/owner" && "$(cat "$prefix/owner")" == "aws-workstation-v1:$(id -u)" && -O "$prefix" ]] || fail "existing directory $prefix is not owned by this installer; choose another --prefix"
 fi
+if [[ -n "$clean" && ! -e "$prefix" ]]; then log 'No managed tools to clean'; exit 0; fi
 previous=''
 if [[ -L "$prefix/current" ]]; then
   current="$(readlink "$prefix/current")"
-  [[ "$current" == "$prefix/releases/"* && "$current" != *'/../'* && -d "$current" && ! -L "$current" ]] || fail 'current tool directory points outside owned releases; choose another --prefix'
-  if verify_runtime "$current"; then
+  [[ "$current" == "$prefix/releases/"* && "$current" != *'/../'* && ! -L "$current" ]] || fail 'current tool directory points outside owned releases; choose another --prefix'
+  [[ -n "$clean" || -d "$current" ]] || fail 'current tool directory is missing; run make fclean, then make'
+  if [[ -z "$clean" ]] && verify_runtime "$current"; then
     if ((!fresh)); then
       ((!check_only)) || log "ready: $platform tools in $prefix/current"
       ((check_only)) || log '[DONE] Managed tools verified; no installation or environment activation needed'
@@ -180,8 +186,10 @@ if [[ -L "$prefix/current" ]]; then
     fi
     log '[RUN] rebuilding verified managed tools (--fresh)'
   else
-    ((!check_only)) || fail "managed tools need repair: $verify_failure; run ./workspace setup --fresh"
-    log "managed tools need repair ($verify_failure); building a replacement"
+    if [[ -z "$clean" ]]; then
+      ((!check_only)) || fail "managed tools need repair: $verify_failure; run ./workspace setup --fresh"
+      log "managed tools need repair ($verify_failure); building a replacement"
+    fi
   fi
   previous="$current"
 elif [[ -e "$prefix/current" ]]; then
@@ -211,16 +219,56 @@ if ! claim_lock; then
 fi
 release=''
 activated=0
+receipt=''
 scratch="$(mktemp -d "$lock/scratch.XXXXXX")"
 cleanup() {
   result=$?
   if [[ -n "$release" ]] && (( !activated )); then rm -rf "$release"; fi
-  rm -rf "$lock"
+  if [[ -n "$receipt" ]]; then
+    printf 'requested_delete=%s\n' "$lock" >> "$receipt"
+    rm -rf "$lock" || result=2
+    if [[ ! -e "$lock" && ! -L "$lock" ]]; then printf 'deleted=%s\n' "$lock" >> "$receipt"; else result=2; fi
+    if ((result == 0)); then printf 'cleanup_verified=true\n' >> "$receipt"; else printf 'cleanup_verified=false\n' >> "$receipt"; fi
+  else
+    rm -rf "$lock"
+  fi
   exit "$result"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if [[ -n "$clean" ]]; then
+  [[ ! -L "$prefix/releases" ]] || fail 'installer directories must not be symlinks'
+  owned_release() { [[ "${1##*/}" =~ ^[a-f0-9]{64}\.[[:alnum:]]{6}$ ]]; }
+  [[ -z "$previous" ]] || owned_release "$previous" || fail 'current is not an installer-generated release; no tools removed'
+  # Do not remove a runtime while a guide or native tool is using this prefix.
+  if [[ -d "$prefix/releases" ]]; then
+    command -v lsof >/dev/null || fail 'cleanup needs lsof to check for tools in use; install lsof and retry'
+    in_use=0
+    lsof -n -P -t +D "$prefix/releases" > "$scratch/in-use" 2> "$scratch/lsof-errors" || in_use=$?
+    [[ ! -s "$scratch/in-use" ]] || fail 'managed tools are in use; stop the guide and tool commands before cleaning'
+    [[ "$in_use" == 1 && ! -s "$scratch/lsof-errors" ]] || fail 'cannot verify whether managed tools are in use; no tools removed'
+  fi
+  [[ -d "$repo_root/evidence" && ! -L "$repo_root/evidence" && -O "$repo_root/evidence" ]] || fail 'cleanup receipts need an owned evidence directory'
+  receipt="$(mktemp "$repo_root/evidence/workstation-cleanup.XXXXXX")"
+  printf 'action=%s\nprefix=%s\n' "$clean" "$prefix" > "$receipt"
+  remove_owned() {
+    printf 'requested_delete=%s\n' "$1" >> "$receipt"
+    rm -rf -- "$1"
+    [[ ! -e "$1" && ! -L "$1" ]] || fail 'cleanup could not be verified; inspect the cleanup receipt'
+    printf 'deleted=%s\n' "$1" >> "$receipt"
+  }
+  if [[ "$clean" == fclean && -L "$prefix/current" ]]; then remove_owned "$prefix/current"; fi
+  for candidate in "$prefix"/releases/*; do
+    [[ -d "$candidate" && ! -L "$candidate" && -O "$candidate" ]] || continue
+    owned_release "$candidate" || continue
+    if [[ "$clean" == fclean || ( ! -f "$candidate/complete" && "$candidate" != "$previous" ) ]]; then
+      remove_owned "$candidate"
+    fi
+  done
+  log "[DONE] $clean complete; receipt: $receipt"
+  exit 0
+fi
 [[ "$(df -Pk "$prefix" | awk 'NR==2 {print $4}')" -ge 2097152 ]] || fail "tool installation needs 2 GiB free under $prefix"
 mkdir "$scratch/downloads"
 mkdir -p "$prefix/releases"

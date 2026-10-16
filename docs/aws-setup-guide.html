@@ -73,7 +73,7 @@
 cd ml-deployer
 make</code></pre>
       <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open; Ctrl+C stops setup and this page. Rerunning <code>make</code> resumes.</p>
-      <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make remote</code> there. It prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
+      <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make</code> there. It detects SSH and prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
       <p class="meta">Ubuntu/Debian: if setup reports missing system packages, run <code>./workspace setup --system-packages</code> (sudo installs curl, unzip, tar, dpkg), then <code>make</code> again. macOS: install the Command Line Tools when prompted. Supported: Linux with glibc (x86_64, arm64) and macOS (Intel, Apple Silicon).</p>
     </li>
 
@@ -130,8 +130,8 @@ make</code></pre>
 
   <h2>Something broke</h2>
   <div class="note warn">
-    <p><strong>Tools half installed or failing:</strong> rebuild them. Logins, project files, state and evidence are untouched, and the previous tools stay selected if the rebuild fails.</p>
-<pre><code>./workspace setup --fresh
+    <p><strong>Tools half installed or failing:</strong> stop the running guide with Ctrl+C. <code>make clean</code> removes interrupted builds and keeps installed tools. <code>make fclean</code> also removes installed managed tools; the next <code>make</code> reinstalls them. <code>make re</code> performs that full clean and restarts setup. Logins, project files, datasets, state and evidence are preserved.</p>
+<pre><code>make re
 ./workspace doctor ~/aws-workspace/demo/project.json --debug</code></pre>
     <p><strong>A Deploy was interrupted:</strong> <code>./workspace project.json resume</code> reconciles owned resources and never repeats a launch; <code>cancel</code> removes the owned compute.</p>
     <p><strong>The launcher itself is broken:</strong> <code>git checkout -- workspace scripts</code> restores the tracked files.</p>

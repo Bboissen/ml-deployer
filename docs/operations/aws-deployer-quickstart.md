@@ -22,11 +22,14 @@ logins and the Deploy confirmation remain. Its companion at
 `http://127.0.0.1:8765/` shows progress (over SSH, forward that port from your
 laptop). It uses `~/aws-workspace/demo/project.json` unless you pass
 `make PROJECT=/path/project.json`. Existing valid settings are reused.
-`make FRESH=1` rebuilds tools; `make DEBUG=1` shows diagnostics.
-For a laptop connected over SSH, run `make remote` on the server. It prints
+`make clean` removes interrupted tool builds; `make fclean` also removes the
+installed managed tools. `make re` performs a full clean and restarts setup.
+Stop any running guide first. Settings, logins and evidence are preserved.
+`make DEBUG=1` shows diagnostics.
+For a laptop connected over SSH, run `make` on the server. It detects SSH and prints
 the tunnel command to run outside SSH on your laptop and the local browser
-link. Answer setup questions in the original SSH terminal. `remote` selects
-browser access from another device; all setup runs on the repository host.
+link. Answer setup questions in the original SSH terminal; all setup runs on
+the repository host.
 The commands below are the optional manual equivalents of the guided flow.
 On Ubuntu/Debian, when setup reports missing system packages, run
 `./workspace setup --system-packages` (sudo) and then `make` again.
