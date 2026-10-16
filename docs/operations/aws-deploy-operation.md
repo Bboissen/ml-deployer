@@ -95,6 +95,14 @@ also stop a stale saved plan. Repeated interruptions preserve the entire recover
 retirement apply without a verifiable success receipt still stops for ownership
 reconciliation.
 
+If retirement succeeded but its source fingerprint is no longer accepted, cleanup
+uses the original consumed launch plan as its recovery reference. It verifies that
+plan's source and authorization, current state lineage, owned resource identities
+and compute absence before deleting runner controls. It preserves the retirement
+receipt, never repeats the job or launch, and verifies the same saved output
+versions after cleanup. This also covers a checkout changing between retirement
+and cleanup; source checks for pending saved applies remain exact.
+
 Once launch started, resume never repeats RunInstances or SendCommand. It checks
 for durable results and performs owned teardown. Cancel records an intent even
 when a worker holds the lock. Workers check it between stages and during bounded

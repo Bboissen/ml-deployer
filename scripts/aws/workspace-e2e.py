@@ -287,7 +287,14 @@ def cleanup_runner(L, target_name, control, config, applied):
     inputs=control/('retire-inputs-'+uuid.uuid4().hex+'.json'); L['write'](inputs,config)
     if (control/'launch/apply-result.json').exists():
         retired=applied('retire',inputs,str(control/'launch'))
-        applied('cleanup',inputs,str(retired))
+        if L['prior_source'](L['read'](retired/'review.json')['source']):
+            applied('cleanup',inputs,str(retired))
+        else:
+            # Retirement may finish while the checkout changes. Keep its receipt
+            # intact and recover against the original consumed launch instead.
+            # Recovery independently verifies source, authorization, state lineage,
+            # owned identities and compute absence before deleting any controls.
+            applied('cleanup',inputs,recover_from=str(control/'launch'))
     else:
         recovery=control/('launch' if (control/'launch/apply-started.json').exists() else 'prepare')
         if recovery.name=='launch':
