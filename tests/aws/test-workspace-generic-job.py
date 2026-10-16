@@ -186,8 +186,11 @@ for attempt in (lambda:(data/"train.csv").open("ab"),lambda:(data/"new").write_b
     def test_staging_counts_against_the_job_deadline(self):
         s3=types.SimpleNamespace(get_object=lambda **kw:{'VersionId':'v','ContentLength':1,'Body':io.BytesIO(b'x')})
         with self.assertRaisesRegex(ValueError,'time bound'): G.fetch(s3,'111111111111','data','key','v',time.monotonic()-1,io.BytesIO(),1)
-    def test_checkout_with_outputs_directory_is_rejected_before_setup(self):
+    def test_committed_outputs_directory_is_reused(self):
         code,receipt=self.guest(checkout=lambda project:(project/'outputs').mkdir())
+        self.assertEqual((receipt['setup_exit'],receipt['dataset_staged']),(0,True))
+    def test_checkout_with_outputs_symlink_is_rejected_before_setup(self):
+        code,receipt=self.guest(checkout=lambda project:(project/'outputs').symlink_to(project.parent))
         self.assertEqual((code,receipt['execution_error']['stage'],receipt['setup_exit'],receipt['dataset_staged']),(1,'data',None,False))
     def test_output_metadata_limit_preserves_failure_receipt(self):
         with patch.object(G.files,'EXECUTION_RECEIPT_BYTES',17000):

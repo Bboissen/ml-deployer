@@ -63,7 +63,7 @@ def run_test(root, name, timeout=600):
     scratch_parent = root/'evidence/aws/tests'
     scratch_parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix='offline-', dir=scratch_parent))
-    snapshot = scratch/'source'
+    snapshot = scratch/'source'; temporary = None
     log = ''; code = 2; process = None; started = time.monotonic()
     handlers = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
@@ -71,7 +71,9 @@ def run_test(root, name, timeout=600):
         command = [sys.executable, '-B', name] if name.endswith('.py') else ['bash', name]
         # Downloads, native tool caches and conventional temporary files also
         # belong to this test; caller-owned runtimes and caches stay untouched.
-        temporary = scratch/'tmp'; temporary.mkdir()
+        # Unix sockets (OpenTofu provider plugins) are limited to 108 bytes, so
+        # TMPDIR stays short even when the checkout path is long.
+        temporary = Path(tempfile.mkdtemp(prefix='ws-offline-', dir='/tmp' if Path('/tmp').is_dir() else None))
         cache = scratch/'cache'; cache.mkdir()
         environment = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1',
                        'WORKSPACE_PYTHON': sys.executable, 'TMPDIR': str(temporary),
@@ -110,13 +112,15 @@ def run_test(root, name, timeout=600):
                     print(diagnostics, flush=True)
                     log += '\n' + diagnostics
         shutil.rmtree(scratch)
-        cleanup_verified = not scratch.exists() and not scratch.is_symlink()
+        if temporary is not None: shutil.rmtree(temporary)
+        owned = [scratch] + ([temporary] if temporary is not None else [])
+        cleanup_verified = not any(p.exists() or p.is_symlink() for p in owned)
         receipt = root/'evidence/aws/test-receipts'/(uuid.uuid4().hex + '.json')
         receipt.parent.mkdir(parents=True, exist_ok=True)
         receipt.with_suffix('.log').write_text(log[-65536:])
         receipt.write_text(json.dumps({
             'test': name, 'exit_code': code, 'elapsed_seconds': round(time.monotonic()-started, 2),
-            'deleted_paths': [str(scratch)], 'cleanup_verified': cleanup_verified,
+            'deleted_paths': [str(p) for p in owned], 'cleanup_verified': cleanup_verified,
             'free_before': free, 'free_after': shutil.disk_usage(root).free,
             'cloud_mutations': False,
         }, indent=2) + '\n')
