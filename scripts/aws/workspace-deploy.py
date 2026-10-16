@@ -15,6 +15,10 @@ import time
 import uuid
 from workspace_terminal import interactive
 
+# Checkout, project environment, caches and logs share the fixed root volume
+# with the staged dataset and declared outputs.
+DISK_RESERVE_BYTES=8*1024**3
+
 
 def say(line):
     """Human-readable progress on stderr; stdout stays machine-readable JSON."""
@@ -34,6 +38,9 @@ def describe_scope(scope):
         '  outputs:     '+', '.join(scope['outputs']['paths'])+' (at most %d MiB)' % (scope['outputs']['maximum_bytes']//1024**2 or 1),
         '  retained after the job: '+'; '.join(scope['retained_resources']),
         '  not in the quote: '+'; '.join(scope['additional_cost_scope']) if isinstance(scope['additional_cost_scope'],list) else '  not in the quote: '+str(scope['additional_cost_scope'])]
+    disk=scope.get('disk')
+    if disk: lines.insert(5,'  disk:        %.1f GiB dataset + %.1f GiB outputs + %d GiB environment reserve of %d GiB usable; %s' % (
+        disk['dataset_bytes']/1024**3,disk['output_bytes']/1024**3,disk['reserve_bytes']//1024**3,disk['usable_bytes']//1024**3,disk['cost']))
     migration=scope.get('foundation_iam_migration')
     if migration and migration.get('required'): lines.append('  includes a reviewed tightening of the retained deployer IAM policy')
     return lines
@@ -150,6 +157,15 @@ def latest(L,config):
     return L['checked_path'](L['read'](pointer)['directory'])
 
 
+def disk_fit(L,selected,dataset_bytes,output_bytes):
+    """Refuse a review whose staged dataset and outputs cannot fit the fixed root volume."""
+    usable=selected['disk_gb']*1024**3
+    L['require'](dataset_bytes+output_bytes+DISK_RESERVE_BYTES<=usable,'dataset plus outputs and the %d GiB environment reserve exceed the %d GiB workspace disk; reduce the dataset or outputs maximum_bytes'
+                 % (DISK_RESERVE_BYTES//1024**3,selected['disk_gb']))
+    return {'usable_bytes':usable,'dataset_bytes':dataset_bytes,'output_bytes':output_bytes,'reserve_bytes':DISK_RESERVE_BYTES,
+            'cost':'fixed gp3 root volume, no added cost'}
+
+
 def prepare(W,config,directory=None):
     L=W['L']; modules=extensions(L); P,O,I= (modules[k] for k in ('config','onboarding','ingest'))
     if directory:
@@ -171,18 +187,20 @@ def prepare(W,config,directory=None):
     adapter=I.source_adapter({**deployment['dataset'],'maximum_bytes':project['dataset'].get('maximum_bytes',640*1024**3)},client(base,'s3'),project['region'])
     records=adapter.inventory(time.monotonic()+3600); total=sum(r['bytes'] for r in records)
     L['require'](total<=project['dataset'].get('maximum_bytes',total),'dataset exceeds configured transfer ceiling')
+    outputs={'paths':project['outputs']['paths'],'maximum_bytes':project['outputs'].get('maximum_bytes',100*1024*1024)}
+    disk=disk_fit(L,capacity['selected'],total,outputs['maximum_bytes'])
     reference_path=registry/(deployment['names']['workspace_id']+'-repository.json')
     reference=L['read'](reference_path) if reference_path.exists() else None
     if reference: L['require'](reference['url']==deployment['repository']['url'],'retained repository differs; review rotation separately')
     scope={'schema_version':'1.0.0','kind':'aws-deploy-scope','operation_id':directory.name,'source':L['source'](),
         'configuration_sha256':L['sha'](L['canon'](project)),'deployment_sha256':L['sha'](L['canon'](deployment)),
         'target':selected,'capacity':capacity,'repository':deployment['repository'],
-        'dataset':{'inventory':records,'total_bytes':total,'source':deployment['dataset']},
+        'dataset':{'inventory':records,'total_bytes':total,'source':deployment['dataset']},'disk':disk,
         'foundation':retained,'foundation_iam_migration':migration,'registry_directory':str(registry),'repository_reference':reference,
         'retained_resources':['encrypted versioned state bucket','encrypted versioned workload bucket','no-ingress VPC/subnet/IGW',
             'deployer/project boundaries','provider watchdog/schedules/alarms/queue/logs','encrypted SNS topic/customer-managed rotating KMS key'],
         'new_private_access':deployment['repository']['url'].startswith('git@') and not reference,
-        'outputs':{'paths':project['outputs']['paths'],'maximum_bytes':project['outputs'].get('maximum_bytes',100*1024*1024)},
+        'outputs':outputs,
         'maximum_runtime_minutes':project['maximum_runtime_minutes'],'max_ec2_launches':1,
         'estimated_compute_usd':capacity['selected']['hourly_usd']*project['maximum_runtime_minutes']/60,
         'additional_cost_scope':capacity['cost_exclusions'],'transfer_policy':'selected source hash + upload + independent version reads; no cross-region transfer',

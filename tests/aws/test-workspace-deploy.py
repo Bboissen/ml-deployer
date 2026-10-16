@@ -199,8 +199,8 @@ class Operations(unittest.TestCase):
         result,calls=self.pipeline(mode='workspace')
         self.assertEqual(result['status'],'workspace_ready'); self.assertNotIn('cleanup',calls)
     def review_scope(self):
-        size={'instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1.5}
-        return {'operation_id':self.directory.name,'target':{'account_id':'111111111111','operator_arn':'arn:aws:iam::111111111111:user/operator','region':'us-east-1'},
+        size={'instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1.5,'disk_gb':25}
+        return {'disk':D.disk_fit(L,size,3,100*1024*1024),'operation_id':self.directory.name,'target':{'account_id':'111111111111','operator_arn':'arn:aws:iam::111111111111:user/operator','region':'us-east-1'},
             'capacity':{'selected':size},'repository':{'url':'https://github.com/owner/project.git','revision':'a'*40},'new_private_access':False,
             'dataset':{'inventory':[{'path':'rows.csv','bytes':3}],'total_bytes':3,'source':{'source':'/data'}},'maximum_runtime_minutes':30,
             'estimated_compute_usd':0.75,'mode':'job','cleanup':'owned compute after job','foundation':None,'foundation_iam_migration':None,
@@ -246,9 +246,16 @@ class Operations(unittest.TestCase):
             result=D.deploy({'L':L},'config',authorization='approve scope '+digest)
         self.assertEqual(result['status'],'success'); self.assertEqual(len(executed),1)
         self.assertEqual(L['read'](self.directory/'task-authorization.json')['scope_sha256'],L['sha'](L['canon'](scope)))
+    def test_dataset_and_outputs_must_fit_the_fixed_workspace_disk(self):
+        size={'disk_gb':25}; outputs=100*1024*1024; fits=25*1024**3-D.DISK_RESERVE_BYTES-outputs
+        self.assertEqual(D.disk_fit(L,size,fits,outputs)['usable_bytes'],25*1024**3)
+        for dataset,output in ((fits+1,outputs),(0,25*1024**3)):
+            with self.subTest(dataset=dataset,output=output),self.assertRaisesRegex(L['Failure'],'exceed the 25 GiB workspace disk'):
+                D.disk_fit(L,size,dataset,output)
     def test_readable_scope_and_outcome_summaries(self):
         lines='\n'.join(D.describe_scope(self.review_scope()))
-        for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git'): self.assertIn(expected,lines)
+        for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git',
+                         '8 GiB environment reserve of 25 GiB usable; fixed gp3 root volume, no added cost'): self.assertIn(expected,lines)
         outcome='\n'.join(D.describe_result('/p/project.json',{'status':'failure','cleanup_status':'unknown','setup_exit':0,'job_exit':None,'outputs_persisted':False,'error':{'reason':'lost'}}))
         self.assertIn('./workspace /p/project.json resume',outcome); self.assertIn('lost',outcome)
         self.assertIn('reuses the retained data','\n'.join(D.describe_result('/p/project.json',{'status':'success','output_uri':'s3://b/o/'})))

@@ -429,6 +429,7 @@ def verify_generic_result(L,value,target,job,config,instance,s3,directory,first=
                  'invalid independent outcomes')
     if receipt['setup_exit'] is not None:
         L['require'](receipt['credential_removed_before_setup'] is True,'clone credential not removed before setup')
+        L['require'](receipt['dataset_staged'] is True and type(receipt['dataset_staged_bytes']) is int,'dataset not staged before setup')
     L['require'](L['utc'](object_record['last_modified'])>=L['utc'](config['lease']['starts_at']),'old execution receipt')
     total=0; seen=set(); deadline=time.monotonic()+300
     for record in receipt['output_objects']:

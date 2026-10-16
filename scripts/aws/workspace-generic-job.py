@@ -1,6 +1,7 @@
 """Non-root project setup/run and declared versioned output persistence."""
 import hashlib
 import importlib.util
+import io
 import math
 import json
 import os
@@ -8,12 +9,15 @@ from pathlib import Path
 import pwd
 import re
 import selectors
+import shutil
 import signal
 import stat
 import subprocess
 import time
 
 LOG_BYTES=8*1024*1024
+MANIFEST_BYTES=64*1024*1024
+DATA_OBJECTS=100000
 spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
 files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
 
@@ -26,7 +30,7 @@ def require(condition,reason):
 
 def relative(path):
     require(isinstance(path,str) and path and not path.startswith(('/','-')) and '\\' not in path and
-            all(p not in ('','.','..','.git') for p in path.split('/')), 'relative output without traversal required')
+            all(p not in ('','.','..','.git') for p in path.split('/')), 'relative path without traversal required')
     return path
 
 def validate(job):
@@ -45,8 +49,50 @@ def validate(job):
     require(set(job['outputs'])=={'paths','maximum_bytes'} and 0<job['outputs']['maximum_bytes']<=5*1024**4,'bounded output policy required')
     for path in job['outputs']['paths']: relative(path)
     require(len(set(job['outputs']['paths']))==len(job['outputs']['paths']),'duplicate outputs')
-    require(job['output_uri'].startswith('s3://') and job['output_uri'].endswith('/output/'+job['run_id']+'/'),'unique output prefix required')
+    require(isinstance(job['output_uri'],str) and re.fullmatch(r's3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/projects/[a-z0-9-]+/workspaces/'+job['workspace_id']+'/output/'+job['run_id']+'/',
+            job['output_uri']),'unique output prefix required')
+    manifest=job['dataset_manifest']
+    require(set(manifest)=={'bucket','manifest_key','manifest_version_id','manifest_sha256'} and manifest['bucket']==job['output_uri'][5:].split('/',1)[0] and
+            isinstance(manifest['manifest_version_id'],str) and re.fullmatch(r'[!-~]{1,1024}',manifest['manifest_version_id']) and manifest['manifest_version_id']!='null' and
+            re.fullmatch(r'[0-9a-f]{64}',manifest['manifest_sha256']) and relative(manifest['manifest_key']).startswith(data_prefix(job)),'versioned dataset manifest in the job bucket/data prefix required')
     require(not any(os.environ.get(k) for k in ('AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_PROFILE')),'native role credentials required')
+
+def data_prefix(job):
+    return job['output_uri'][5:].split('/',1)[1].split('/workspaces/',1)[0]+'/data/'
+
+def fetch(s3,account,bucket,key,version,deadline,sink,size=None):
+    """Stream one exact object version into sink; the manifest alone has no known size."""
+    response=s3.get_object(Bucket=bucket,Key=key,VersionId=version,ExpectedBucketOwner=account)
+    try:
+        length=response['ContentLength']
+        require(response.get('VersionId')==version and (length==size if size is not None else length<=MANIFEST_BYTES),'dataset version/size differs')
+        return files.stream_hash(response['Body'],length,deadline,sink=sink)
+    finally: response['Body'].close()
+
+def stage_data(s3,job,data,deadline):
+    """Download every manifest object by exact version and checksum, then make the tree read-only."""
+    manifest=job['dataset_manifest']; account=job['account_id']; bucket=manifest['bucket']; raw=io.BytesIO()
+    require(fetch(s3,account,bucket,manifest['manifest_key'],manifest['manifest_version_id'],deadline,raw)==manifest['manifest_sha256'],'dataset manifest checksum differs')
+    value=json.loads(raw.getvalue())
+    require(isinstance(value,dict) and value.get('schema_version')=='1.0.0' and value.get('kind')=='dataset-manifest' and value.get('bucket')==bucket and
+            isinstance(value.get('objects'),list) and 0<len(value['objects'])<=DATA_OBJECTS,'dataset manifest schema differs')
+    paths=set(); total=0
+    for item in value['objects']:
+        require(isinstance(item,dict) and set(item)=={'path','bytes','sha256','key','version_id'} and type(item['bytes']) is int and item['bytes']>=0 and
+                isinstance(item['sha256'],str) and re.fullmatch(r'[0-9a-f]{64}',item['sha256']) and isinstance(item['version_id'],str) and
+                item['version_id'] not in ('','null') and relative(item['key']).startswith(data_prefix(job)) and relative(item['path']) not in paths,
+                'dataset manifest object differs')
+        paths.add(item['path']); total+=item['bytes']
+    require(value.get('total_bytes')==total,'dataset manifest total differs')
+    require(total<shutil.disk_usage(data.parent).free,'dataset does not fit the free workspace disk')
+    data.mkdir(mode=0o700)
+    for item in value['objects']:
+        target=data/item['path']; target.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+        with target.open('xb') as stream:
+            require(fetch(s3,account,bucket,item['key'],item['version_id'],deadline,stream,item['bytes'])==item['sha256'],'dataset object checksum differs')
+    for path in data.rglob('*'): path.chmod(0o555 if path.is_dir() else 0o444)
+    data.chmod(0o555)
+    return total
 
 def execute(argv,environment,log,deadline,directory=None):
     process=subprocess.Popen(argv,cwd=directory,env=environment,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
@@ -131,20 +177,25 @@ def run(job,root=Path('/workspaces')):
     receipt={'schema_version':'1.0.0','run_id':job['run_id'],'repository_commit':repository['revision'],'user':'workspace',
         'instance_role_arn':identity['Arn'],'bootstrap':bootstrap,'commands':job['commands'],'dataset_manifest':manifest,
         'infrastructure_ready':True,'setup_exit':None,'job_exit':None,'outputs_persisted':False,'output_objects':[],
-        'credential_removed_before_setup':False,'mode':job['mode']}
+        'credential_removed_before_setup':False,'dataset_staged':False,'dataset_staged_bytes':None,'mode':job['mode']}
     deadline=time.monotonic()+job['timeout_seconds']; log_path=directory/'job.log'
+    s3=session.client('s3',config=settings); bucket,prefix=job['output_uri'][5:].split('/',1)
     with log_path.open('xb') as log:
         stage='clone'
         try:
             require(execute(clone,environment,log,min(deadline,time.monotonic()+300))==0,'clone failed')
             require(subprocess.check_output(['git','-C',str(project),'rev-parse','HEAD'],env=environment,timeout=10).decode().strip()==repository['revision'],'checkout differs')
             receipt['credential_removed_before_setup']=True
+            # Contract v1: verified read-only inputs outside the checkout and an
+            # empty private output directory exist before any project command.
+            stage='data'; output=project/'outputs'; output.mkdir(mode=0o700); output.chmod(0o700)
+            environment.update(DATA_DIR=str(directory/'data'),OUTPUT_DIR=str(output))
+            receipt['dataset_staged_bytes']=stage_data(s3,job,directory/'data',deadline); receipt['dataset_staged']=True
             stage='setup'; receipt['setup_exit']=execute(job['commands']['setup'],environment,log,deadline,project)
             if receipt['setup_exit']==0 and job['mode']=='job':
                 stage='job'; receipt['job_exit']=execute(job['commands']['run'],environment,log,deadline,project)
         except subprocess.TimeoutExpired: receipt[stage+'_exit' if stage in ('setup','job') else 'clone_exit']=124
         except Exception as error: receipt['execution_error']={'stage':stage,'type':type(error).__name__}
-    s3=session.client('s3',config=settings); bucket,prefix=job['output_uri'][5:].split('/',1)
     try:
         # Reserve space for log references and errors. Count encoded metadata
         # once per file, rather than repeatedly serializing the growing receipt.
