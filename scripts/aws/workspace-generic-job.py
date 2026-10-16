@@ -20,6 +20,8 @@ MANIFEST_BYTES=64*1024*1024
 DATA_OBJECTS=100000
 spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
 files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
+spec=importlib.util.spec_from_file_location('workspace_storage',Path(__file__).with_name('workspace_storage.py'))
+storage=importlib.util.module_from_spec(spec); spec.loader.exec_module(storage)
 
 
 def receipt_bytes(receipt):
@@ -49,8 +51,8 @@ def validate(job):
     require(set(job['outputs'])=={'paths','maximum_bytes'} and 0<job['outputs']['maximum_bytes']<=5*1024**4,'bounded output policy required')
     for path in job['outputs']['paths']: relative(path)
     require(len(set(job['outputs']['paths']))==len(job['outputs']['paths']),'duplicate outputs')
-    require(isinstance(job['output_uri'],str) and re.fullmatch(r's3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/projects/[a-z0-9-]+/workspaces/'+job['workspace_id']+'/output/'+job['run_id']+'/',
-            job['output_uri']),'unique output prefix required')
+    require(isinstance(job['output_uri'],str),'unique output prefix required')
+    storage.output_scope(job['output_uri'],job['workspace_id'],job['run_id'])
     manifest=job['dataset_manifest']
     require(set(manifest)=={'bucket','manifest_key','manifest_version_id','manifest_sha256'} and manifest['bucket']==job['output_uri'][5:].split('/',1)[0] and
             isinstance(manifest['manifest_version_id'],str) and re.fullmatch(r'[!-~]{1,1024}',manifest['manifest_version_id']) and manifest['manifest_version_id']!='null' and
@@ -58,7 +60,7 @@ def validate(job):
     require(not any(os.environ.get(k) for k in ('AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_PROFILE')),'native role credentials required')
 
 def data_prefix(job):
-    return job['output_uri'][5:].split('/',1)[1].split('/workspaces/',1)[0]+'/data/'
+    return storage.output_scope(job['output_uri'],job['workspace_id'],job['run_id'])
 
 def fetch(s3,account,bucket,key,version,deadline,sink,size=None):
     """Stream one exact object version into sink; the manifest alone has no known size."""

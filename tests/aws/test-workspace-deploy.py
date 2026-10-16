@@ -91,7 +91,7 @@ class Operations(unittest.TestCase):
             self.assertEqual(D.resume({'L':L},'config',self.directory),result)
             self.assertEqual(D.cancel({'L':L},'config',self.directory),result)
         self.assertEqual({p:p.read_bytes() for p in self.directory.rglob('*.json')},before)
-    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None,migration=False,migration_failure=False,legacy_scope=False,foundation_failure=None,resume_after_run=False):
+    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None,migration=False,migration_failure=False,legacy_scope=False,foundation_failure=None,resume_after_run=False,readable=False):
         directory=self.directory; calls=[]; project=json.loads((ROOT/'infra/aws/project.example.json').read_text()); project['mode']=mode
         target={'profile':'offline','account_id':'111111111111','region':'us-east-1','operator_arn':'arn:aws:iam::111111111111:user/operator',
             'deployment_role_arn':'arn:aws:iam::111111111111:role/deployer','backend':{},'inventory':{'resource_prefix':self.prefix,'buckets':['workload']}}
@@ -101,6 +101,10 @@ class Operations(unittest.TestCase):
         size={**L['supported_sizes']()['r8i.2xlarge'],'policy':'ram-first','instance_type':'r8i.2xlarge','availability_zone':'us-east-1a','hourly_usd':1}
         scope={'target':target,'registry_directory':str(registry),'capacity':{'selected':size,'candidates':[size]},'foundation':None,
             'foundation_iam_migration':None,'repository_reference':None,'new_private_access':False,'outputs':{'paths':['outputs'],'maximum_bytes':100},'dataset':{'inventory':[]}}
+        if readable:
+            deployment['storage_layout']='readable-v1'
+            scope['storage']={'data_uri':'s3://workload/datasets/',
+                              'output_uri':'s3://workload/results/'+deployment['names']['workspace_id']+'/2026-10-17T14-03-12Z-'+directory.name+'/'}
         if legacy_scope: del scope['foundation_iam_migration']
         task={'scope_sha256':'b'*64,'authorization':'authorized bounded mocked operation'}
         if cancelled: L['write'](directory/'cancel.json',{'requested_at':L['stamp']()})
@@ -254,6 +258,20 @@ class Operations(unittest.TestCase):
         self.assertEqual(len(store.objects),count)
         self.assertEqual(L['read'](self.directory/'ingestion/manifest.json'),manifest)
         self.assertEqual(calls.count('launch'),1); self.assertEqual(again.count('launch'),1)
+    def test_readable_pipeline_uses_reviewed_result_path_and_reuses_exact_dataset_versions(self):
+        spec=importlib.util.spec_from_file_location('ingest_tests',ROOT/'tests/aws/test-workspace-ingest.py')
+        fixture=importlib.util.module_from_spec(spec); spec.loader.exec_module(fixture); store=fixture.Store()
+        first,_=self.pipeline(store=store,readable=True)
+        self.assertEqual(first['status'],'success',first)
+        self.assertIn('/results/',first['output_uri']); self.assertIn('2026-10-17T14-03-12Z-',first['output_uri'])
+        self.assertEqual(L['read'](self.directory/'runtime.json')['job']['output_uri'],first['output_uri'])
+        self.assertTrue(first['data_uri'].startswith('s3://workload/datasets/data/'))
+        count=len(store.objects); data=first['data_uri']
+        self.directory=self.directory.parent/('f'*32); self.directory.mkdir()
+        second,_=self.pipeline(store=store,readable=True)
+        self.assertEqual(second['status'],'success',second)
+        self.assertEqual(second['data_uri'],data); self.assertEqual(len(store.objects),count)
+        self.assertNotEqual(first['output_uri'],second['output_uri'])
     def test_workspace_keeps_compute_and_runs_no_cleanup(self):
         result,calls=self.pipeline(mode='workspace')
         self.assertEqual(result['status'],'workspace_ready'); self.assertNotIn('cleanup',calls)

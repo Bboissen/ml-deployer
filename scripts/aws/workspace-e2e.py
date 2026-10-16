@@ -159,7 +159,7 @@ def payload(value, target, run_id):
         return {'repository':value['repository'],'workspace_id':value['workspace_id'],'account_id':target['account_id'],
                 'region':target['region'],'run_id':run_id,'commands':job['commands'],'outputs':job['outputs'],
                 'dataset_manifest':job['dataset_manifest'],'timeout_seconds':job['timeout_seconds'],'mode':value.get('mode','job'),
-                'output_uri':f"s3://{bucket}/projects/{value['project']}/workspaces/{value['workspace_id']}/output/{run_id}/"}
+                'output_uri':job.get('output_uri',f"s3://{bucket}/projects/{value['project']}/workspaces/{value['workspace_id']}/output/{run_id}/")}
     return {'repository': value['repository'], 'workspace_id': value['workspace_id'], 'account_id': target['account_id'],
             'region': target['region'], 'run_id': run_id, 'make_target': job['make_target'], 'timeout_seconds': job['timeout_seconds'],
             'data_uri': job['dataset']['uri'], 'data_version_id': job['dataset']['version_id'], 'data_sha256': job['dataset']['sha256'],

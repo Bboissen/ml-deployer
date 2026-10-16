@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import types
 import tempfile
@@ -68,6 +69,43 @@ class Configuration(unittest.TestCase):
         self.assertIn('222222222222', second['storage']['state_uri'])
         self.assertEqual(second['dataset']['bytes'], 4)
         self.assertTrue(second['execution_supported']); self.assertFalse(second['execution_admitted'])
+
+    def test_new_guided_storage_has_readable_buckets_and_flat_namespaces(self):
+        value = self.prepare()['review']
+        slug = self.project['project']
+        self.assertEqual(value['names']['workload_bucket'], slug+'-storage-111111111111-us-east-1')
+        self.assertEqual(value['backend']['bucket'], slug+'-state-111111111111-us-east-1')
+        self.assertTrue(value['storage']['data_uri'].endswith('/datasets/'))
+        self.assertTrue(value['storage']['output_uri'].endswith('/results/'+value['names']['workspace_id']+'/'))
+
+    def test_retained_foundation_keeps_its_exact_bucket_names_and_layout(self):
+        value = self.prepare()['review']
+        folder = ROOT/'evidence/aws/projects'/value['names']['resource_prefix']
+        folder.mkdir(parents=True, exist_ok=False)
+        self.addCleanup(shutil.rmtree, folder)
+        prior = self.directory/'retained'; prior.mkdir()
+        target = {'account_id':'111111111111','region':'us-east-1',
+                  'inventory':{'resource_prefix':value['names']['resource_prefix'],'buckets':['historical-data']},
+                  'backend':{'bucket':'historical-state'}}
+        L['write'](folder/'foundation.json', {'plan_directory':str(prior)})
+        L['write'](prior/'review.json', {'target':target})
+        for layout in ('legacy','readable-v1'):
+            with self.subTest(layout=layout):
+                (prior/'config.tfvars.json').write_text(json.dumps({} if layout=='legacy' else {'storage_layout':layout}))
+                retained = self.prepare()['review']
+                self.assertEqual(retained['names']['workload_bucket'], 'historical-data')
+                self.assertEqual(retained['backend']['bucket'], 'historical-state')
+                self.assertEqual(retained['storage_layout'], layout)
+
+    def test_readable_output_scope_is_bound_to_the_whole_run_and_workspace(self):
+        from workspace_storage import output_scope, run_folder
+        run = 'a'*32
+        uri = 's3://data/results/demand-dev/'+run_folder(run,'2026-10-17T14:03:12Z')+'/'
+        self.assertEqual(output_scope(uri,'demand-dev',run), 'datasets/')
+        for changed in (uri.replace('demand-dev','demand-other'), uri.replace(run,'b'*32),
+                        uri+'extra/', uri.replace('/results/','/other/'), uri.replace('/2026','/../2026')):
+            with self.assertRaisesRegex(ValueError,'unique output'):
+                output_scope(changed,'demand-dev',run)
 
     def test_default_job_mode_declares_setup_and_run_without_executing(self):
         marker = self.directory/'never-execute'

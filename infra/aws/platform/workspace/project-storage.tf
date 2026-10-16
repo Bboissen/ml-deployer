@@ -1,3 +1,13 @@
+variable "storage_layout" {
+  description = "S3 naming and prefixes. Keep legacy for existing state; new guided foundations select readable-v1."
+  type        = string
+  default     = "legacy"
+  validation {
+    condition     = contains(["legacy", "readable-v1"], var.storage_layout)
+    error_message = "Storage layout must be legacy or readable-v1; changing retained storage requires a reviewed migration."
+  }
+}
+
 variable "ml_projects" {
   description = "Persistent ML project assignments. Keys and ml_project_name are identical canonical names; retain entries until a reviewed migration."
   type = map(object({
@@ -52,7 +62,7 @@ variable "ml_projects" {
 locals {
   project_bucket_names = {
     for slug, project in var.ml_projects : slug => (
-      project.assignment == null ? "ml-${slug}-${substr(sha256("${var.aws_account_id}/${var.aws_region}/${slug}"), 0, 16)}" : project.assignment.bucket_name
+      project.assignment == null ? (var.storage_layout == "readable-v1" ? "${slug}-storage-${var.aws_account_id}-${var.aws_region}" : "ml-${slug}-${substr(sha256("${var.aws_account_id}/${var.aws_region}/${slug}"), 0, 16)}") : project.assignment.bucket_name
     )
   }
   managed_projects = {
@@ -72,9 +82,9 @@ locals {
       ownership                = project.assignment == null ? "platform-managed" : project.assignment.ownership
       resource_address         = project.assignment == null ? "aws_s3_bucket.project[\"${slug}\"]" : project.assignment.resource_address
       state_key                = project.assignment == null ? "aws/${var.aws_account_id}/${var.aws_region}/platform/platform.tfstate" : project.assignment.state_key
-      data_prefix              = "projects/${slug}/data/"
-      data_uri                 = "s3://${local.project_bucket_names[slug]}/projects/${slug}/data/"
-      output_prefix_template   = "projects/${slug}/workspaces/<workspace_id>/output/"
+      data_prefix              = var.storage_layout == "readable-v1" ? "datasets/" : "projects/${slug}/data/"
+      data_uri                 = "s3://${local.project_bucket_names[slug]}/${var.storage_layout == "readable-v1" ? "datasets/" : "projects/${slug}/data/"}"
+      output_prefix_template   = var.storage_layout == "readable-v1" ? "results/<workspace_id>/" : "projects/${slug}/workspaces/<workspace_id>/output/"
       permissions_boundary_arn = aws_iam_policy.project_workspace_boundary[slug].arn
       session_policy_arn       = aws_iam_policy.session_manager.arn
     }

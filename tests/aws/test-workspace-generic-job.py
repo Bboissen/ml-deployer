@@ -108,7 +108,7 @@ else:
         (self.project/'result').write_bytes(b'1234'); (self.project/'link').symlink_to('/etc/passwd')
         for paths,limit in [(['../escape'],100),(['missing'],100),(['link'],100),(['result'],3)]:
             with self.assertRaises(ValueError): G.output_files(self.project,paths,limit)
-    def guest(self,setup_exit=0,job_exit=0,copy_failure=False,mode='job',setup=None,dataset=None,tamper=None,checkout=None):
+    def guest(self,setup_exit=0,job_exit=0,copy_failure=False,mode='job',setup=None,dataset=None,tamper=None,checkout=None,readable=False):
         objects={}; job={'repository':{'url':'https://github.com/owner/project.git','revision':'a'*40},
             'workspace_id':'demand-dev','account_id':'111111111111','region':'us-east-1','run_id':os.urandom(16).hex(),
             'commands':{'setup':setup or [sys.executable,'-c',f'raise SystemExit({setup_exit})'],
@@ -117,6 +117,9 @@ else:
         job['output_uri']='s3://data/projects/demand/workspaces/demand-dev/output/'+job['run_id']+'/'
         # Versioned objects as the controller's ingestion leaves them.
         prefix='projects/demand/data/snapshots/'+'d'*64+'/'; versions={}; records=[]
+        if readable:
+            job['output_uri']='s3://data/results/demand-dev/2026-10-17T14-03-12Z-'+job['run_id']+'/'
+            prefix='datasets/training.csv/2026-10-17T14-03-12Z-'+'e'*32+'/'
         for number,(path,data) in enumerate(dataset or [('train.csv',b'value\n1\n2\n'),('nested/deeper/labels.csv',b'label\n0\n')]):
             key=prefix+'objects/'+'e'*32+'/'+path; versions[key,'v'+str(number)]=data
             records.append({'path':path,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'key':key,'version_id':'v'+str(number)})
@@ -155,6 +158,12 @@ else:
             code=G.run(job,self.root/'workspaces')
         receipt=json.loads(next(v for k,v in objects.items() if k.endswith('/execution.json')))
         return code,receipt
+    def test_readable_storage_stages_inputs_and_persists_results_with_exact_versions(self):
+        code,receipt=self.guest(readable=True)
+        self.assertEqual(code,0)
+        self.assertTrue(receipt['dataset_staged']); self.assertTrue(receipt['outputs_persisted'])
+        self.assertTrue(receipt['dataset_manifest']['manifest_key'].startswith('datasets/training.csv/'))
+        self.assertTrue(receipt['output_objects'][0]['key'].startswith('results/demand-dev/2026-10-17T14-03-12Z-'))
     def test_guest_outcomes_setup_job_and_output_copy_are_independent(self):
         code,receipt=self.guest(setup_exit=7)
         self.assertEqual(code,1); self.assertEqual(receipt['setup_exit'],7); self.assertIsNone(receipt['job_exit'])

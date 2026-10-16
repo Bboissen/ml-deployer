@@ -50,7 +50,8 @@ def configuration(path):
     require(set(value['foundation']) == {'plan_directory', 'outputs_file', 'outputs_sha256'}, 'foundation requires its applied plan and captured outputs hash')
     if 'job' in value and 'commands' in value['job']:
         job=value['job']
-        require(set(job)=={'commands','outputs','dataset_manifest','timeout_seconds'},'closed generic job configuration required')
+        fields={'commands','outputs','dataset_manifest','timeout_seconds'}
+        require(set(job) in (fields,fields|{'output_uri'}),'closed generic job configuration required')
         require(type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=min(1800,(value['maximum_runtime_minutes']-10)*60),'job must reserve teardown time')
     if 'job' in value and 'commands' not in value['job']:
         job = value['job']
@@ -95,7 +96,7 @@ def render(value, target, directory, starts_at):
                'region': target['region'], 'workspace_id': wid, 'toolbox_profile': 'cpu-python-v1',
                'resources': {k: value['sizing'][k] for k in ('cpus', 'memory_mb', 'disk_gb')},
                'operators': [target['operator_arn']], 'maximum_runtime_minutes': value['maximum_runtime_minutes'],
-               'storage': P.storage_uris(bucket, project, wid, target['backend']['bucket'], target['backend']['runner_prefix'])}
+               'storage': P.storage_uris(bucket, project, wid, target['backend']['bucket'], target['backend']['runner_prefix'], platform_config.get('storage_layout', P.LEGACY))}
     # Use the same validator as production handoff/readiness, before writing a packet.
     import importlib.util
     module_spec = importlib.util.spec_from_file_location('workspace_contract', ROOT/'scripts/workspace/validate.py')
