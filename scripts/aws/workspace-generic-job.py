@@ -135,22 +135,26 @@ def output_files(project,paths,maximum):
     require(selected,'declared outputs contain no files'); return sorted(selected.items())
 
 def persist(s3,account,bucket,key,path):
-    before=path.stat(); digest=hashlib.sha256()
-    part_size=max(8*1024*1024,math.ceil(before.st_size/10000/(8*1024*1024))*(8*1024*1024))
+    before=files.stat_stamp(path.stat()); digest=hashlib.sha256()
+    part_size=max(8*1024*1024,math.ceil(before[2]/10000/(8*1024*1024))*(8*1024*1024))
     require(part_size<=64*1024*1024,'output object exceeds 640 GiB bounded transfer capability')
     from boto3.s3.transfer import TransferConfig
     with files.local_file(path) as stream:
         initial=files.local_stamp(stream)
+        require(initial==before,'output changed before hashing')
         for data in iter(lambda:stream.read(8*1024*1024),b''): digest.update(data)
         require(files.local_stamp(stream)==initial,'output changed while hashing')
-        stream.seek(0)
-        s3.upload_fileobj(stream,bucket,key,ExtraArgs={'ExpectedBucketOwner':account,'Metadata':{'sha256':digest.hexdigest()}},
-                       Config=TransferConfig(multipart_threshold=8*1024*1024,multipart_chunksize=part_size,max_concurrency=1,use_threads=False))
+        # The SDK closes its upload stream. Keep the validated descriptor open
+        # independently so post-transfer inode/content checks remain possible.
+        with os.fdopen(os.dup(stream.fileno()),'rb') as upload:
+            upload.seek(0)
+            s3.upload_fileobj(upload,bucket,key,ExtraArgs={'ExpectedBucketOwner':account,'Metadata':{'sha256':digest.hexdigest()}},
+                           Config=TransferConfig(multipart_threshold=8*1024*1024,multipart_chunksize=part_size,max_concurrency=1,use_threads=False))
         require(files.local_stamp(stream)==initial,'output changed during upload')
-    require(path.stat()==before,'output changed during upload')
+    require(files.stat_stamp(path.stat())==before,'output changed during upload')
     head=s3.head_object(Bucket=bucket,Key=key,ExpectedBucketOwner=account)
-    require(head.get('VersionId') not in (None,'','null') and head['ContentLength']==before.st_size,'versioned output required')
-    return {'key':key,'version_id':head['VersionId'],'bytes':before.st_size,'sha256':digest.hexdigest()}
+    require(head.get('VersionId') not in (None,'','null') and head['ContentLength']==before[2],'versioned output required')
+    return {'key':key,'version_id':head['VersionId'],'bytes':before[2],'sha256':digest.hexdigest()}
 
 def run(job,root=Path('/workspaces')):
     validate(job)
