@@ -307,7 +307,7 @@ def recovery_pointer(L, packet, stage, folder):
     L['write'](record,{'directory':str(folder)})
     pointer=packet/(stage+'-binding.json'); temporary=packet/('.'+stage+'-'+uuid.uuid4().hex)
     try:
-        with temporary.open('xb') as stream:
+        with L['private_file'](temporary) as stream:
             stream.write(L['canon']({'receipt':str(record)})); stream.flush(); os.fsync(stream.fileno())
         os.replace(temporary,pointer)
         descriptor=os.open(packet,os.O_RDONLY)

@@ -81,7 +81,7 @@ def atomic(L,path,value,exclusive=False):
     path=L['checked_path'](path); path.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
     temporary=path.with_name('.'+path.name+'-'+uuid.uuid4().hex)
     try:
-        with temporary.open('xb') as stream:
+        with L['private_file'](temporary) as stream:
             stream.write(L['canon'](value)); stream.flush(); os.fsync(stream.fileno())
         if exclusive:
             os.link(temporary,path); temporary.unlink()

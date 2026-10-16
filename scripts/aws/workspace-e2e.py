@@ -221,7 +221,7 @@ def verify_result(L, value, target, job, config, instance, s3, directory, first=
                      and execution['credential_removed_before_make'], 'Guest execution was not a successful non-root pinned job')
         L['write'](directory/'execution.json', execution)
     directory.mkdir(mode=0o700, exist_ok=True)
-    (directory/'result.bin').write_bytes(result)
+    with L['private_file'](directory/'result.bin') as stream: stream.write(result)
     L['write'](directory/'provenance.json', provenance)
     record = {'result': observed, 'provenance_object': provenance_object, 'provenance': provenance}
     L['write'](directory/'verification.json', record)

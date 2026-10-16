@@ -20,6 +20,8 @@ ROOT = Path.cwd().resolve()
 BASE = ROOT / "evidence/aws"
 spec = importlib.util.spec_from_file_location("aws_workspace_config", ROOT / "scripts/aws/workspace-config.py")
 project_config = importlib.util.module_from_spec(spec); spec.loader.exec_module(project_config)
+spec = importlib.util.spec_from_file_location("workspace_target", ROOT / "scripts/aws/workspace_target.py")
+target_boundary = importlib.util.module_from_spec(spec); spec.loader.exec_module(target_boundary)
 
 
 class Failure(ValueError):
@@ -104,7 +106,7 @@ def store(directory, files):
     require(not any(p.is_symlink() for p in [directory, *directory.parents] if p.is_relative_to(ROOT)), "evidence symlink rejected")
     directory.mkdir(parents=True, mode=0o700, exist_ok=False)
     for name, value in files.items():
-        with (directory / name).open("xb") as stream:
+        with target_boundary.private_file(directory / name) as stream:
             stream.write(canonical(value))
 
 

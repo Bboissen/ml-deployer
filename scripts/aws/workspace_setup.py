@@ -222,11 +222,7 @@ def create_project(config, ui, M):
     checked_config(config)
     if before is not None and config.read_bytes() != before:
         raise ValueError('project file changed while you answered; nothing was overwritten')
-    old_mask = os.umask(0o077)
-    try:
-        M.D.atomic({**M.L, 'checked_path': checked_config}, config, project, exclusive=before is None)
-    finally:
-        os.umask(old_mask)
+    M.D.atomic({**M.L, 'checked_path': checked_config}, config, project, exclusive=before is None)
     ui.status('done', 'Project saved')
     ui.hint(str(config))
     return project
