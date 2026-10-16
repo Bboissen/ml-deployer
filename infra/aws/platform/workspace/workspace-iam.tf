@@ -8,8 +8,8 @@ locals {
     for slug, project in var.ml_projects : slug => templatefile("${path.module}/../../workspace-policy.json.tftpl", {
       bucket_arn         = "arn:${data.aws_partition.current.partition}:s3:::${local.project_bucket_names[slug]}"
       state_bucket_arn   = var.state_bucket_arn
-      data_prefix        = local.project_storage[slug].data_prefix
-      output_prefix      = replace(local.project_storage[slug].output_prefix_template, "<workspace_id>", "$${aws:PrincipalTag/workspace_id}")
+      data_prefix        = local.project_prefixes[slug].data
+      output_prefix      = replace(local.project_prefixes[slug].output, "<workspace_id>", "$${aws:PrincipalTag/workspace_id}")
       management_actions = local.session_manager_actions
       include_management = true
     })

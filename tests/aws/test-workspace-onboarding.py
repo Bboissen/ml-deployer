@@ -167,11 +167,13 @@ class Onboarding(unittest.TestCase):
         self.assertTrue(L['operator_matches']('arn:aws:iam::111111111111:role/team/Operator',identity['Arn']))
         self.assertFalse(L['operator_matches']('arn:aws:iam::222222222222:role/team/Operator',identity['Arn']))
     def test_two_projects_render_closed_fresh_scope(self):
-        for account,project,kind in [('111111111111','demand','user'),('222222222222','fraud','role')]:
-            deployment={'configuration':{'project':project,'profile':'temporary','region':'us-east-1'},'account_id':account,
-                'names':{'resource_prefix':project+'-1234567890','workload_bucket':W.P.workload_bucket(account,'us-east-1',project),
+        for account,project,kind,layout in [('111111111111','demand','user','legacy'),('222222222222','fraud','role','legacy'),
+                                          ('333333333333','forecast','user','readable-v1')]:
+            backend=project+'-state-'+account+'-us-east-1' if layout=='readable-v1' else project+'-tofu-state-'+account+'-us-east-1-ws-v1'
+            deployment={'configuration':{'project':project,'profile':'temporary','region':'us-east-1'},'account_id':account,'storage_layout':layout,
+                'names':{'resource_prefix':project+'-1234567890','workload_bucket':W.P.workload_bucket(account,'us-east-1',project,layout),
                          'deployer_role_arn':f'arn:aws:iam::{account}:role/{project}-1234567890-workspace-deployer'},
-                'backend':{'bucket':project+'-tofu-state-'+account+'-us-east-1-ws-v1','region':'us-east-1',
+                'backend':{'bucket':backend,'region':'us-east-1',
                            'platform_key':'aws/'+account+'/us-east-1/platform/platform.tfstate','runner_prefix':'aws/'+account+'/us-east-1/runner/'}}
             operator=f'arn:aws:iam::{account}:{kind}/team/operator'; selected=O.target(deployment,operator)
             self.assertEqual(L['foundation']['target'](selected),selected)

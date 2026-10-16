@@ -98,7 +98,10 @@ class Configuration(unittest.TestCase):
                 self.assertEqual(retained['storage_layout'], layout)
 
     def test_readable_output_scope_is_bound_to_the_whole_run_and_workspace(self):
-        from workspace_storage import output_scope, run_folder
+        from workspace_storage import run_folder
+        spec = importlib.util.spec_from_file_location('generic_job', ROOT/'scripts/aws/workspace-generic-job.py')
+        guest = importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
+        output_scope = guest.output_scope
         run = 'a'*32
         uri = 's3://data/results/demand-dev/'+run_folder(run,'2026-10-17T14:03:12Z')+'/'
         self.assertEqual(output_scope(uri,'demand-dev',run), 'datasets/')

@@ -349,7 +349,7 @@ def build(directory):
     directory.mkdir(parents=True, mode=0o700)
     toolbox = REPO/'infra/aws/runner/workspace/toolbox'
     members = {p.name:p.read_bytes() for p in toolbox.iterdir() if p.is_file()}
-    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py','scripts/aws/workspace_storage.py'):
+    for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'):
         members[name] = (REPO/name).read_bytes()
     toolbox_hash = archive(directory/'toolbox.zip', members)
     require(shutil.disk_usage(REPO).free>=2*1024**3,'artifact build requires 2 GiB free space')
@@ -391,7 +391,7 @@ def verify_artifact(path,expected,kind):
             require(zipped.read('watchdog.py')==(REPO/'infra/aws/runner/workspace/watchdog.py.tftpl').read_bytes(),'guard archive source mismatch')
         else:
             members={p.name:p.read_bytes() for p in (REPO/'infra/aws/runner/workspace/toolbox').iterdir() if p.is_file()}
-            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py','scripts/aws/workspace_storage.py'): members[name]=(REPO/name).read_bytes()
+            for name in ('scripts/workspace/probe-toolbox.py','shared/workspace/toolbox.json','scripts/aws/clone-project.sh','scripts/aws/workspace-guest-observe.sh','scripts/aws/workspace-ssh.sh','scripts/aws/workspace-job.sh','scripts/aws/workspace_files.py'): members[name]=(REPO/name).read_bytes()
             require(set(zipped.namelist())==set(members) and all(zipped.read(k)==v for k,v in members.items()),'toolbox archive differs from current source')
 
 def outputs(target_name,plan_directory,output):

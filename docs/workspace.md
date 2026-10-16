@@ -83,6 +83,15 @@ separate bucket that workload identities cannot read. Signed or query URIs,
 userinfo, ports, percent-encoding, traversal and overlapping prefixes are
 rejected. Uploads use instance-role credentials and S3 object version IDs.
 
+New guided foundations use `datasets/` and `results/<workspace_id>/` in a
+`<project>-storage-<account>-<region>` bucket, with a separate
+`<project>-state-<account>-<region>` bucket. Dataset source names and UTC dates
+make snapshots/runs navigable; manifests retain full checksums and immutable
+versions. Existing foundations keep the legacy `projects/<project>/...`
+prefixes and their original bucket names. The runner validates each exact
+data/output pair and derives its permissions from that validated request;
+mixed layouts, another workspace's output prefix and state access are refused.
+
 The one exception to external ML ownership is the
 [acceptance example](../shared/workspace/example/example.py): a fixture of
 `value` then `1, 2, 3, 4`, fetched by exact version with a 128-byte bound,

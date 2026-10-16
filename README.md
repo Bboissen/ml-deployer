@@ -65,6 +65,12 @@ Datasets and results share the private, encrypted, versioned **workload bucket**
 OpenTofu state has a separate **state bucket**. Your project owns dependencies
 and ML logic; the deployer verifies dataset versions and persisted outputs.
 
+New projects use `<project>-storage-<account>-<region>` and
+`<project>-state-<account>-<region>`. Browse inputs under `datasets/<source>/`
+and outputs under `results/<workspace>/`; each version/run starts with its UTC
+date and time. Existing foundations keep their original names and layout.
+See [storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
+
 In `workspace` mode, setup runs without training; use `connect` for a Session
 Manager terminal with no inbound network rules. Compute stays until `cancel`
 or expiry.

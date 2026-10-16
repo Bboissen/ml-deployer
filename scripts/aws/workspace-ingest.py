@@ -205,7 +205,7 @@ def upload(L,s3,account,bucket,prefix,record,adapter,directory,deadline,snapshot
                 require(len(data)==record['bytes'] and not stream.read(1) and digest.hexdigest()==record['sha256'],'source changed before upload')
                 result=s3.put_object(**owner,Body=data,ChecksumSHA256=base64.b64encode(digest.digest()).decode(),IfNoneMatch='*')
             else:
-                response=s3.create_multipart_upload(**owner,ChecksumAlgorithm='SHA256',Metadata={'operation-id':identifier})
+                response=s3.create_multipart_upload(**owner,ChecksumAlgorithm='SHA256',Metadata={'operation-id':snapshot_id or identifier})
                 upload_id=response['UploadId']; L['write'](ledger/'multipart.json',{'upload_id':upload_id,**owner}); parts=[]
                 while True:
                     require(time.monotonic()<deadline and not (getattr(adapter,'cancelled',None) and adapter.cancelled()),'transfer cancelled/time bound exhausted')
