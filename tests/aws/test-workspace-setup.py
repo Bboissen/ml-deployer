@@ -245,13 +245,6 @@ class Setup(unittest.TestCase):
             S.setup_project(self.config, self.console(['n']), self.doctor, M)
         self.assertIn('sign-in deferred', self.output.getvalue())
 
-    def test_commands_are_argument_arrays_not_shell_programs(self):
-        sentinel = self.directory/'must-not-exist'
-        result = S.argv('python train.py "$(touch ' + str(sentinel) + ')"')
-        self.assertIn('$(touch ' + str(sentinel) + ')', result)
-        self.assertFalse(sentinel.exists())
-        with self.assertRaisesRegex(ValueError, 'shell operators'): S.argv('make setup && make train')
-
     def test_color_requires_a_terminal_and_respects_no_color(self):
         class Terminal(io.StringIO):
             def isatty(self): return True

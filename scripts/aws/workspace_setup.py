@@ -118,16 +118,6 @@ def checked_config(path):
     return path
 
 
-def argv(text):
-    try:
-        parts = shlex.split(text)
-    except ValueError:
-        raise ValueError('use matching quotes around arguments with spaces') from None
-    if not parts or any(part in (';', '|', '||', '&&', '>', '>>', '<', '&') for part in parts):
-        raise ValueError('enter one executable and its arguments; shell operators are unsupported')
-    return parts
-
-
 DEFAULT_PROFILE = 'ml-deployer'
 
 
