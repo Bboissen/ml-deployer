@@ -186,9 +186,11 @@ def run(job,root=Path('/workspaces')):
             require(execute(clone,environment,log,min(deadline,time.monotonic()+300))==0,'clone failed')
             require(subprocess.check_output(['git','-C',str(project),'rev-parse','HEAD'],env=environment,timeout=10).decode().strip()==repository['revision'],'checkout differs')
             receipt['credential_removed_before_setup']=True
-            # Contract v1: verified read-only inputs outside the checkout and an
-            # empty private output directory exist before any project command.
-            stage='data'; output=project/'outputs'; output.mkdir(mode=0o700); output.chmod(0o700)
+            # Contract v1: verified read-only inputs outside the checkout and a
+            # private output directory exist before any project command. A
+            # committed outputs/ (e.g. .gitkeep) is reused; a symlink is not.
+            stage='data'; output=project/'outputs'; output.mkdir(mode=0o700,exist_ok=True)
+            require(stat.S_ISDIR(output.lstat().st_mode),'outputs must be a directory'); output.chmod(0o700)
             environment.update(DATA_DIR=str(directory/'data'),OUTPUT_DIR=str(output))
             receipt['dataset_staged_bytes']=stage_data(s3,job,directory/'data',deadline); receipt['dataset_staged']=True
             stage='setup'; receipt['setup_exit']=execute(job['commands']['setup'],environment,log,deadline,project)
