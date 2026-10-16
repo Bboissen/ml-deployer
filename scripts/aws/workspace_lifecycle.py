@@ -22,7 +22,7 @@ REPO = Path.cwd().resolve()
 import workspace_target
 
 boundary = vars(workspace_target)
-Failure, require, inside, write, source = (boundary[n] for n in ('Failure','require','inside','write','source'))
+Failure, require, inside, private_file, write, source = (boundary[n] for n in ('Failure','require','inside','private_file','write','source'))
 
 # AWS-only fresh foundation extension; historical roots and A remain unchanged.
 def foundation_extension():
@@ -221,7 +221,7 @@ def foundation_extension():
         L['run'](['tofu', f'-chdir={root}', 'plan', '-input=false', '-lock-timeout=30s', '-no-color', f'-var-file={directory}/config.tfvars.json', f'-out={directory}/saved.tfplan'], env, 240)
         raw = L['run'](['tofu', f'-chdir={root}', 'show', '-json', str(directory/'saved.tfplan')], env, 60)
         scope_value = bootstrap_scope(L['json'].loads(raw),recovery)
-        (directory/'plan.json').write_text(raw)
+        with L['private_file'](directory/'plan.json') as f: f.write(raw.encode())
         manifest = {'target_name':name, 'target':selected, 'stage':'bootstrap', 'source':L['source'](), 'root':str(root),
             'identities':identities, 'backend':backend, 'state':state, 'config_sha256':L['sha'](L['canon'](value)),
             'plan_sha256':L['sha']((directory/'saved.tfplan').read_bytes()), 'plan_json_sha256':L['sha'](raw.encode()),
@@ -333,8 +333,8 @@ def bounded(seconds, callback):
 
 def archive(path, members):
     inside(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('xb') as f, zipfile.ZipFile(f, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with private_file(path) as f, zipfile.ZipFile(f, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for name, data in sorted(members.items()):
             info = zipfile.ZipInfo(name, date_time=(1980,1,1,0,0,0))
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -1335,7 +1335,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
         boundary_resource=next(r for r in platform_plan['planned_values']['root_module']['resources'] if r['address']=='aws_iam_policy.workspace_launch_boundary["active"]')
         require(json.loads(boundary_resource['values']['policy'])==details['roles'][role_name(config)+'-launch']['boundary_policy'],
                 'launch boundary differs from exact reviewed platform policy')
-    (directory/'plan.json').write_text(raw)
+    with private_file(directory/'plan.json') as f: f.write(raw.encode())
     artifacts={}
     paths=[config['workspace_guard']['zip_path']] if is_platform(stage) else [config['toolbox_zip_path']]
     if not is_platform(stage):

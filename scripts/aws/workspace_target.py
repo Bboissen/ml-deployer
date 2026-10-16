@@ -47,12 +47,16 @@ def inside(path):
     return path
 
 
+def private_file(path):
+    # An explicit mode, unlike the umask, also holds under default POSIX ACLs.
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600), "wb")
+
+
 def write(path, value):
     inside(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with path.open("x", encoding="utf-8") as f:
-        json.dump(value, f, indent=2, sort_keys=True)
-        f.write("\n")
+    with private_file(path) as f:
+        f.write((json.dumps(value, indent=2, sort_keys=True) + "\n").encode())
         f.flush(); os.fsync(f.fileno())
     descriptor=os.open(path.parent,os.O_RDONLY)
     try: os.fsync(descriptor)
@@ -268,8 +272,8 @@ def context(name, t, root):
             "encrypt": True, "use_lockfile": True}.items()) + "\n"
         if not backend_path.exists():
             inside(backend_path)
-            with backend_path.open("x") as f:
-                f.write(backend_text)
+            with private_file(backend_path) as f:
+                f.write(backend_text.encode())
         else:
             require(backend_path.read_text() == backend_text, "existing backend selection changed")
     return info

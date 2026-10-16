@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -30,6 +31,14 @@ class Operations(unittest.TestCase):
         with self.assertRaises(L['Failure']): D.Journal(L,self.directory,'c'*64)
         path=self.directory/'journal/000001.json'; value=L['read'](path); value['previous_sha256']='forged'; path.write_text(json.dumps(value))
         with self.assertRaises(L['Failure']): D.Journal(L,self.directory,'b'*64)
+    def test_private_files_stay_owner_only_under_default_acl(self):
+        # Default POSIX ACLs replace the umask; only an explicit create mode holds.
+        try: subprocess.run(['setfacl','-d','-m','u::rwx,g::rwx,o::rx',str(self.directory)],check=True,capture_output=True,timeout=10)
+        except (OSError,subprocess.CalledProcessError): self.skipTest('default ACLs unavailable')
+        D.atomic(L,self.directory/'atomic.json',{}); L['write'](self.directory/'write.json',{})
+        with L['private_file'](self.directory/'plain') as stream: stream.write(b'x')
+        for name in ('atomic.json','write.json','plain'):
+            self.assertEqual((self.directory/name).stat().st_mode&0o777,0o600,name)
     def test_live_lock_excludes_second_deploy_and_releases_after_error(self):
         path=self.directory/'workspace.lock'
         with D.locked(L,path):
