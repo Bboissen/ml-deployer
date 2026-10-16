@@ -79,33 +79,36 @@ make</code></pre>
 
     <li data-step="project">
       <h3>Describe your project</h3>
-      <p><strong>Answer in the terminal running <code>make</code>.</strong> It saves a validated private project file for you; press Enter to keep a suggested value. Credentials are never typed here: sign-in is always the provider's own browser flow.</p>
-      <table><tr><th>Question</th><th>What to answer</th></tr>
-        <tr><td>Project and workspace names</td><td>Short lowercase names for this project and this workspace.</td></tr>
-        <tr><td>AWS profile and region</td><td>A named profile (not <code>default</code>) and <code>us-east-1</code>, the reviewed CPU region.</td></tr>
-        <tr><td>Mode and maximum runtime</td><td><code>job</code> runs setup and run then tears the machine down; <code>workspace</code> keeps it for a terminal. 15 to 60 minutes.</td></tr>
-        <tr><td>Repository URL and ref</td><td>Your ML repository and a branch, tag or commit. Private repositories use the <code>git@github.com:</code> URL.</td></tr>
-        <tr><td>Setup and run commands, output folders</td><td>The commands your repository documents and the folders it writes results to.</td></tr>
+      <p><strong>Answer two questions in the terminal running <code>make</code>.</strong> It first signs you in to GitHub once (browser flow), then reads everything else from GitHub and your AWS profile and saves a validated private project file. Credentials are never typed here.</p>
+      <table><tr><th>You enter</th><th>What to answer</th></tr>
+        <tr><td>GitHub repository</td><td><code>owner/name</code> or its github.com URL.</td></tr>
         <tr><td>Dataset</td><td>A file or folder on this machine, an <code>s3://</code> prefix or a public HTTPS file.</td></tr>
       </table>
-      <p class="meta">The default file is <code>~/aws-workspace/demo/project.json</code>; choose another with <code>make PROJECT=/path/project.json</code>. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>.</p>
+      <table><tr><th>Derived</th><th>From</th></tr>
+        <tr><td>Repository URL and branch</td><td>GitHub: private repositories use the <code>git@github.com:</code> URL and a deploy key, public ones HTTPS; the default branch.</td></tr>
+        <tr><td>Project name</td><td>The repository name, lowercased (3 to 24 characters).</td></tr>
+        <tr><td>AWS profile and region</td><td><code>AWS_PROFILE</code> or your only console/SSO profile (asked only when there are several; a new one is named <code>ml-deployer</code>); <code>us-east-1</code>.</td></tr>
+        <tr><td>Run</td><td><code>job</code> mode: <code>make setup</code> then <code>make train</code>, at most 60 minutes, results from <code>outputs/</code>. Setup checks that your Makefile has both targets (<a href="operations/aws-deployer-quickstart.md#runtime-contract">runtime contract</a>).</td></tr>
+      </table>
+      <p class="meta">No questions at all: <code>make REPO=owner/name DATASET=/path/to/data</code>. The default file is <code>~/aws-workspace/demo/project.json</code>; choose another with <code>make PROJECT=/path/project.json</code>. Rerunning keeps existing values; edit the file to override any of them. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>.</p>
     </li>
 
     <li data-step="aws">
       <h3>Sign in to AWS</h3>
-      <p><code>make</code> offers sign-in with the profile you chose and opens the AWS browser flow. Over SSH it prints a link and a code for your laptop browser. This repository never sees or stores a password or access key.</p>
+      <p><code>make</code> offers sign-in with the derived profile and opens the AWS browser flow. Over SSH it prints a link and a code for your laptop browser. This repository never sees or stores a password or access key.</p>
 <pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
       <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device. Static access keys are refused. A successful login does not prove permission to create infrastructure; Deploy checks that against its saved plans.</p>
       <div class="note warn"><p><strong>Browser shows “400 Bad Request”?</strong> Each sign-in link works once, for a few minutes, while the login command still waits. Press Ctrl+C, run the login again and use only the newly opened page.</p></div>
     </li>
 
     <li data-step="github">
-      <h3>Connect GitHub only for a private repository</h3>
+      <h3>Connect GitHub</h3>
+      <p>Setup signs in once with the managed GitHub CLI and reads the repository, its visibility, default branch and Makefile targets (read-only).</p>
+<pre><code>./workspace github-login</code></pre>
       <div class="variant" data-repo="public"><span class="label">Public repository</span>
-        <p>Nothing to do. Use the HTTPS URL, for example <code>https://github.com/owner/project.git</code>.</p></div>
+        <p>Deploy clones over HTTPS, for example <code>https://github.com/owner/project.git</code>; it needs no GitHub access on the machine.</p></div>
       <div class="variant" data-repo="private"><span class="label">Private repository</span>
-        <p>Use the SSH URL, for example <code>git@github.com:owner/project.git</code>, and sign in once with the managed GitHub CLI. You need admin permission on that repository: Deploy registers a read-only deploy key and stores its private half only in AWS Secrets Manager.</p>
-<pre><code>./workspace github-login</code></pre></div>
+        <p>Setup picks the SSH URL, for example <code>git@github.com:owner/project.git</code>. You need admin permission on that repository: Deploy registers a read-only deploy key and stores its private half only in AWS Secrets Manager.</p></div>
     </li>
 
     <li data-step="deploy">

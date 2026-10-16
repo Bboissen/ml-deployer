@@ -50,12 +50,13 @@ Run from the repository root. The [workstation installer](aws-workstation-setup.
 provides the locked controller runtime and selected operator tools:
 
 ```bash
-./workspace setup
-mkdir -p ~/aws-workspace/demo
-cp infra/aws/project.example.json ~/aws-workspace/demo/project.json
-# Edit the profile, dataset source, repository/ref and project commands.
+./workspace guide ~/aws-workspace/demo/project.json --repo owner/name --dataset ./dataset
+# Optional: edit any derived field; reruns keep your values.
 ./workspace ~/aws-workspace/demo/project.json configure
 ```
+
+Guided setup derives every field except the repository and dataset; the
+derivation rules are in the [quickstart](aws-deployer-quickstart.md#2-configure).
 
 Default discovery makes only STS `GetCallerIdentity` and a bounded `git ls-remote`
 request. The existing profile boundary rejects conflicting environment sources,
