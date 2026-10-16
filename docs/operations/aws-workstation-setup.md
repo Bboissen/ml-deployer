@@ -192,7 +192,22 @@ private keys, tokens and raw browser login output are never captured.
 ```
 
 Native `aws login` or `aws sso login` runs in your terminal and browser; the
-controller never records credentials. `--remote` selects the device-code flow.
+controller never records credentials. The wrapper selects the project's pinned
+CLI, rejects conflicting credentials, and checks that the CLI and SDK resolve
+the same identity after sign-in. You can use `aws login --profile personal-dev
+--region us-east-1` directly with a compatible CLI, then run the `auth-check`
+command above.
+
+For a browser on another device, add `--remote`. Console login prints an AWS
+link and waits at `Enter the authorization code displayed in your browser:`.
+Finish signing in in the browser, copy its authorization code, paste it into
+that terminal prompt, and press Enter. IAM Identity Center instead uses its
+device-code flow: enter the CLI's code in the browser. Native authentication
+uses terminal input and output directly, including through RTK; input queued
+before login starts is discarded so an extra Enter from setup cannot submit
+an empty code. Ctrl+C cancels. If login has already exited, rerun it and use the
+new link and code.
+
 An existing console profile cannot silently become SSO; a credential-process or
 source-profile profile is renewed with its own native login and then accepted
 by `auth-check`. Ambient GitHub tokens are rejected by the assisted GitHub login.
