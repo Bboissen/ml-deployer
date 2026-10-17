@@ -13,6 +13,7 @@ make                               # detects SSH; print laptop tunnel and browse
 make clean                         # remove interrupted builds; keep installed tools
 make fclean                        # also remove managed tools, project settings and AWS sign-in
 make re                            # full clean, then restart guided setup
+make s3-clean DRY_RUN=1             # preview saved S3 results; omit DRY_RUN for manual deletion review
 ./workspace guide --read-only       # companion and readiness only; no questions, file writes or login
 ./workspace setup                   # install or verify the pinned tools; no login, no cloud calls
 ./workspace setup --check           # verify only; exit 2 with the repair command when something is wrong
@@ -147,6 +148,11 @@ Doctor never installs, logs in, registers keys or creates resources. Without a
 project file it reports the tools, the project file as `To do` and the rest `Not checked`.
 
 ## Repair
+
+S3 data has a separate command: `make s3-clean`, with `S3_DATASETS=1` to include
+shared project inputs and `DRY_RUN=1` to preview. It requires manual confirmation
+of permanent deletion and preserves buckets and infrastructure state. See
+[S3 cleanup](aws-deployer-quickstart.md#s3-cleanup) for scope, permissions and receipts.
 
 Stop the running guide with Ctrl+C before cleanup. `make clean` removes only
 interrupted managed-tool builds, preserving the installed tools. `make fclean`

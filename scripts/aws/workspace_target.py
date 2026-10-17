@@ -23,6 +23,10 @@ class Failure(Exception):
     pass
 
 
+class LoginRequired(Failure):
+    pass
+
+
 def require(condition, reason):
     if not condition:
         raise Failure(reason)
@@ -176,7 +180,8 @@ def error_category(stderr):
         return "expired_login"
     if any(v in low for v in ("nosuchentity", "nosuchbucket", "nosuchkey", "repositorynotfoundexception", "(404)")):
         return "resource_lookup_unknown"
-    if any(v in low for v in ("unable to locate credentials", "token does not exist", "error loading sso token", "credentialretrievalerror")):
+    if any(v in low for v in ("unable to locate credentials", "token does not exist", "error loading sso token", "credentialretrievalerror",
+                             "error loading login session token", "missing_login")):
         return "missing_login"
     if any(v in low for v in ("accessdenied", "unauthorized", "forbidden")):
         return "permission_unknown"

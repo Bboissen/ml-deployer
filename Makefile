@@ -9,9 +9,11 @@ PROJECT ?=
 DEBUG ?= 0
 REPO ?=
 DATASET ?=
+S3_DATASETS ?= 0
+DRY_RUN ?= 0
 export PROJECT REPO DATASET
 
-.PHONY: guide clean fclean re help help-all check workspace-test-setup workspace-test aws-automation-test repository-check scaffold-test fmt fmt-check
+.PHONY: guide clean fclean re s3-clean help help-all check workspace-test-setup workspace-test aws-automation-test repository-check scaffold-test fmt fmt-check
 
 guide: ## Guided first use: tools, project, native login and companion (PROJECT=path, REPO=owner/name, DATASET=path, DEBUG=1); detects SSH.
 	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $${REPO:+--repo "$$REPO"} $${DATASET:+--dataset "$$DATASET"} $(if $(filter 1,$(DEBUG)),--debug)
@@ -25,6 +27,9 @@ fclean: ## Remove managed tools, the project settings (PROJECT=path) and its AWS
 re: fclean ## Full clean, then restart guided setup (also over SSH).
 	+@$(MAKE) guide
 
+s3-clean: ## Review S3 result deletion and require manual confirmation (PROJECT=path, S3_DATASETS=1 also includes shared inputs, DRY_RUN=1 previews).
+	@env -u WORKSPACE_PYTHON bash ./workspace "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" clean-s3 $(if $(filter 1,$(S3_DATASETS)),--include-datasets) $(if $(filter 1,$(DRY_RUN)),--dry-run)
+
 help: ## Show first-use, remote and repair commands.
 	@printf '\nAWS workspace\n\n'
 	@printf '  %-42s %s\n' \
@@ -34,6 +39,7 @@ help: ## Show first-use, remote and repair commands.
 		'make clean' 'Remove interrupted tool builds; keep installed tools' \
 		'make fclean' 'Remove managed tools, project settings and AWS sign-in' \
 		'make re' 'Full clean, then restart guided setup' \
+		'make s3-clean [DRY_RUN=1] [S3_DATASETS=1]' 'Review S3 cleanup; manual confirmation required' \
 		'make DEBUG=1' 'Show detailed diagnostics' \
 		'make check' 'Run the offline test suite (developers)' \
 		'make help-all' 'List every command'

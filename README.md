@@ -31,6 +31,11 @@ Over SSH, run `make` on the server; it prints the tunnel command for the
 read-only companion page. See the [quickstart](docs/operations/aws-deployer-quickstart.md)
 for configuration, automation and setup/clean commands; `make help` lists targets.
 
+To remove saved S3 results, use `make s3-clean` (`DRY_RUN=1` previews;
+`S3_DATASETS=1` also includes shared inputs). It warns about permanent deletion
+and requires a manually typed confirmation. Buckets and infrastructure state
+remain. See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
+
 ## From host setup to AWS execution
 
 ```mermaid

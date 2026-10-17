@@ -210,6 +210,76 @@ moving existing contents to the readable layout needs a separately reviewed
 migration. Lower-level root configurations default to the legacy layout;
 new guided foundations explicitly select `storage_layout = "readable-v1"`.
 
+### S3 cleanup
+
+```sh
+make s3-clean DRY_RUN=1                    # preview this workspace's result inventory
+make s3-clean                              # warn, review and manually confirm result deletion
+make s3-clean S3_DATASETS=1                 # also include shared project inputs
+make s3-clean PROJECT=/path/project.json    # choose the deployed project configuration
+```
+
+The equivalent command is `./workspace PROJECT.json clean-s3`, with
+`--dry-run` and `--include-datasets` for the corresponding options. The default
+configuration is `~/aws-workspace/demo/project.json`. This command is separate
+from `make clean` and `make fclean`, which manage local tools and settings.
+
+**Deletion is permanent.** Cleanup includes all reviewed historical object
+versions, delete markers and unfinished multipart uploads under this workspace's
+results prefix. Including datasets also deletes the shared project input prefix;
+other workspaces' results remain untouched. The review prints account, profile,
+identity, bucket, exact prefixes, version count, bytes and upload count, with the
+complete key/version/upload inventory saved in ignored
+`evidence/aws/s3-cleanup/<cleanup-id>/review.json`. Type the exact
+`delete <scope-hash>` shown by that review to proceed. Enter, a different answer
+or redirected/noninteractive input cannot approve deletion. There is no `--yes`
+or authorization-string bypass. `--dry-run` performs metadata reads and saves
+the local review without prompting or deleting S3 data.
+
+The command requires the original project settings, retained ownership evidence,
+native temporary AWS sign-in and clean committed source (or a verified installed
+release). It works with both storage layouts and checks the retained foundation
+and live compute absence. Active or unresolved project operations block cleanup;
+use `status`, `resume` or `cancel` first. It refuses state storage, external
+assignments, another account/region, suspended versioning and mutable `null`
+versions. It never deletes buckets, local dataset files, infrastructure or
+deployment evidence, and never changes IAM permissions or bypasses S3 retention
+or MFA protection. The signed-in operator must already have the required S3
+listing, version deletion, multipart-abort and part-listing permissions.
+
+Deploy and S3 cleanup check the selected AWS sign-in before reviewing cloud
+changes. If it has expired, the CLI offers to sign in through the native AWS
+browser flow, then continues in the same command with a fresh review. SSH uses
+the remote browser/code flow. Declining, cancelling or failing sign-in stops the
+operation. Noninteractive runs and explicit `--authorization` runs never prompt
+for sign-in; they print the selected login command instead. Sign-in does not
+approve deletion or replay a partially completed operation.
+
+Immediately after confirmation, cleanup checks ownership and the inventory
+again. Changed contents require a new review. Deletion requests name only the
+reviewed version/upload IDs; newly written versions are preserved. Requests are
+bounded to 100,000 inventory entries and eight MiB of canonical inventory, with
+five-minute inventory/deletion phases. Saved request intents, per-batch
+confirmations and `receipt.json` distinguish verified success from partial or
+unknown deletion. Success requires fresh empty-prefix verification; multipart
+abort also verifies that no parts remain. A failure can leave data partially
+deleted: inspect the receipt and rerun the command for a fresh manual review.
+Counts describe confirmed deletions; a lost response remains uncertain.
+If the controller is killed before its final receipt, the durable receipt stays
+`in_progress` with the saved request intents; review the remaining inventory
+again rather than assuming deletion finished.
+
+When datasets are included, the cached dataset manifest is moved into the cleanup
+packet as `dataset-cache.json` before deletion, including partial failures. This
+preserves its evidence while preventing later Deploy from reusing deleted
+versions. The next Deploy must reupload from the configured input source.
+Historical successful deployment receipts describe the original run; after
+explicit S3 cleanup they do not promise that its outputs still exist.
+
+AWS references: [version-specific batch deletion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObjects.html),
+[version listing](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html)
+and [multipart abort verification](https://docs.aws.amazon.com/AmazonS3/latest/API/API_AbortMultipartUpload.html).
+
 ## Repair
 
 ```sh

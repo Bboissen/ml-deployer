@@ -17,6 +17,8 @@ L = vars(workspace_lifecycle)
 require, read, write, checked = (L[k] for k in ('require', 'read', 'write', 'checked_path'))
 spec = importlib.util.spec_from_file_location('aws_workspace_config', ROOT/'scripts/aws/workspace-config.py')
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
+spec = importlib.util.spec_from_file_location('workspace_auth', ROOT/'scripts/aws/workstation-auth.py')
+A = importlib.util.module_from_spec(spec); spec.loader.exec_module(A)
 
 
 def configuration(path):
@@ -163,6 +165,9 @@ def main():
     p.add_argument('--discovery', help='offline discovery JSON; never treated as native admission')
     p = sub.add_parser('deploy',help='review one concrete scope; execute it with task authorization')
     p.add_argument('--operation'); p.add_argument('--authorization')
+    p = sub.add_parser('clean-s3', help='review and manually confirm permanent deletion of this workspace\'s S3 results')
+    p.add_argument('--include-datasets', action='store_true', help='also delete shared project datasets; later Deploy must upload them again')
+    p.add_argument('--dry-run', action='store_true', help='show the exact inventory without asking to delete it')
     for verb in ('resume','cancel','logs'):
         p=sub.add_parser(verb); p.add_argument('run',nargs='?')
     p = sub.add_parser('render', help='offline: derive request and runner inputs for a new absolute lease')
@@ -179,6 +184,17 @@ def main():
     p = sub.add_parser('status', help='bounded local observation of a run')
     p.add_argument('run',nargs='?'); p.add_argument('--wait', type=int, default=0)
     args = parser.parse_args()
+    if args.verb in ('deploy', 'clean-s3'):
+        # Authenticate before creating/reusing any deployment or deletion review.
+        # Native sign-in must never resume an already-authorized cloud mutation.
+        project = P.validate_project(L, args.config)
+        A.ensure_login(project['profile'], project['region'], allow_login=getattr(args, 'authorization', None) is None)
+    if args.verb == 'clean-s3':
+        from workspace_s3_cleanup import clean
+        result = clean(globals(), args.config, args.include_datasets, args.dry_run)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if result['status'] == 'confirmation_required': sys.exit(2)
+        return
     if args.verb == 'configure':
         print(json.dumps(P.configure(L, args.config, args.discovery), indent=2, sort_keys=True))
         return

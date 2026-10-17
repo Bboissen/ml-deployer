@@ -410,7 +410,6 @@ def sessions(target):
     from botocore.config import Config
     require(boto3.__version__ == botocore.__version__ == TOOLBOX['sdk_version'], 'install reviewed SDK lock for native commands')
     cfg = Config(connect_timeout=3,read_timeout=5,retries={'total_max_attempts':2})
-    base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
     clients = {}
     def client(session, service):
         # Keep the session alive with its clients: a reused object id must never
@@ -426,7 +425,15 @@ def sessions(target):
         require(c.meta.endpoint_url.startswith('https://') and c.meta.endpoint_url.split('/')[2].endswith('.amazonaws.com'), 'SDK endpoint mismatch')
         pool[service] = c
         return c
-    observed = client(base,'sts').get_caller_identity()
+    try:
+        base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
+        observed = client(base,'sts').get_caller_identity()
+    except (botocore.exceptions.LoginRefreshRequired, botocore.exceptions.LoginTokenLoadError,
+            botocore.exceptions.UnauthorizedSSOTokenError, botocore.exceptions.SSOTokenLoadError):
+        # Credential errors can contain native credential-process output. Give
+        # only the validated selection and the existing native sign-in route.
+        raise boundary['LoginRequired']('AWS sign-in expired or is missing; run ./workspace login --profile '+target['profile']+
+                      ' --region '+target['region']+'; then rerun the original command for a fresh review') from None
     require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):
         # New role trust can become visible after the preparation apply returns.

@@ -30,6 +30,18 @@ trust; it does not sandbox the external project's code.
 - **A read-only companion.** The guide page binds to 127.0.0.1, refuses foreign
   `Host` headers, serves only files under `docs/`, sends a strict
   content-security policy and has no endpoint that changes anything.
+- **Explicit S3 deletion.** `clean-s3` requires a manual scope-hash confirmation
+  in a terminal, checks project ownership and absence of active work, and deletes
+  only reviewed workload version/upload IDs. Buckets and infrastructure state
+  are protected. `--include-datasets` explicitly adds shared inputs; `--dry-run`
+  only previews. Request intents and a pending receipt precede deletion;
+  success requires a fresh empty-prefix check and a verified receipt. It grants
+  no additional IAM permissions or retention bypass.
+- **Sign-in recovery before review.** Interactive Deploy and S3 cleanup offer
+  native AWS browser sign-in when the selected console/SSO session has expired.
+  Successful sign-in continues to a fresh review with the normal identity checks;
+  it never approves cloud changes or retries an authorized deletion. Scripts and
+  explicit `--authorization` runs do not prompt for sign-in.
 
 ## Untrusted inputs
 
