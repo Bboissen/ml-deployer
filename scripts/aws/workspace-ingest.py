@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlsplit, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler, HTTPSHandler
 import uuid
+from workspace_storage import READABLE, dataset_name, run_folder
 
 spec=importlib.util.spec_from_file_location('workspace_files',Path(__file__).with_name('workspace_files.py'))
 files=importlib.util.module_from_spec(spec); spec.loader.exec_module(files)
@@ -167,7 +168,13 @@ def incomplete(L,s3,directory,account):
     """Reconcile only unique operation keys, including a lost create response."""
     for intent_path in sorted(Path(directory).glob('*/intent.json')):
         ledger=intent_path.parent; intent=L['read'](intent_path)
-        require('/objects/'+intent['operation_id']+'/' in intent['key'],'incomplete-upload ownership mismatch')
+        if 'snapshot_prefix' in intent:
+            snapshot=L['read'](Path(directory)/'snapshot.json')
+            require(snapshot=={'prefix':intent['snapshot_prefix'],'operation_id':intent['operation_id']} and
+                    snapshot['prefix'].startswith('datasets/') and snapshot['prefix'].endswith('-'+intent['operation_id']+'/') and
+                    intent['key'].startswith(snapshot['prefix']+'files/'), 'incomplete-upload ownership mismatch')
+        else:
+            require('/objects/'+intent['operation_id']+'/' in intent['key'],'incomplete-upload ownership mismatch')
         if (ledger/'completed.json').exists() or (ledger/'aborted.json').exists(): continue
         args={'Bucket':intent['bucket'],'Prefix':intent['key'],'ExpectedBucketOwner':account,'MaxUploads':1000}
         page=s3.list_multipart_uploads(**args)
@@ -179,13 +186,16 @@ def incomplete(L,s3,directory,account):
             identifiers.append(upload['UploadId'])
         L['write'](ledger/'aborted.json',{'upload_ids':identifiers,'aborted':True})
 
-def upload(L,s3,account,bucket,prefix,record,adapter,directory,deadline):
+def upload(L,s3,account,bucket,prefix,record,adapter,directory,deadline,snapshot_id=None):
     size=max(CHUNK,math.ceil(record['bytes']/10000/CHUNK)*CHUNK)
     require(size<=MAX_PART,'single-object ingestion supports at most 640 GiB')
-    identifier=uuid.uuid4().hex; key=prefix+'objects/'+identifier+'/'+record['path']
+    identifier=uuid.uuid4().hex
+    key=prefix+'files/'+record['path'] if snapshot_id else prefix+'objects/'+identifier+'/'+record['path']
     ledger=directory/identifier; ledger.mkdir(mode=0o700)
     owner={'Bucket':bucket,'Key':key,'ExpectedBucketOwner':account}
-    L['write'](ledger/'intent.json',{'bucket':bucket,'key':key,'operation_id':identifier,'bytes':record['bytes'],'sha256':record['sha256']})
+    intent={'bucket':bucket,'key':key,'operation_id':snapshot_id or identifier,'bytes':record['bytes'],'sha256':record['sha256']}
+    if snapshot_id: intent['snapshot_prefix']=prefix
+    L['write'](ledger/'intent.json',intent)
     upload_id=None
     try:
         with adapter.open(record) as stream:
@@ -195,7 +205,7 @@ def upload(L,s3,account,bucket,prefix,record,adapter,directory,deadline):
                 require(len(data)==record['bytes'] and not stream.read(1) and digest.hexdigest()==record['sha256'],'source changed before upload')
                 result=s3.put_object(**owner,Body=data,ChecksumSHA256=base64.b64encode(digest.digest()).decode(),IfNoneMatch='*')
             else:
-                response=s3.create_multipart_upload(**owner,ChecksumAlgorithm='SHA256',Metadata={'operation-id':identifier})
+                response=s3.create_multipart_upload(**owner,ChecksumAlgorithm='SHA256',Metadata={'operation-id':snapshot_id or identifier})
                 upload_id=response['UploadId']; L['write'](ledger/'multipart.json',{'upload_id':upload_id,**owner}); parts=[]
                 while True:
                     require(time.monotonic()<deadline and not (getattr(adapter,'cancelled',None) and adapter.cancelled()),'transfer cancelled/time bound exhausted')
@@ -228,6 +238,16 @@ def ingest(L,deployment,s3,directory,adapter=None,previous=None,inventory=None,s
     require(len({relative(r['path']) for r in records})==len(records),'duplicate dataset names')
     content=[{k:r[k] for k in ('path','bytes','sha256')} for r in records]
     digest=hashlib.sha256(canonical(content)).hexdigest(); prefix=f'projects/{project}/data/snapshots/{digest}/'
+    snapshot_id=None
+    readable=deployment.get('storage_layout')==READABLE
+    if readable:
+        if previous:
+            require(previous['manifest_key'].startswith('datasets/') and previous['manifest_key'].endswith('/manifest.json'),'retained dataset namespace differs')
+            prefix=previous['manifest_key'].removesuffix('manifest.json')
+        else:
+            snapshot_id=uuid.uuid4().hex
+            prefix='datasets/'+dataset_name(deployment['dataset']['source'])+'/'+run_folder(snapshot_id,L['stamp']())+'/'
+            L['write'](directory/'snapshot.json',{'prefix':prefix,'operation_id':snapshot_id})
     L['write'](directory/'source.json',{'records':records,'total_bytes':total,'content_sha256':digest})
     try:
         if previous:
@@ -235,17 +255,20 @@ def ingest(L,deployment,s3,directory,adapter=None,previous=None,inventory=None,s
                     [{k:r[k] for k in ('path','bytes','sha256')} for r in previous['objects']]==content,'retained dataset differs')
             objects=previous['objects']
             for item in objects:
-                suffix=item['key'].removeprefix(prefix+'objects/'); owner,sep,path=suffix.partition('/')
-                require(sep and len(owner)==32 and all(c in '0123456789abcdef' for c in owner) and path==item['path'],'retained namespace differs')
+                if readable:
+                    require(item['key']==prefix+'files/'+item['path'],'retained namespace differs')
+                else:
+                    suffix=item['key'].removeprefix(prefix+'objects/'); owner,sep,path=suffix.partition('/')
+                    require(sep and len(owner)==32 and all(c in '0123456789abcdef' for c in owner) and path==item['path'],'retained namespace differs')
                 verify_object(s3,account,bucket,item,deadline)
-        else: objects=[upload(L,s3,account,bucket,prefix,r,adapter,directory,deadline) for r in records]
+        else: objects=[upload(L,s3,account,bucket,prefix,r,adapter,directory,deadline,snapshot_id) for r in records]
         require(adapter.inventory(deadline)==records,'source changed; mixed snapshot cannot be sealed')
         manifest={'schema_version':'1.0.0','kind':'dataset-manifest','bucket':bucket,'content_sha256':digest,'total_bytes':total,'objects':objects}
         if previous:
             require(manifest=={k:v for k,v in previous.items() if k not in ('manifest_key','manifest_version_id','manifest_sha256')},'retained manifest differs')
             result=previous
         else:
-            raw=canonical(manifest); key=prefix+'manifests/'+directory.name+'.json'
+            raw=canonical(manifest); key=prefix+'manifest.json' if readable else prefix+'manifests/'+directory.name+'.json'
             response=s3.put_object(Bucket=bucket,Key=key,Body=raw,ContentType='application/json',ExpectedBucketOwner=account,IfNoneMatch='*')
             version=response.get('VersionId'); require(version not in (None,'','null'),'versioned manifest required')
             result={**manifest,'manifest_key':key,'manifest_version_id':version,'manifest_sha256':hashlib.sha256(raw).hexdigest()}

@@ -46,8 +46,10 @@ variable "workspace_identity" {
       var.workspace_identity.request.maximum_runtime_minutes >= 15 && var.workspace_identity.request.maximum_runtime_minutes <= 720 &&
       length(var.workspace_identity.request.operators) >= 1 && length(toset(var.workspace_identity.request.operators)) == length(var.workspace_identity.request.operators) &&
       alltrue([for operator in var.workspace_identity.request.operators : operator == tostring(operator) && length(operator) <= 2048 && can(regex("^[^[:cntrl:]]+$", operator))]) &&
-      var.workspace_identity.request.storage.data_uri == "s3://${var.workspace_identity.bucket_name}/projects/${var.workspace_identity.ml_project_name}/data/" &&
-      var.workspace_identity.request.storage.output_uri == "s3://${var.workspace_identity.bucket_name}/projects/${var.workspace_identity.ml_project_name}/workspaces/${var.workspace_identity.request.workspace_id}/output/" &&
+      contains([
+        "s3://${var.workspace_identity.bucket_name}/projects/${var.workspace_identity.ml_project_name}/data/|s3://${var.workspace_identity.bucket_name}/projects/${var.workspace_identity.ml_project_name}/workspaces/${var.workspace_identity.request.workspace_id}/output/",
+        "s3://${var.workspace_identity.bucket_name}/datasets/|s3://${var.workspace_identity.bucket_name}/results/${var.workspace_identity.request.workspace_id}/",
+      ], "${var.workspace_identity.request.storage.data_uri}|${var.workspace_identity.request.storage.output_uri}") &&
       var.workspace_identity.request.storage.state_uri == "s3://${var.backend_bucket_name}/aws/${var.aws_account_id}/${var.aws_region}/runner/${var.workspace_identity.request.workspace_id}.tfstate" &&
       var.workspace_identity.bucket_name != var.backend_bucket_name &&
       can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.workspace_identity.bucket_name)) &&
@@ -68,8 +70,8 @@ locals {
     for id, identity in local.workspace_identities : id => templatefile("${path.module}/../../workspace-policy.json.tftpl", {
       bucket_arn       = "arn:aws:s3:::${identity.bucket_name}"
       state_bucket_arn = var.state_bucket_arn
-      data_prefix      = "projects/${identity.ml_project_name}/data/"
-      output_prefix    = "projects/${identity.ml_project_name}/workspaces/${id}/output/"
+      data_prefix      = trimprefix(identity.request.storage.data_uri, "s3://${identity.bucket_name}/")
+      output_prefix    = trimprefix(identity.request.storage.output_uri, "s3://${identity.bucket_name}/")
       management_actions = [
         "ssm:UpdateInstanceInformation",
         "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel",

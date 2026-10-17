@@ -56,6 +56,42 @@ run "reserved_ssm_prefix_uses_account_owned_document_names" {
   }
 }
 
+run "readable_runner_has_exact_dataset_and_own_results_access" {
+  command = plan
+  variables {
+    workspace_identity = merge(var.workspace_identity, {
+      request = merge(var.workspace_identity.request, {
+        storage = merge(var.workspace_identity.request.storage, {
+          data_uri   = "s3://${var.workspace_identity.bucket_name}/datasets/"
+          output_uri = "s3://${var.workspace_identity.bucket_name}/results/${var.workspace_identity.request.workspace_id}/"
+        })
+      })
+    })
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_role_policy.workspace_storage["fraud-detection-dev-01"].policy).Statement :
+      statement.Sid == "ReadDatasetAndOwnOutputVersions" ? toset(statement.Resource) == toset(["arn:aws:s3:::${var.workspace_identity.bucket_name}/datasets/*", "arn:aws:s3:::${var.workspace_identity.bucket_name}/results/fraud-detection-dev-01/*"]) :
+      statement.Sid == "WriteOwnOutputAndMultipart" ? toset(statement.Resource) == toset(["arn:aws:s3:::${var.workspace_identity.bucket_name}/results/fraud-detection-dev-01/*"]) : true
+    ])
+    error_message = "Readable runner must read datasets and write only its own results namespace."
+  }
+}
+
+run "mixed_storage_layouts_are_rejected" {
+  command = plan
+  variables {
+    workspace_identity = merge(var.workspace_identity, {
+      request = merge(var.workspace_identity.request, {
+        storage = merge(var.workspace_identity.request.storage, {
+          data_uri = "s3://${var.workspace_identity.bucket_name}/datasets/"
+        })
+      })
+    })
+  }
+  expect_failures = [var.workspace_identity]
+}
+
 run "git_runtime_reads_only_workspace_secret" {
   command = plan
   variables {

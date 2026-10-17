@@ -1,7 +1,6 @@
 """AWS configuration preparation; never applies plans or executes project code."""
 import base64
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +10,7 @@ import subprocess
 import time
 from urllib.parse import quote, unquote, urlsplit
 import uuid
+from workspace_storage import LEGACY, READABLE, prefixes, workload_bucket
 
 
 def validate_project(L, path):
@@ -148,15 +148,10 @@ def supported_profile(L, region):
     return profile
 
 
-def workload_bucket(account, region, project):
-    """Same deterministic naming as workspace storage preparation and its root."""
-    suffix = hashlib.sha256(f'{account}/{region}/{project}'.encode()).hexdigest()[:16]
-    return f'ml-{project}-{suffix}'
-
-
-def storage_uris(bucket, project, workspace, backend_bucket, runner_prefix):
-    return {'data_uri': f's3://{bucket}/projects/{project}/data/',
-            'output_uri': f's3://{bucket}/projects/{project}/workspaces/{workspace}/output/',
+def storage_uris(bucket, project, workspace, backend_bucket, runner_prefix, layout=LEGACY):
+    data, output = prefixes(project, workspace, layout)
+    return {'data_uri': f's3://{bucket}/{data}',
+            'output_uri': f's3://{bucket}/{output}',
             'state_uri': f's3://{backend_bucket}/{runner_prefix}{workspace}.tfstate'}
 
 
@@ -276,11 +271,26 @@ def configure(L, config_path, discovery_path=None):
     observed = L['load_json'](discovery_path) if discovery_path else discover(L, project)
     validate_discovery(L, project, observed)
     account = observed['identity']['Account']; region = project['region']; slug = project['project']
-    workspace = slug+'-'+project['workspace']; bucket = workload_bucket(account, region, slug)
+    workspace = slug+'-'+project['workspace']
     resource_prefix = slug[:12]+'-'+L['sha'](f'{account}/{region}/{slug}'.encode())[:10]
-    backend = f'{resource_prefix}-tofu-state-{account}-{region}-ws-v1'
+    registry = L['REPO']/'evidence/aws/projects'/resource_prefix/'foundation.json'
+    layout = READABLE
+    if registry.exists():
+        # Reuse exact historical names; later verify_retained checks their
+        # saved plans, hashes, authorization and live state before any apply.
+        binding = L['read'](registry)
+        prior = L['read'](L['checked_path'](binding['plan_directory'])/'review.json')['target']
+        L['require'](prior['account_id']==account and prior['region']==region and
+                     prior['inventory']['resource_prefix']==resource_prefix and
+                     len(prior['inventory']['buckets'])==1, 'retained storage target differs')
+        platform = L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
+        layout = platform.get('storage_layout', LEGACY)
+        bucket, backend = prior['inventory']['buckets'][0], prior['backend']['bucket']
+    else:
+        bucket = workload_bucket(account, region, slug, layout)
+        backend = f'{slug}-state-{account}-{region}'
     prefix = f'aws/{account}/{region}/'
-    storage = storage_uris(bucket, slug, workspace, backend, prefix+'runner/')
+    storage = storage_uris(bucket, slug, workspace, backend, prefix+'runner/', layout)
     pending = ['foundation-ownership-and-lineage', 'quota-image-offering-and-price-discovery',
                'runtime-repository-access', 'dataset-ingestion', 'generic-project-execution-and-output-persistence']
     if ':assumed-role/' in observed['identity']['Arn']:
@@ -293,6 +303,7 @@ def configure(L, config_path, discovery_path=None):
                   'sizing': profile['sizing'], 'image_reference': L['TOOLBOX']['ami_id'],
                   'names': {'resource_prefix': resource_prefix, 'workspace_id': workspace, 'workload_bucket': bucket,
                             'deployer_role_arn': f'arn:aws:iam::{account}:role/{resource_prefix}-workspace-deployer'},
+                  'storage_layout': layout,
                   'backend': {'bucket': backend, 'region': region, 'platform_key': prefix+'platform/platform.tfstate',
                               'runner_prefix': prefix+'runner/'}, 'storage': storage,
                   'scope': {'maximum_runtime_minutes': project['maximum_runtime_minutes'], 'max_ec2_launches': 1,

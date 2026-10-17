@@ -33,6 +33,22 @@ def relative(path):
             all(p not in ('','.','..','.git') for p in path.split('/')), 'relative path without traversal required')
     return path
 
+def output_scope(uri, workspace, run_id):
+    """Validate a whole output URI, binding either layout to this workspace/run."""
+    if not re.fullmatch(r'[0-9a-f]{32}', run_id):
+        raise ValueError('invalid run identity')
+    bucket = r's3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/'
+    date = r'\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-'
+    legacy = r'projects/([a-z0-9-]+)/workspaces/' + re.escape(workspace) + '/output/(?:' + date + ')?' + run_id + '/'
+    match = re.fullmatch(bucket + legacy, uri)
+    if match:
+        return f'projects/{match[1]}/data/'
+    readable = 'results/' + re.escape(workspace) + '/' + date + run_id + '/'
+    if re.fullmatch(bucket + readable, uri):
+        return 'datasets/'
+    raise ValueError('unique output prefix required')
+
+
 def validate(job):
     require(os.geteuid()>0 and pwd.getpwuid(os.geteuid()).pw_name=='workspace','run as non-root workspace')
     require(set(job)=={'repository','workspace_id','account_id','region','run_id','commands','outputs','dataset_manifest','timeout_seconds','output_uri','mode'},'closed generic job required')
@@ -49,8 +65,8 @@ def validate(job):
     require(set(job['outputs'])=={'paths','maximum_bytes'} and 0<job['outputs']['maximum_bytes']<=5*1024**4,'bounded output policy required')
     for path in job['outputs']['paths']: relative(path)
     require(len(set(job['outputs']['paths']))==len(job['outputs']['paths']),'duplicate outputs')
-    require(isinstance(job['output_uri'],str) and re.fullmatch(r's3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/projects/[a-z0-9-]+/workspaces/'+job['workspace_id']+'/output/'+job['run_id']+'/',
-            job['output_uri']),'unique output prefix required')
+    require(isinstance(job['output_uri'],str),'unique output prefix required')
+    output_scope(job['output_uri'],job['workspace_id'],job['run_id'])
     manifest=job['dataset_manifest']
     require(set(manifest)=={'bucket','manifest_key','manifest_version_id','manifest_sha256'} and manifest['bucket']==job['output_uri'][5:].split('/',1)[0] and
             isinstance(manifest['manifest_version_id'],str) and re.fullmatch(r'[!-~]{1,1024}',manifest['manifest_version_id']) and manifest['manifest_version_id']!='null' and
@@ -58,7 +74,7 @@ def validate(job):
     require(not any(os.environ.get(k) for k in ('AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','AWS_PROFILE')),'native role credentials required')
 
 def data_prefix(job):
-    return job['output_uri'][5:].split('/',1)[1].split('/workspaces/',1)[0]+'/data/'
+    return output_scope(job['output_uri'],job['workspace_id'],job['run_id'])
 
 def fetch(s3,account,bucket,key,version,deadline,sink,size=None):
     """Stream one exact object version into sink; the manifest alone has no known size."""

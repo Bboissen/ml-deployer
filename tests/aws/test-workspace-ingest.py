@@ -59,6 +59,25 @@ class Ingest(unittest.TestCase):
         self.assertEqual(first,second); self.assertEqual(len(self.store.objects),count)
         self.assertEqual(first['total_bytes'],5)
         self.assertEqual([r['path'] for r in first['objects']],['input with spaces','tree/empty'])
+    def test_readable_snapshot_has_source_date_original_paths_and_reuses_versions(self):
+        self.deployment['storage_layout']='readable-v1'
+        (self.data/'tree').mkdir(); (self.data/'tree'/'labels.csv').write_bytes(b'label\n')
+        first=self.ingest(); count=len(self.store.objects)
+        self.assertRegex(first['manifest_key'],r'^datasets/data/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-[0-9a-f]{32}/manifest.json$')
+        prefix=first['manifest_key'].removesuffix('manifest.json')
+        self.assertEqual([r['key'] for r in first['objects']],[prefix+'files/'+r['path'] for r in first['objects']])
+        self.assertEqual(self.ingest('second',previous=first),first)
+        self.assertEqual(len(self.store.objects),count)
+    def test_readable_snapshot_lost_multipart_response_aborts_only_its_own_upload(self):
+        self.deployment['storage_layout']='readable-v1'
+        (self.data/'input with spaces').write_bytes(b'a'*(I.CHUNK+1))
+        self.store.uploads['unrelated']={'Key':'datasets/data/another-snapshot/files/input with spaces','data':[]}
+        create=self.store.create_multipart_upload
+        def uncertain(**kw): create(**kw); raise TimeoutError('lost response')
+        self.store.create_multipart_upload=uncertain
+        with self.assertRaises(TimeoutError): self.ingest()
+        self.assertEqual(self.store.aborted,['owned']); self.assertIn('unrelated',self.store.uploads)
+        self.assertFalse((self.directory/'first'/'manifest.json').exists())
     def test_empty_input_and_symlink_are_rejected(self):
         (self.data/'input with spaces').unlink()
         with self.assertRaisesRegex(ValueError,'empty'): self.ingest()

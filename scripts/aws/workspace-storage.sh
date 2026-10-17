@@ -18,6 +18,7 @@ import time
 sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
 BASE = ROOT / "evidence/aws"
+sys.path.insert(0, str(ROOT/'scripts/aws'))
 spec = importlib.util.spec_from_file_location("aws_workspace_config", ROOT / "scripts/aws/workspace-config.py")
 project_config = importlib.util.module_from_spec(spec); spec.loader.exec_module(project_config)
 spec = importlib.util.spec_from_file_location("workspace_target", ROOT / "scripts/aws/workspace_target.py")

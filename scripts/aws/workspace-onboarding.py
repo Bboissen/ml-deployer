@@ -126,6 +126,8 @@ def prepare(L, deployment, directory, artifacts, observed_capacity, operator):
                 'availability_zone':size['availability_zone'], 'deployer_principal_arns':[operator],
                 'ml_projects':{project:{'ml_project_name':project,'storage_mode':'auto'}}, 'provision_alert_topic':True,
                 'workspace_guard':{'zip_path':artifacts['guard_zip_path'], 'zip_sha256':artifacts['guard_zip_sha256'], 'alarm_topic_arn':topic}}
+    if deployment.get('storage_layout'):
+        platform['storage_layout'] = deployment['storage_layout']
     L['foundation']['config'](platform, selected)
     for name, value in {'bootstrap.tfvars.json':bootstrap, 'platform.tfvars.json':platform,
                         'target.json':selected, 'capacity.json':observed_capacity, 'artifacts.json':artifacts}.items():

@@ -20,6 +20,7 @@ import zipfile
 sys.dont_write_bytecode = True
 REPO = Path.cwd().resolve()
 import workspace_target
+import workspace_storage
 
 boundary = vars(workspace_target)
 Failure, require, inside, private_file, write, source = (boundary[n] for n in ('Failure','require','inside','private_file','write','source'))
@@ -32,7 +33,7 @@ def foundation_extension():
 
     def target(original):
         result = copy.deepcopy(original)
-        if result['backend'].get('bucket','').endswith('-ws-v1'): return result
+        if result['backend'].get('bucket','').endswith('-ws-v1') or result['backend'].get('bucket','').endswith('-state-'+result['account_id']+'-'+result['region']): return result
         prefix, account, region = (result['inventory']['resource_prefix'], result['account_id'], result['region'])
         result['deployment_role_arn'] = f'arn:aws:iam::{account}:role/{prefix}-workspace-deployer'
         result['backend']['bucket'] = f'{prefix}-tofu-state-{account}-{region}-ws-v1'
@@ -47,7 +48,7 @@ def foundation_extension():
         L['validate_config'](value, selected, 'fresh-platform')
         L['require'](value['deployer_principal_arns'] == [selected['operator_arn']], 'fresh deployer trusts only the named operator')
         L['require'](value['ml_projects'] and all(re.fullmatch(r'[a-z][a-z0-9-]{2,23}', p) and v == {'ml_project_name': p, 'storage_mode': 'auto'} for p,v in value['ml_projects'].items()), 'fresh foundation requires named empty auto storage')
-        L['require'](set(selected['inventory']['buckets']) == {'ml-'+p+'-'+L['sha'](f"{selected['account_id']}/{selected['region']}/{p}".encode())[:16] for p in value['ml_projects']}, 'foundation bucket inventory differs')
+        L['require'](set(selected['inventory']['buckets']) == {workspace_storage.workload_bucket(selected['account_id'],selected['region'],p,value.get('storage_layout',workspace_storage.LEGACY)) for p in value['ml_projects']}, 'foundation bucket inventory differs')
         L['require'](re.fullmatch(re.escape(selected['region'])+r'[a-z]', value['availability_zone']), 'foundation network zone differs from region')
 
 
@@ -102,7 +103,7 @@ def foundation_extension():
         for name in ([prefix+'-ws-'+p+'-boundary' for p in value.get('ml_projects', {'demo':{}})] + [prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal']):
             missing(lambda name=name: iam.get_policy(PolicyArn=f'arn:aws:iam::{account}:policy/{name}'), {'NoSuchEntity'})
         for project in value.get('ml_projects', {'demo':{}}):
-            bucket = 'ml-'+project+'-'+L['sha'](f"{account}/{value['aws_region']}/{project}".encode())[:16]
+            bucket = workspace_storage.workload_bucket(account,value['aws_region'],project,value.get('storage_layout',workspace_storage.LEGACY))
             missing(lambda: client(base, 's3').head_bucket(Bucket=bucket, ExpectedBucketOwner=account), {'404', 'NoSuchBucket'})
         if value.get('provision_alert_topic'):
             topic = f"arn:aws:sns:{value['aws_region']}:{account}:{prefix}-workspace-alerts"

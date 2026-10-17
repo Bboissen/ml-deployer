@@ -13,6 +13,7 @@ import signal
 import sys
 import time
 import uuid
+from workspace_storage import run_folder
 from workspace_terminal import interactive
 
 # Checkout, project environment, caches and logs share the fixed root volume
@@ -43,6 +44,10 @@ def describe_scope(scope):
         disk['dataset_bytes']/1024**3,disk['output_bytes']/1024**3,disk['reserve_bytes']//1024**3,disk['usable_bytes']//1024**3,disk['cost']))
     migration=scope.get('foundation_iam_migration')
     if migration and migration.get('required'): lines.append('  includes a reviewed tightening of the retained deployer IAM policy')
+    if scope.get('storage'):
+        lines.extend(['  S3 datasets: '+scope['storage']['data_uri'],
+                      '  S3 results:  '+scope['storage']['output_uri'],
+                      '  S3 state:    '+scope['target']['backend']['bucket']])
     return lines
 
 
@@ -66,6 +71,7 @@ def describe_result(config,result):
         lines.append('  compute cleanup: %s; outputs verified after compute deletion: %s' % (
             result.get('cleanup_status'),result.get('verified_after_compute_deletion')))
     if result.get('output_uri'): lines.append('  outputs: '+result['output_uri'])
+    if result.get('data_uri'): lines.append('  dataset: '+result['data_uri'])
     if result.get('error'): lines.append('  error: '+str(result['error'].get('reason') or result['error'].get('type')))
     if result.get('cleanup_error'): lines.append('  cleanup error: '+str(result['cleanup_error'].get('reason') or result['cleanup_error'].get('type')))
     command='./workspace '+str(config)
@@ -218,6 +224,9 @@ def prepare(W,config,directory=None):
         'additional_cost_scope':capacity['cost_exclusions'],'transfer_policy':'selected source hash + upload + independent version reads; no cross-region transfer',
         'mode':project['mode'],'cleanup':'owned compute after job' if project['mode']=='job' else 'explicit cancel or absolute expiry',
         'native_acceptance':False,'cloud_mutations':False}
+    if 'storage_layout' in deployment:
+        scope['storage']={'data_uri':deployment['storage']['data_uri'],
+                          'output_uri':deployment['storage']['output_uri']+run_folder(directory.name,L['read'](directory/'operation.json')['observed_at'])+'/'}
     L['write'](directory/'scope.json',scope)
     atomic(L,selection(L,P,config),{'directory':str(directory)})
     return directory,scope
@@ -284,6 +293,7 @@ def execute(W,config,directory,scope,task,resume=False):
         base,client,_=L['sessions'](selected); s3=client(base,'s3')
         result={'status':'failure','operation_id':directory.name,'infrastructure_ready':False,'setup_exit':None,'job_exit':None,
                 'outputs_persisted':False,'cleanup_status':'not_needed','verified_after_compute_deletion':False,'recovery_required':True}
+        if scope.get('storage'): result['data_uri']=scope['storage']['data_uri']
         runner=L['read'](control/'runner.json') if (control/'runner.json').exists() else None
         job=L['read'](directory/'job.json') if (directory/'job.json').exists() else None
         def cancelled(): return (directory/'cancel.json').exists()
@@ -343,6 +353,8 @@ def execute(W,config,directory,scope,task,resume=False):
                 return I.ingest(L,deployment,s3,output,adapter=adapter,previous=previous,inventory=scope['dataset']['inventory'])
             manifest=journal.stage('ingestion',ingestion,ingestion)
             atomic(L,registry/'dataset.json',manifest)
+            dataset_prefix=manifest['manifest_key'].split('/manifests/',1)[0] if '/manifests/' in manifest['manifest_key'] else manifest['manifest_key'].rsplit('/',1)[0]
+            result['data_uri']='s3://'+manifest['bucket']+'/'+dataset_prefix+'/'
             value={'version':1,'target_name':name,'target':selected,'project':project['project'],'workspace_id':deployment['names']['workspace_id'],
                 'repository':{'url':deployment['repository']['url'],'revision':deployment['repository']['revision']},
                 'sizing':{k:scope['capacity']['selected'][k] for k in ('policy','instance_type','cpus','memory_mb','disk_gb','availability_zone')},
@@ -350,6 +362,8 @@ def execute(W,config,directory,scope,task,resume=False):
                 'job':{'commands':project['commands'],'outputs':scope['outputs'],
                     'dataset_manifest':{k:manifest[k] for k in ('bucket','manifest_key','manifest_version_id','manifest_sha256')},
                     'timeout_seconds':min(1800,(project['maximum_runtime_minutes']-10)*60)}}
+            if scope.get('storage'):
+                value['job']['output_uri'] = scope['storage']['output_uri']
             if reference: value['repository']['credential']=reference
             # Keep compatibility configuration closed; mode is carried by job only.
             if not technical.exists(): L['write'](technical,value)

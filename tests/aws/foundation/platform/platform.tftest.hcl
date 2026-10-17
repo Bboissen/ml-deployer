@@ -63,6 +63,27 @@ run "git_boundary_reads_only_reviewed_secret" {
   }
 }
 
+run "readable_storage_names_and_permissions" {
+  command = plan
+  variables {
+    storage_layout = "readable-v1"
+  }
+  assert {
+    condition     = aws_s3_bucket.project["demo"].bucket == "demo-storage-000000000000-us-east-1" && local.project_storage["demo"].data_prefix == "datasets/" && local.project_storage["demo"].output_prefix_template == "results/<workspace_id>/"
+    error_message = "Readable storage must expose datasets and results directly under an explicit project storage bucket."
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_policy.project_workspace_boundary["demo"].policy).Statement :
+      statement.Sid == "ReadDatasetAndOwnOutputVersions" ? toset(statement.Resource) == toset(["arn:aws:s3:::demo-storage-000000000000-us-east-1/datasets/*", "arn:aws:s3:::demo-storage-000000000000-us-east-1/results/$${aws:PrincipalTag/workspace_id}/*"]) :
+      statement.Sid == "WriteOwnOutputAndMultipart" ? toset(statement.Resource) == toset(["arn:aws:s3:::demo-storage-000000000000-us-east-1/results/$${aws:PrincipalTag/workspace_id}/*"]) :
+      statement.Sid == "DenyStateStorage" ? contains(statement.Resource, var.state_bucket_arn) :
+      statement.Sid == "DenyWritesOutsideOwnOutput" ? toset(statement.NotResource) == toset(["arn:aws:s3:::demo-storage-000000000000-us-east-1/results/$${aws:PrincipalTag/workspace_id}/*"]) : true
+    ])
+    error_message = "Readable namespaces must retain exact workspace output grants and deny dataset/state writes."
+  }
+}
+
 run "git_boundary_rejects_another_account" {
   command = plan
   variables {

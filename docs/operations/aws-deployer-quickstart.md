@@ -181,18 +181,34 @@ reviewed decision. Workspace mode keeps the machine until `cancel` or expiry;
 There are two buckets: the **state bucket** stores OpenTofu's infrastructure
 records for later updates and recovery; the **workload bucket** stores both
 datasets and results. The machine's permissions exclude the state bucket.
-The dataset is the input you selected during setup, copied to a verified
-snapshot under `projects/<project>/data/snapshots/<content-hash>/`. Your commands
-read its staged files through `DATA_DIR`. The hash identifies the input file
-names, sizes and contents, so unchanged data can be reused across runs.
+New guided foundations name them `<project>-state-<account>-<region>` and
+`<project>-storage-<account>-<region>` so their purpose and owner are visible.
+
+The dataset is the input selected during setup. Its source file/directory name
+becomes a safe folder label, for example `datasets/training.csv/`. Each snapshot
+is a folder named `<YYYY-MM-DDTHH-MM-SSZ>-<snapshot-id>/`, containing
+`files/<original-relative-path>` and `manifest.json`. Original file names and
+subdirectories are preserved. The manifest holds full checksums and exact S3
+versions; unchanged data reuses the same snapshot without another upload.
+Your commands read staged inputs through `DATA_DIR`.
 
 Results are files your commands generate in `OUTPUT_DIR` (`outputs/` in the
 checkout by default). Declared output paths are uploaded under
-`projects/<project>/workspaces/<workspace>/output/<run-id>/files/`; `job.log` and
-`execution.json` sit alongside `files/`. Project/workspace prefixes scope access,
-and each run has its own prefix so results from different runs stay separate.
-Use the printed `output_uri` to open results directly; the dataset snapshot
-prefix contains inputs rather than results.
+`results/<workspace>/<YYYY-MM-DDTHH-MM-SSZ>-<run-id>/files/`; `job.log` and
+`execution.json` sit alongside `files/`. Dates are UTC, and full unique IDs
+keep separate operations from colliding. Workspace permissions still allow
+reading datasets and writing only that workspace's results. Deploy prints
+the reviewed dataset/result locations before launch and the saved locations
+afterward; use `output_uri` to open results directly.
+
+Retained foundations keep their exact bucket names and layout, including
+`projects/<project>/data/snapshots/<content-hash>/` and
+`projects/<project>/workspaces/<workspace>/output/`. New runs add dated folders
+within that existing output prefix. Existing results, manifests and recovery
+receipts remain valid. An ordinary Deploy does not rename or replace storage;
+moving existing contents to the readable layout needs a separately reviewed
+migration. Lower-level root configurations default to the legacy layout;
+new guided foundations explicitly select `storage_layout = "readable-v1"`.
 
 ## Repair
 
