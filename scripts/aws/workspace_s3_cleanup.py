@@ -70,9 +70,10 @@ def inventory(L, s3, owner, selected, deadline):
             arguments = {**owner, 'Prefix': prefix}
             arguments['MaxKeys' if operation == 'list_object_versions' else 'MaxUploads'] = 1000
             seen = set()
-            while True:
+            for _ in range(1000):
                 require(time.monotonic() < deadline, 'S3 cleanup inventory exceeded its time bound')
                 page = getattr(s3, operation)(**arguments)
+                require(type(page.get('IsTruncated')) is bool, 'S3 inventory completeness was not reported')
                 for field in fields:
                     for item in page.get(field, []):
                         key = item['Key']
@@ -97,6 +98,8 @@ def inventory(L, s3, owner, selected, deadline):
                         'incomplete or repeated S3 pagination marker')
                 seen.add(marker)
                 arguments.update(zip(markers, marker))
+            else:
+                raise ValueError('S3 cleanup pagination exceeds its page bound')
     versions.sort(key=lambda v: (v['Key'], v['VersionId']))
     uploads.sort(key=lambda v: (v['Key'], v['UploadId']))
     require(len({(v['Key'], v['VersionId']) for v in versions}) == len(versions) and
@@ -135,7 +138,8 @@ def clean(W, config, include_datasets=False, dry_run=False):
         cache = L['checked_path'](registry/'dataset.json')
         if include_datasets and cache.exists(): L['read'](cache)
         cached = cache.read_bytes() if include_datasets and cache.exists() else None
-        review = {'kind': 's3-cleanup', 'account_id': target['account_id'], 'region': target['region'],
+        review = {'kind': 's3-cleanup', 'cleanup_id': packet.name, 'reviewed_at': L['stamp'](),
+                  'account_id': target['account_id'], 'region': target['region'],
                   'operator_arn': target['operator_arn'], 'bucket': bucket, 'prefixes': selected,
                   'workspace_id': workspace, 'include_datasets': include_datasets, **objects,
                   'dataset_cache_sha256': L['sha'](cached) if cached is not None else None,
@@ -173,9 +177,11 @@ def clean(W, config, include_datasets=False, dry_run=False):
         if confirmed.strip() != answer:
             return dict(summary, status='cancelled')
         L['write'](packet/'authorization.json', {'scope_sha256': digest, 'answer': confirmed.strip(), 'authorized_at': L['stamp']()})
-        receipt = {'status': 'failure', 'scope_sha256': digest, 'verified': False, 'cloud_mutations': False,
+        receipt = {'status': 'in_progress', 'scope_sha256': digest, 'verified': False, 'cloud_mutations': False,
                    'deleted_versions': 0, 'aborted_uploads': 0, 'dataset_cache_archived': False}
+        D.atomic(L, packet/'receipt.json', receipt, exclusive=True)
         try:
+            D.say('S3 cleanup: rechecking ownership and the reviewed inventory')
             require(L['source']() == review['source'] and review['source']['working_tree_sha256'] == L['sha'](b''),
                     'cleanup requires unchanged clean committed source')
             inactive(L, registry)
@@ -196,10 +202,11 @@ def clean(W, config, include_datasets=False, dry_run=False):
                 require(time.monotonic() < deadline, 'S3 cleanup exceeded its time bound')
                 L['write'](packet/('upload-%06d-intent.json' % index), upload)
                 receipt['cloud_mutations'] = True
+                D.atomic(L, packet/'receipt.json', receipt)
                 s3.abort_multipart_upload(**owner, **upload)
                 try:
                     parts = s3.list_parts(**owner, **upload)
-                    require(not parts.get('Parts') and not parts.get('IsTruncated'), 'aborted S3 upload still has parts; review cleanup again')
+                    require(not parts.get('Parts') and parts.get('IsTruncated') is False, 'aborted S3 upload still has parts or unknown completeness; review cleanup again')
                 except Exception as error:
                     if getattr(error, 'response', {}).get('Error', {}).get('Code') != 'NoSuchUpload': raise
                 L['write'](packet/('upload-%06d-aborted.json' % index), upload)
@@ -207,8 +214,10 @@ def clean(W, config, include_datasets=False, dry_run=False):
             for start in range(0, len(objects['versions']), 1000):
                 require(time.monotonic() < deadline, 'S3 cleanup exceeded its time bound')
                 batch = [{'Key': v['Key'], 'VersionId': v['VersionId']} for v in objects['versions'][start:start+1000]]
+                D.say('S3 cleanup: deleting versions %d-%d of %d' % (start+1, start+len(batch), len(objects['versions'])))
                 L['write'](packet/('batch-%06d-intent.json' % start), batch)
                 receipt['cloud_mutations'] = True
+                D.atomic(L, packet/'receipt.json', receipt)
                 response = s3.delete_objects(**owner, Delete={'Objects': batch, 'Quiet': False})
                 deleted = response.get('Deleted', [])
                 reported = {(v['Key'], v['VersionId']) for v in deleted}
@@ -220,15 +229,17 @@ def clean(W, config, include_datasets=False, dry_run=False):
                 receipt['deleted_versions'] += len(confirmed)
                 require(not response.get('Errors') and len(deleted) == len(batch) and reported == requested,
                         'S3 did not confirm every reviewed version deletion; inspect the receipt and review remaining objects again')
+            D.say('S3 cleanup: verifying selected prefixes are empty')
             remaining = inventory(L, s3, owner, selected, deadline)
             require(not remaining['versions'] and not remaining['uploads'], 'S3 cleanup could not verify empty selected prefixes; new or remaining objects were preserved')
             receipt.update(status='success', verified=True)
         except BaseException as error:
+            receipt['status'] = 'failure'
             receipt['error_type'] = type(error).__name__
             receipt['next'] = 'Inspect this receipt and rerun clean-s3 to review the remaining inventory; partial deletion cannot be undone.'
             raise
         finally:
             receipt['completed_at'] = L['stamp']()
-            L['write'](packet/'receipt.json', receipt)
+            D.atomic(L, packet/'receipt.json', receipt)
             D.say('S3 cleanup: '+receipt['status']+'; receipt: '+str(packet/'receipt.json'))
         return dict(receipt, receipt_file=str(packet/'receipt.json'))

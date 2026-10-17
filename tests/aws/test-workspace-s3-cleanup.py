@@ -29,6 +29,7 @@ class Store:
     def __init__(self):
         self.versions, self.uploads, self.deleted, self.aborted = [], [], [], []
         self.errors = False; self.lost = False; self.add_after_delete = False
+        self.partial = False
         self.region = 'us-east-1'; self.versioning = 'Enabled'; self.owner = None
 
     def check(self, args):
@@ -43,12 +44,12 @@ class Store:
     def list_object_versions(self, **args):
         self.check(args)
         matches = [v for v in self.versions if v['Key'].startswith(args['Prefix'])]
-        return {'Versions': [{k:v for k,v in item.items() if k != 'marker'} for item in matches if not item.get('marker')],
+        return {'IsTruncated':False, 'Versions': [{k:v for k,v in item.items() if k != 'marker'} for item in matches if not item.get('marker')],
                 'DeleteMarkers': [{k:v for k,v in item.items() if k not in ('marker','Size')} for item in matches if item.get('marker')]}
 
     def list_multipart_uploads(self, **args):
         self.check(args)
-        return {'Uploads': [u for u in self.uploads if u['Key'].startswith(args['Prefix'])]}
+        return {'IsTruncated':False, 'Uploads': [u for u in self.uploads if u['Key'].startswith(args['Prefix'])]}
 
     def delete_objects(self, **args):
         self.check(args); batch = args['Delete']['Objects']
@@ -57,6 +58,10 @@ class Store:
         selected = {(v['Key'],v['VersionId']) for v in batch}
         self.deleted.extend(copy.deepcopy(batch))
         if self.errors: return {'Errors':[{'Code':'AccessDenied','Message':'SENTINEL_SECRET'}]}
+        if self.partial:
+            first = batch[0]
+            self.versions = [v for v in self.versions if (v['Key'],v['VersionId']) != (first['Key'],first['VersionId'])]
+            return {'Deleted':[copy.deepcopy(first)],'Errors':[{'Code':'AccessDenied','Message':'SENTINEL_SECRET'}]}
         self.versions = [v for v in self.versions if (v['Key'],v['VersionId']) not in selected]
         if self.lost: raise TimeoutError('SENTINEL_SECRET')
         if self.add_after_delete:
@@ -69,7 +74,7 @@ class Store:
         self.aborted.append(item); self.uploads.remove(item)
 
     def list_parts(self, **args):
-        self.check(args); return {'Parts':[]}
+        self.check(args); return {'Parts':[], 'IsTruncated':False}
 
 
 class Cleanup(unittest.TestCase):
@@ -171,7 +176,7 @@ class Cleanup(unittest.TestCase):
 
     def test_preview_never_prompts_or_moves_dataset_cache(self):
         L['write'](self.registry/'dataset.json', {'kept':True})
-        with patch('builtins.input',side_effect=AssertionError('preview prompted')):
+        with patch.object(self,'confirm',side_effect=AssertionError('preview prompted')):
             result = self.clean(include_datasets=True,dry_run=True)
         self.assertEqual(result['status'],'preview'); self.assertFalse(result['cloud_mutations'])
         self.assertTrue((self.registry/'dataset.json').exists()); self.assertEqual(self.store.deleted,[])
@@ -221,6 +226,62 @@ class Cleanup(unittest.TestCase):
         self.assertTrue(any(v['VersionId']=='concurrent-new' for v in self.store.versions))
         self.assertFalse(L['read'](self.reviews()[-1].parent/'receipt.json')['verified'])
 
+    def test_source_review_and_activity_drift_after_confirmation_never_delete(self):
+        original = self.confirm
+        for fault in ('review','activity','source','compute'):
+            with self.subTest(fault=fault):
+                def confirm(prompt):
+                    answer = original(prompt)
+                    if fault=='review':
+                        review = self.reviews()[-1]; value = L['read'](review); value['prefixes']=['']
+                        review.write_text(json.dumps(value))
+                    elif fault=='activity':
+                        L['write'](self.registry/'concurrent-active.json', {'operation_id':'concurrent'})
+                    elif fault=='source':
+                        L['source'] = lambda:{'revision':'b'*40,'working_tree_sha256':L['sha'](b'')}
+                    else:
+                        self.O.verify_retained = lambda *_: (_ for _ in ()).throw(ValueError('covered compute remains'))
+                    return answer
+                before = L['source']
+                with patch.object(self,'confirm',side_effect=confirm),self.assertRaises(ValueError): self.clean()
+                self.assertEqual(self.store.deleted,[]); self.assertEqual(self.store.aborted,[])
+                L['source'] = before; self.O.verify_retained = self.verify
+                active = self.registry/'concurrent-active.json'
+                if active.exists(): active.unlink()
+
+    def test_partial_api_success_records_exact_confirmed_and_unconfirmed_versions(self):
+        self.store.partial = True
+        with self.assertRaisesRegex(ValueError,'did not confirm'): self.clean()
+        folder = self.reviews()[-1].parent
+        receipt = L['read'](folder/'receipt.json'); response = L['read'](folder/'batch-000000-response.json')
+        self.assertEqual(receipt['deleted_versions'],1); self.assertFalse(receipt['verified'])
+        self.assertEqual(len(response['confirmed_deleted']),1); self.assertEqual(len(response['unconfirmed']),2)
+        self.assertNotIn('SENTINEL_SECRET',(folder/'receipt.json').read_text()+self.output.getvalue())
+
+    def test_upload_parts_are_verified_and_cannot_be_reported_as_clean_while_remaining(self):
+        with patch.object(self.store,'list_parts',return_value={'Parts':[{'PartNumber':1}]}),self.assertRaisesRegex(ValueError,'still has parts'):
+            self.clean()
+        self.assertEqual(self.store.deleted,[])
+        self.assertFalse(L['read'](self.reviews()[-1].parent/'receipt.json')['verified'])
+
+    def test_interruption_preserves_authorization_intent_and_failure_receipt(self):
+        def interrupted(**_):
+            pending = L['read'](self.reviews()[-1].parent/'receipt.json')
+            self.assertEqual(pending['status'],'in_progress'); self.assertTrue(pending['cloud_mutations'])
+            raise KeyboardInterrupt()
+        self.store.uploads = []
+        with patch.object(self.store,'delete_objects',side_effect=interrupted),self.assertRaises(KeyboardInterrupt): self.clean()
+        folder = self.reviews()[-1].parent
+        self.assertTrue((folder/'authorization.json').exists()); self.assertTrue((folder/'batch-000000-intent.json').exists())
+        self.assertEqual(L['read'](folder/'receipt.json')['error_type'],'KeyboardInterrupt')
+
+    def test_empty_dataset_cleanup_can_archive_stale_reuse_metadata(self):
+        self.store.versions=[]; self.store.uploads=[]
+        L['write'](self.registry/'dataset.json', {'historical':True})
+        result = self.clean(include_datasets=True)
+        self.assertEqual(result['status'],'success'); self.assertFalse(result['cloud_mutations'])
+        self.assertTrue(result['dataset_cache_archived']); self.assertFalse((self.registry/'dataset.json').exists())
+
     def test_partial_errors_and_lost_responses_leave_failure_receipts_and_archived_cache(self):
         for fault in ('errors','lost'):
             with self.subTest(fault=fault):
@@ -260,9 +321,10 @@ class Cleanup(unittest.TestCase):
 
     def test_inventory_rejects_foreign_keys_duplicates_null_versions_and_stalled_pages(self):
         owner = {'Bucket':self.store.owner[0],'ExpectedBucketOwner':self.target['account_id']}
-        for page in ({'Versions':[{'Key':'outside','VersionId':'v'}]},
-                     {'Versions':[{'Key':self.results+'a','VersionId':'null'}]},
-                     {'Versions':[{'Key':self.results+'a','VersionId':'v'}]*2},
+        for page in ({},
+                     {'IsTruncated':False,'Versions':[{'Key':'outside','VersionId':'v'}]},
+                     {'IsTruncated':False,'Versions':[{'Key':self.results+'a','VersionId':'null'}]},
+                     {'IsTruncated':False,'Versions':[{'Key':self.results+'a','VersionId':'v'}]*2},
                      {'IsTruncated':True,'NextKeyMarker':'same','NextVersionIdMarker':'same'}):
             with self.subTest(page=page),patch.object(self.store,'list_object_versions',return_value=page),self.assertRaises(ValueError):
                 C.inventory(L,self.store,owner,[self.results],time.monotonic()+5)
@@ -273,10 +335,10 @@ class Cleanup(unittest.TestCase):
         owner = {'Bucket':self.store.owner[0],'ExpectedBucketOwner':self.target['account_id']}
         with patch.object(self.store,'list_object_versions',side_effect=[
                 {'Versions':[{'Key':self.results+'a','VersionId':'v1'}],'IsTruncated':True,'NextKeyMarker':'key','NextVersionIdMarker':'v1'},
-                {'DeleteMarkers':[{'Key':self.results+'b','VersionId':'v2'}]}]) as versions, \
+                {'IsTruncated':False,'DeleteMarkers':[{'Key':self.results+'b','VersionId':'v2'}]}]) as versions, \
              patch.object(self.store,'list_multipart_uploads',side_effect=[
                 {'Uploads':[{'Key':self.results+'a','UploadId':'u1'}],'IsTruncated':True,'NextKeyMarker':'key','NextUploadIdMarker':'u1'},
-                {'Uploads':[{'Key':self.results+'b','UploadId':'u2'}]}]) as uploads:
+                {'IsTruncated':False,'Uploads':[{'Key':self.results+'b','UploadId':'u2'}]}]) as uploads:
             value = C.inventory(L,self.store,owner,[self.results],time.monotonic()+5)
         self.assertEqual(len(value['versions']),2); self.assertEqual(len(value['uploads']),2)
         self.assertEqual(versions.call_args.kwargs['VersionIdMarker'],'v1')
@@ -287,6 +349,9 @@ class Cleanup(unittest.TestCase):
                                 env={**os.environ,'WORKSPACE_PYTHON':sys.executable})
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('--include-datasets',result.stdout); self.assertNotIn('--yes',result.stdout)
+        rejected = subprocess.run(['bash','workspace',str(self.config),'clean-s3','--yes'],capture_output=True,text=True,timeout=15,
+                                  env={**os.environ,'WORKSPACE_PYTHON':sys.executable})
+        self.assertEqual(rejected.returncode,2)
         source = self.root/'make'; source.mkdir()
         shutil.copyfile(ROOT/'Makefile',source/'Makefile')
         (source/'workspace').write_text('#!/bin/bash\nprintf "%s\\n" "$@"\ntest -z "${WORKSPACE_PYTHON:-}"\n')

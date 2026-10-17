@@ -126,6 +126,7 @@ make</code></pre>
       <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>compute cleanup: success</code> with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable at the printed <code>output_uri</code>.</p>
 <pre><code>./workspace ~/aws-workspace/demo/project.json logs</code></pre>
       <p class="meta">Kept on purpose: the dataset and output bucket, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can keep costing money; deleting them is a separate reviewed decision. A second Deploy with the same data reuses the retained versions without uploading again.</p>
+      <p><strong>Remove saved S3 data:</strong> <code>make s3-clean DRY_RUN=1</code> previews this workspace's results. Omit <code>DRY_RUN=1</code> to review permanent deletion and type its confirmation. Add <code>S3_DATASETS=1</code> to include shared project inputs. Buckets and infrastructure state remain. See <a href="operations/aws-deployer-quickstart.md#s3-cleanup">S3 cleanup and receipts</a>.</p>
       <p class="meta">To keep this read-only page open separately: <code>./workspace guide ~/aws-workspace/demo/project.json --read-only</code>. Stop it with Ctrl+C.</p>
     </li>
   </ol>
