@@ -37,6 +37,11 @@ trust; it does not sandbox the external project's code.
   only previews. Request intents and a pending receipt precede deletion;
   success requires a fresh empty-prefix check and a verified receipt. It grants
   no additional IAM permissions or retention bypass.
+- **Sign-in recovery before review.** Interactive Deploy and S3 cleanup offer
+  native AWS browser sign-in when the selected console/SSO session has expired.
+  Successful sign-in continues to a fresh review with the normal identity checks;
+  it never approves cloud changes or retries an authorized deletion. Scripts and
+  explicit `--authorization` runs do not prompt for sign-in.
 
 ## Untrusted inputs
 

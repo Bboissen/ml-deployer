@@ -12,7 +12,7 @@ sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workspace_target
-from workspace_terminal import interactive as user_terminal
+from workspace_terminal import interactive as user_terminal, ssh_session
 
 B = vars(workspace_target)
 require = B['require']
@@ -41,7 +41,10 @@ def observe(command, env, label):
         result = B['request'](command, env, 30)
     except subprocess.TimeoutExpired:
         raise B['Failure'](label + ' identity request timed out; check the selected login/credential process') from None
-    require(result.returncode == 0, label + ': ' + B['error_category'](result.stderr) + '; run login for the selected profile or ask the account owner about its permissions')
+    if result.returncode != 0:
+        category = B['error_category'](result.stderr)
+        failure = B['LoginRequired'] if category in ('expired_login', 'missing_login') else B['Failure']
+        raise failure(label + ': ' + category + '; run login for the selected profile or ask the account owner about its permissions') from None
     try:
         return identity(json.loads(result.stdout))
     except (json.JSONDecodeError, TypeError):
@@ -93,6 +96,29 @@ def profile_method(profile, region):
     if config.has_option(section, 'login_session'):
         return 'console'
     raise B['Failure']('this profile uses a credential process, temporary credentials or a source profile; renew its original native login instead')
+
+
+def ensure_login(profile, region, allow_login=True):
+    """Recover native sign-in before an operation has a reviewed authorization."""
+    selection(profile, region)
+    try:
+        return auth_check(profile, region)
+    except B['LoginRequired']:
+        command = './workspace login --profile ' + profile + ' --region ' + region
+        require(allow_login and user_terminal(), 'AWS sign-in is needed; run ' + command + '; then retry this command')
+    # Refuse unsupported credential sources before offering a native browser flow.
+    profile_method(profile, region)
+    from workspace_setup import Console
+    ui = Console(stream=sys.stderr)
+    ui.status('next', 'AWS sign-in expired or is missing for ' + profile + ' in ' + region)
+    try:
+        accepted = ui.confirm('Sign in to AWS now and continue?')
+    except (EOFError, KeyboardInterrupt):
+        accepted = False
+    require(accepted, 'AWS sign-in cancelled; operation stopped before review')
+    result = login(profile, region, 'auto', ssh_session())
+    ui.status('done', 'AWS sign-in verified; continuing to a fresh review')
+    return result
 
 
 def native_profiles(region):

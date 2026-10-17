@@ -432,7 +432,7 @@ def sessions(target):
             botocore.exceptions.UnauthorizedSSOTokenError, botocore.exceptions.SSOTokenLoadError):
         # Credential errors can contain native credential-process output. Give
         # only the validated selection and the existing native sign-in route.
-        raise Failure('AWS sign-in expired or is missing; run ./workspace login --profile '+target['profile']+
+        raise boundary['LoginRequired']('AWS sign-in expired or is missing; run ./workspace login --profile '+target['profile']+
                       ' --region '+target['region']+'; then rerun the original command for a fresh review') from None
     require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):

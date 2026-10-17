@@ -247,10 +247,13 @@ deployment evidence, and never changes IAM permissions or bypasses S3 retention
 or MFA protection. The signed-in operator must already have the required S3
 listing, version deletion, multipart-abort and part-listing permissions.
 
-If sign-in has expired, the command prints `./workspace login --profile NAME
---region REGION` for the selected project. Run it in your terminal, then rerun
-`make s3-clean` with the same options for a fresh inventory and manual review.
-Cleanup does not sign in automatically or retry deletion after authentication.
+Deploy and S3 cleanup check the selected AWS sign-in before reviewing cloud
+changes. If it has expired, the CLI offers to sign in through the native AWS
+browser flow, then continues in the same command with a fresh review. SSH uses
+the remote browser/code flow. Declining, cancelling or failing sign-in stops the
+operation. Noninteractive runs and explicit `--authorization` runs never prompt
+for sign-in; they print the selected login command instead. Sign-in does not
+approve deletion or replay a partially completed operation.
 
 Immediately after confirmation, cleanup checks ownership and the inventory
 again. Changed contents require a new review. Deletion requests name only the

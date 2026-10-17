@@ -17,6 +17,8 @@ L = vars(workspace_lifecycle)
 require, read, write, checked = (L[k] for k in ('require', 'read', 'write', 'checked_path'))
 spec = importlib.util.spec_from_file_location('aws_workspace_config', ROOT/'scripts/aws/workspace-config.py')
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
+spec = importlib.util.spec_from_file_location('workspace_auth', ROOT/'scripts/aws/workstation-auth.py')
+A = importlib.util.module_from_spec(spec); spec.loader.exec_module(A)
 
 
 def configuration(path):
@@ -182,6 +184,11 @@ def main():
     p = sub.add_parser('status', help='bounded local observation of a run')
     p.add_argument('run',nargs='?'); p.add_argument('--wait', type=int, default=0)
     args = parser.parse_args()
+    if args.verb in ('deploy', 'clean-s3'):
+        # Authenticate before creating/reusing any deployment or deletion review.
+        # Native sign-in must never resume an already-authorized cloud mutation.
+        project = P.validate_project(L, args.config)
+        A.ensure_login(project['profile'], project['region'], allow_login=getattr(args, 'authorization', None) is None)
     if args.verb == 'clean-s3':
         from workspace_s3_cleanup import clean
         result = clean(globals(), args.config, args.include_datasets, args.dry_run)

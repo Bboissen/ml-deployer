@@ -209,6 +209,43 @@ class Cleanup(unittest.TestCase):
         with C.D.locked(L,ROOT/'evidence/aws/locks'/(self.target['inventory']['resource_prefix']+'.lock')):
             pass
 
+    def test_cli_offers_native_relogin_then_reviews_and_confirms_cleanup_in_one_command(self):
+        events=[]
+        def answer(prompt):
+            if 'Sign in to AWS' in prompt:
+                events.append('offer-login'); self.assertEqual(self.store.deleted,[])
+                return 'y'
+            events.append('confirm-deletion')
+            self.assertIn('native-login',events); self.assertTrue(self.verified)
+            return self.confirm(prompt)
+        def native(command):
+            events.append('native-login')
+            self.assertEqual(command,['aws','login','--profile',self.project['profile'],'--region',self.project['region'],'--remote'])
+        identity={'Account':self.target['account_id'],'Arn':self.target['operator_arn']}
+        authenticated={'identity':identity,'sdk_identity':identity}
+        with patch.object(W.A,'auth_check',side_effect=[L['boundary']['LoginRequired']('expired_login'),authenticated]) as check, \
+             patch.object(W.A,'profile_method',return_value='console'), patch.object(W.A,'user_terminal',return_value=True), \
+             patch.object(W.A,'ssh_session',return_value=True), patch.object(W.A,'interactive',side_effect=native), \
+             patch.object(C,'interactive',return_value=True), patch('builtins.input',side_effect=answer), \
+             patch.object(sys,'argv',['workspace.py',str(self.config),'clean-s3','--include-datasets']), \
+             patch.object(sys,'stderr',self.output), patch.object(sys,'stdout',new_callable=io.StringIO) as stdout:
+            W.main()
+        self.assertEqual(check.call_count,2)
+        self.assertEqual(events,['offer-login','native-login','confirm-deletion'])
+        result=json.loads(stdout.getvalue()); self.assertEqual(result['status'],'success')
+        self.assertEqual(result['deleted_versions'],4)
+
+    def test_cli_declined_relogin_never_enters_cleanup_or_deployment(self):
+        for verb,options in (('clean-s3',[]),('deploy',[]),('deploy',['--authorization','exact-original-authorization']),('deploy',['--authorization',''])):
+            with self.subTest(verb=verb,options=options), \
+                 patch.object(W.A,'ensure_login',side_effect=L['Failure']('AWS sign-in cancelled')) as auth, \
+                 patch.object(C,'clean',side_effect=AssertionError('cleanup after declined sign-in')), \
+                 patch.object(sys,'argv',['workspace.py',str(self.config),verb,*options]), \
+                 self.assertRaisesRegex(L['Failure'],'sign-in cancelled'):
+                W.main()
+            auth.assert_called_once_with(self.project['profile'],self.project['region'],allow_login=not bool(options))
+        self.assertEqual(self.store.deleted,[]); self.assertEqual(self.store.aborted,[])
+
     def test_region_versioning_and_external_assignments_are_refused(self):
         for field, value in (('region','eu-west-1'),('versioning','Suspended')):
             with self.subTest(field=field):

@@ -551,6 +551,65 @@ class Authentication(unittest.TestCase):
             A.auth_check('temporary','us-east-1')
         self.assertIn('expired_login',str(error.exception)); self.assertNotIn('SECRET',str(error.exception))
 
+    def test_ready_login_never_opens_a_browser_or_prompts(self):
+        with patch.object(A,'auth_check',return_value=self.identity), patch.object(A,'login') as login, \
+             patch('builtins.input',side_effect=AssertionError('ready session prompted')):
+            self.assertEqual(A.ensure_login('temporary','us-east-1'),self.identity)
+        login.assert_not_called()
+
+    def test_expired_native_login_is_offered_once_and_continues_in_the_same_command(self):
+        from workspace_setup import Console
+        for remote in (False, True):
+            with self.subTest(remote=remote), patch.object(A,'auth_check',side_effect=A.B['LoginRequired']('expired_login')), \
+                 patch.object(A,'profile_method',return_value='console'), patch.object(A,'user_terminal',return_value=True), \
+                 patch.object(A,'ssh_session',return_value=remote), patch.object(Console,'confirm',return_value=True) as confirm, \
+                 patch.object(A,'login',return_value=self.identity) as login, patch('sys.stderr',new_callable=io.StringIO):
+                self.assertEqual(A.ensure_login('temporary','us-east-1'),self.identity)
+                confirm.assert_called_once(); login.assert_called_once_with('temporary','us-east-1','auto',remote)
+
+    def test_declined_or_interrupted_relogin_stops_before_native_login(self):
+        from workspace_setup import Console
+        for answer in (False, EOFError(), KeyboardInterrupt()):
+            with self.subTest(answer=type(answer).__name__), patch.object(A,'auth_check',side_effect=A.B['LoginRequired']('expired_login')), \
+                 patch.object(A,'profile_method',return_value='sso'), patch.object(A,'user_terminal',return_value=True), \
+                 patch.object(Console,'confirm',**({'side_effect':answer} if isinstance(answer,BaseException) else {'return_value':answer})), \
+                 patch.object(A,'login') as login, patch('sys.stderr',new_callable=io.StringIO), \
+                 self.assertRaisesRegex(A.B['Failure'],'cancelled'):
+                A.ensure_login('temporary','us-east-1')
+            login.assert_not_called()
+
+    def test_noninteractive_or_preauthorized_commands_do_not_prompt_for_login(self):
+        from workspace_setup import Console
+        for terminal, allowed in ((False,True),(True,False)):
+            with self.subTest(terminal=terminal,allowed=allowed), patch.object(A,'auth_check',side_effect=A.B['LoginRequired']('missing_login')), \
+                 patch.object(A,'user_terminal',return_value=terminal), patch.object(Console,'confirm') as confirm, \
+                 patch.object(A,'login') as login, self.assertRaisesRegex(A.B['Failure'],'./workspace login --profile temporary --region us-east-1'):
+                A.ensure_login('temporary','us-east-1',allow_login=allowed)
+            confirm.assert_not_called(); login.assert_not_called()
+
+    def test_permission_or_native_login_failure_is_not_retried(self):
+        from workspace_setup import Console
+        with patch.object(A,'auth_check',side_effect=A.B['Failure']('permission_unknown')), \
+             patch.object(Console,'confirm') as confirm, self.assertRaisesRegex(A.B['Failure'],'permission_unknown'):
+            A.ensure_login('temporary','us-east-1')
+        confirm.assert_not_called()
+        with patch.object(A,'auth_check',side_effect=A.B['LoginRequired']('expired_login')), \
+             patch.object(A,'profile_method',return_value='console'), patch.object(A,'user_terminal',return_value=True), \
+             patch.object(Console,'confirm',return_value=True), patch('sys.stderr',new_callable=io.StringIO), \
+             patch.object(A,'login',side_effect=A.B['Failure']('native login failed')) as login, \
+             self.assertRaisesRegex(A.B['Failure'],'native login failed'):
+            A.ensure_login('temporary','us-east-1')
+        login.assert_called_once()
+
+    def test_missing_sdk_login_is_recoverable_and_redacted(self):
+        for diagnostic in ('SDK: missing_login', 'Error loading login session token: SENTINEL_SECRET'):
+            responses=[subprocess.CompletedProcess([],0,json.dumps(self.identity),''),
+                       subprocess.CompletedProcess([],1,'',diagnostic)]
+            with self.subTest(diagnostic=diagnostic), patch.dict(A.B,profile_environment=lambda *_:self.env,request=lambda *_:responses.pop(0)), \
+                 self.assertRaises(A.B['LoginRequired']) as caught:
+                A.auth_check('temporary','us-east-1')
+            self.assertIn('missing_login',str(caught.exception)); self.assertNotIn('SENTINEL_SECRET',str(caught.exception))
+
     def test_timeout_is_bounded(self):
         def request(command,env,timeout): raise subprocess.TimeoutExpired(command,timeout)
         with patch.dict(A.B, profile_environment=lambda p,r:self.env, request=request), self.assertRaisesRegex(A.B['Failure'],'timed out'):
