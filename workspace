@@ -29,6 +29,8 @@ Deploy and operate (Deploy is the default command):
   workspace project.json logs                  Show recent operation events and output location
   workspace project.json connect               Open its non-root terminal (workspace mode)
   workspace project.json cancel                Clean up its owned compute
+  workspace project.json clean-s3              Review permanent S3 result deletion; manual confirmation required
+                                               --include-datasets also includes shared inputs; --dry-run only previews
   workspace project.json resume                Reconcile an interrupted operation; never repeats a launch
 
 Repair:
