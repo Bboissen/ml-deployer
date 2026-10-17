@@ -44,6 +44,29 @@ output persistence and cleanup separately. Workspace mode executes setup and
 retains compute until cancel or provider expiry; job mode runs setup and entrypoint
 on every Deploy.
 
+Launch planning initializes OpenTofu before observing the guard and requires a
+heartbeat at most 30 seconds old, waiting only within a bounded readiness check.
+Apply initializes before its final native checks and requires both saved timestamps
+to have at least 30 seconds remaining in the two-minute admission window. A fresh
+live heartbeat never substitutes for the heartbeat embedded in the immutable plan.
+Expired evidence is rejected before consuming launch authorization; the OpenTofu
+precondition still enforces the full two-minute limit at resource admission.
+
+New deployments open their fixed five-minute launch window when runner preparation
+begins, then launch as soon as preparation and native readiness checks pass.
+There is no additional five-minute scheduling buffer. The deadline schedule must
+exist before the launch role can launch: its native creation time is checked
+against the later of the lease opening and the role's creation time. The role's
+unique ID and creation time must match the saved preparation state. Provider-side
+expiry stays fixed, including time spent preparing; slow preparation cannot
+extend the window or the maximum lifetime. Previously saved future leases retain
+their original opening time.
+
+The controller reuses verified SDK clients within each identity and service to
+reuse connections. Every guard, IAM, state and output observation remains a fresh
+API request. Cleanup reports its start before waiting for AWS deletion, then its
+result and the second output verification.
+
 ## Controller loss and ownership
 
 A POSIX lock excludes concurrent controllers for the same project prefix. A
@@ -71,6 +94,14 @@ The exact live policies are read again before apply, so changes outside OpenTofu
 also stop a stale saved plan. Repeated interruptions preserve the entire recovery chain. An uncertain
 retirement apply without a verifiable success receipt still stops for ownership
 reconciliation.
+
+If retirement succeeded but its source fingerprint is no longer accepted, cleanup
+uses the original consumed launch plan as its recovery reference. It verifies that
+plan's source and authorization, current state lineage, owned resource identities
+and compute absence before deleting runner controls. It preserves the retirement
+receipt, never repeats the job or launch, and verifies the same saved output
+versions after cleanup. This also covers a checkout changing between retirement
+and cleanup; source checks for pending saved applies remain exact.
 
 Once launch started, resume never repeats RunInstances or SendCommand. It checks
 for durable results and performs owned teardown. Cancel records an intent even

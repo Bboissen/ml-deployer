@@ -113,7 +113,11 @@ class Controller(unittest.TestCase):
         def plan(_target, stage, _inputs, location, dependency=None, recover=None):
             calls.append(('plan', stage, dependency, recover)); p = Path(location); p.mkdir(parents=True)
             if failure == 'plan-'+stage: raise ValueError('offline plan failure')
-            L['write'](p/'review.json', {'stage':stage,'scope':[]})
+            review_source=L['source']()
+            if failure=='retire-source-drift' and stage=='retire':
+                # The saved apply completed before an uncommitted checkout changed.
+                review_source={**review_source,'working_tree_sha256':'d'*64}
+            L['write'](p/'review.json', {'stage':stage,'scope':[],'source':review_source})
             changes = [{'address':'aws_instance.workspace[0]', 'change':{'before':{'id':INSTANCE} if partial_compute else None}}] if stage=='retire' else []
             L['write'](p/'plan.json', {'resource_changes':changes})
         def apply(location):
@@ -177,6 +181,16 @@ class Controller(unittest.TestCase):
         result,_ = self.exercise('cleanup-failure','cleanup')
         self.assertEqual(result['status'],'failure'); self.assertFalse(result['cleanup_success'])
         self.assertFalse(result['verified_after_compute_deletion'])
+    def test_retirement_source_drift_recovers_from_original_launch_without_replay(self):
+        result,calls=self.exercise('retire-source-drift','retire-source-drift')
+        self.assertEqual(result['status'],'success'); self.assertTrue(result['verified_after_compute_deletion'])
+        cleanup=next(c for c in calls if c[:2]==('plan','cleanup'))
+        self.assertIsNone(cleanup[2]); self.assertTrue(cleanup[3].endswith('/launch'))
+        self.assertEqual(sum(c[:2]==('apply','retire') for c in calls),1)
+        self.assertEqual(sum(c[:2]==('apply','launch') for c in calls),1)
+        self.assertEqual(sum(c[0]=='command' for c in calls),1)
+        review=L['read'](OUT/'retire-source-drift/workspace/retire/review.json')
+        self.assertEqual(review['source']['working_tree_sha256'],'d'*64)
 
 class GuestBoundary(unittest.TestCase):
     def test_root_static_keys_target_injection_and_nonunique_output_rejected(self):

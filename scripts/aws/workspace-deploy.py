@@ -67,6 +67,7 @@ def describe_result(config,result):
             result.get('cleanup_status'),result.get('verified_after_compute_deletion')))
     if result.get('output_uri'): lines.append('  outputs: '+result['output_uri'])
     if result.get('error'): lines.append('  error: '+str(result['error'].get('reason') or result['error'].get('type')))
+    if result.get('cleanup_error'): lines.append('  cleanup error: '+str(result['cleanup_error'].get('reason') or result['cleanup_error'].get('type')))
     command='./workspace '+str(config)
     if status=='review_required': lines.append('  next: review the scope above, then rerun '+command+' and type deploy, or pass --authorization "approve scope '+str(result.get('scope_sha256',''))[:16]+'"')
     elif status=='success': lines.append('  next: a second Deploy reuses the retained data; '+command+' logs shows events')
@@ -356,7 +357,9 @@ def execute(W,config,directory,scope,task,resume=False):
             os.environ['WORKSPACE_CONFIG']=str(technical)
             if reference: E.verify_ssh(L,base,client,value,selected)
             else: E.verify_public(L,value)
-            starts=dt.datetime.now(dt.timezone.utc)+dt.timedelta(minutes=5)
+            # Preparation creates the deadline before the launch role. Native
+            # admission verifies that order; no speculative scheduling delay.
+            starts=dt.datetime.now(dt.timezone.utc)
             if not control.exists(): W['render'](value,selected,str(control),L['stamp'](starts))
             runner=L['read'](control/'runner.json'); starts=L['utc'](runner['lease']['starts_at'])
             if not job:
@@ -390,6 +393,7 @@ def execute(W,config,directory,scope,task,resume=False):
             if cancelled(): result['status']='cancelled'
             if result['status']!='workspace_ready':
                 try:
+                    journal.record('cleanup','started')
                     cleaned=cleanup_runner(L,name,control,runner,authorization) if runner else {'cleanup_status':'not_needed'}
                     result.update(cleaned); journal.record('cleanup','completed',cleaned)
                     if job: abort_outputs(L,s3,scope,job,directory)
@@ -398,6 +402,7 @@ def execute(W,config,directory,scope,task,resume=False):
                         result['verified_after_compute_deletion']=True
                     if not cancelled() and result['setup_exit']==0 and result['job_exit']==0 and result['outputs_persisted'] and result['verified_after_compute_deletion']:
                         result['status']='success'
+                        result.pop('error',None)  # Recovery interruption remains in the journal.
                     result['recovery_required']=result['cleanup_status'] not in ('success','not_needed') or pending_mutations(directory,journal)
                     if (control/'prepare/apply-started.json').exists() and result['cleanup_status']=='success': active.unlink()
                     elif not (control/'prepare/apply-started.json').exists():

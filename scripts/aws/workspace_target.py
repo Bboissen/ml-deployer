@@ -167,6 +167,11 @@ def environment(t):
 
 def error_category(stderr):
     low = stderr.lower()
+    diagnostic = ' '.join(low.split())
+    if 'launch requires fresh matching native guard/deadline/iam/heartbeat/alarm readback.' in diagnostic:
+        return 'guard_admission_failed'
+    if 'launch lease is not open; review a fresh lease/plan instead of extending it.' in diagnostic:
+        return 'lease_window_closed'
     if any(v in low for v in ("expired", "login again", "refresh failed", "invalidgrant")):
         return "expired_login"
     if any(v in low for v in ("nosuchentity", "nosuchbucket", "nosuchkey", "repositorynotfoundexception", "(404)")):

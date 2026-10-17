@@ -410,7 +410,12 @@ def sessions(target):
     require(boto3.__version__ == botocore.__version__ == TOOLBOX['sdk_version'], 'install reviewed SDK lock for native commands')
     cfg = Config(connect_timeout=3,read_timeout=5,retries={'total_max_attempts':2})
     base = boto3.Session(profile_name=target['profile'],region_name=target['region'])
+    clients = {}
     def client(session, service):
+        # Keep the session alive with its clients: a reused object id must never
+        # select another identity's connection pool. API responses stay fresh.
+        pool = clients.setdefault(id(session), (session, {}))[1]
+        if service in pool: return pool[service]
         c = session.client(service,region_name=target['region'],config=cfg)
         # IAM uses AWS's global endpoint even when explicitly given us-east-1.
         # Keep regional services bound to the target; allow only standard IAM.
@@ -418,11 +423,20 @@ def sessions(target):
                       and c.meta.region_name == 'aws-global' and c.meta.endpoint_url == 'https://iam.amazonaws.com')
         require(c.meta.region_name == target['region'] or global_iam, 'SDK region mismatch')
         require(c.meta.endpoint_url.startswith('https://') and c.meta.endpoint_url.split('/')[2].endswith('.amazonaws.com'), 'SDK endpoint mismatch')
+        pool[service] = c
         return c
     observed = client(base,'sts').get_caller_identity()
     require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):
-        credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
+        # New role trust can become visible after the preparation apply returns.
+        # Retry only that denial, with no delay once the exact role is usable.
+        for attempt in range(6):
+            try:
+                credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
+                break
+            except Exception as error:
+                if attempt==5 or getattr(error,'response',{}).get('Error',{}).get('Code')!='AccessDenied': raise
+                time.sleep(2)
         assumed = boto3.Session(aws_access_key_id=credentials['AccessKeyId'],aws_secret_access_key=credentials['SecretAccessKey'],
                                aws_session_token=credentials['SessionToken'],region_name=target['region'])
         result = client(assumed,'sts').get_caller_identity()
@@ -585,7 +599,7 @@ def render_handoff(target,config,review,plan,instance_id):
           'machine_id':instance_id,'user':'workspace','project_directory':'/workspaces/'+request['workspace_id'],
           'storage':request['storage'],'identity':{'mode':'instance_role','selector':f"arn:aws:iam::{target['account_id']}:role/{role_name(config)}"},
           'terminal':{'method':'ssm','argv':terminal_argv(target,config,instance_id)},
-          'lifetime':{'started_at':config['lease']['starts_at'],'expires_at':config['lease']['expires_at'],
+          'lifetime':{'started_at':review['guard_iam'].get('earliest_launch_at',config['lease']['starts_at']),'expires_at':config['lease']['expires_at'],
                       'guard_active_at':review['guard_iam']['guard_active_at'],'guard_id':config['guard']['guard_id'],'expiry_action':'terminate'}}
 
 def collect(target_name,plan_directory,handoff_path,guest_path,output):
@@ -749,7 +763,8 @@ def operator_deployer_isolation(iam, role_arn, operators):
     return policies
 
 
-def observe_guard(base, client, config):
+def observe_guard(base, client, config, heartbeat_max_age=120):
+    require(0 < heartbeat_max_age <= 120,'invalid heartbeat freshness bound')
     guard=config['guard']; scheduler=client(base,'scheduler'); iam=client(base,'iam')
     deployer_policies=operator_deployer_isolation(iam,config['deployer_role_arn'],config['workspace_identity']['request']['operators'])
     function=client(base,'lambda').get_function_configuration(FunctionName=guard['function_arn'])
@@ -767,14 +782,15 @@ def observe_guard(base, client, config):
     deadline=scheduler.get_schedule(Name=role_name(config)+'-deadline',GroupName='default')
     require(schedule_matches(recurring,config,'sweep') and schedule_matches(deadline,config,'lease'),'inactive/mismatched schedule')
     armed_at=max(recurring['CreationDate'],deadline['CreationDate'])
-    require(armed_at<=utc(config['lease']['starts_at']),'guard/deadline were not armed before earliest launch')
     # Capture all role trust/inline/attached policy versions, profile and document
-    # for exact review and subsequent drift checks. IAM eventual visibility gets
-    # six bounded read attempts, never an unconditional sleep-before-launch.
+    # for exact review and subsequent drift checks. Readiness retries are bounded
+    # by the caller, never an unconditional sleep-before-launch.
     role_records={}
     names=[guard['invoker_role_arn'].rsplit('/',1)[1],function['Role'].rsplit('/',1)[1],role_name(config),role_name(config)+'-launch']
     for name in names:
         info=iam.get_role(RoleName=name)['Role']
+        if name==names[-1]:
+            launch_role_created_at=info['CreateDate']; launch_role_id=info['RoleId']
         inline=iam.list_role_policies(RoleName=name)
         attached=iam.list_attached_role_policies(RoleName=name)
         require(not inline.get('IsTruncated') and not attached.get('IsTruncated'),'IAM listing incomplete')
@@ -817,6 +833,12 @@ def observe_guard(base, client, config):
     require(not alarms.get('NextToken') and {a['AlarmName'] for a in alarms['MetricAlarms']}==set(guard['alarm_names'])
             and all(a['StateValue']=='OK' and a['ActionsEnabled'] and a['AlarmActions'] for a in alarms['MetricAlarms']), 'guard alarms not healthy')
     now=dt.datetime.now(dt.timezone.utc)
+    # A role cannot launch before it exists. Preparation orders its creation
+    # after the deadline; bind that native identity to the saved launch plan.
+    # Future/manual leases still use their later IAM-enforced opening time.
+    require(launch_role_created_at<=now,'launch role creation time is in the future')
+    earliest_launch=max(utc(config['lease']['starts_at']),launch_role_created_at)
+    require(armed_at<=earliest_launch,'guard/deadline were not armed before earliest launch')
     query={'logGroupName':guard['log_group'],'startTime':int((now-dt.timedelta(seconds=120)).timestamp()*1000),
            'filterPattern':'{ $.kind = "heartbeat" }','limit':100}
     logs=client(base,'logs'); deadline=time.monotonic()+30
@@ -846,9 +868,11 @@ def observe_guard(base, client, config):
         raise Failure('heartbeat pagination page bound exhausted')
     require(time.monotonic()<deadline,'heartbeat pagination time bound exhausted')
     now=dt.datetime.now(dt.timezone.utc)
-    matches=[value for value in matches if 0 <= (now-utc(value)).total_seconds() <= 120]
+    matches=[value for value in matches if 0 <= (now-utc(value)).total_seconds() <= heartbeat_max_age]
     require(matches,'no matching fresh completed sweep heartbeat')
-    details={'roles':role_records,'deployer_policies':deployer_policies,'alarms':{a['AlarmName']:alarm_record(a) for a in alarms['MetricAlarms']},'lambda_account_limits':quota,'guard_active_at':stamp(armed_at),'profile_roles':[r['Arn'] for r in profile['Roles']],
+    details={'roles':role_records,'deployer_policies':deployer_policies,'alarms':{a['AlarmName']:alarm_record(a) for a in alarms['MetricAlarms']},'lambda_account_limits':quota,'guard_active_at':stamp(armed_at),
+             'launch_role_created_at':stamp(launch_role_created_at),'launch_role_id':launch_role_id,'earliest_launch_at':stamp(earliest_launch),
+             'profile_roles':[r['Arn'] for r in profile['Roles']],
              'document_sha256':sha(canon(json.loads(doc['Content'])))}
     return {'observed_at':stamp(now),'heartbeat_at':max(matches),'guard_id':guard['guard_id'],'code_sha256':guard['code_sha256'],
             'recurrence_enabled':True,'deadline_enabled':True,'iam_verified':True,'alarms_ok':True},details
@@ -856,6 +880,9 @@ def observe_guard(base, client, config):
 def compare_prepared_iam(plan, details, config):
     resources={r['address']:r['values'] for r in plan['planned_values']['root_module']['resources']}
     role=role_name(config); wid=config['workspace_identity']['request']['workspace_id']
+    launch=resources['aws_iam_role.launch']
+    require(launch['unique_id']==details['launch_role_id'] and launch['create_date']==details['launch_role_created_at'],
+            'launch role identity differs from preparation state')
     for address,name,policy_address in [
         (f'aws_iam_role.workspace["{wid}"]',role,f'aws_iam_role_policy.workspace_storage["{wid}"]'),
         ('aws_iam_role.launch',role+'-launch','aws_iam_role_policy.launch')]:
@@ -1305,22 +1332,11 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
         shared_lambda_pool(base,client)
     details=None
     if stage=='launch':
-        capacity_result=capacity(base,client,config)
-        deadline=time.monotonic()+90
-        for attempt in range(6):
-            try: config['guard_observation'],details=bounded(max(0.01,deadline-time.monotonic()),lambda:observe_guard(base,client,config)); break
-            except Exception as exc:
-                if attempt==5 or time.monotonic()>=deadline:
-                    reason='guard/IAM observation failed after six bounded attempts'
-                    if isinstance(exc,Failure): reason += ': '+str(exc)
-                    raise Failure(reason) from None
-                time.sleep(2)
-        require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease not open')
+        capacity(base,client,config)
     if stage=='cleanup':
         inventory(base,client,config)
         if not recovery: remaining_owned(base,client,read(checked_path(dependency)/'retired-owned.json'))
     directory.mkdir(parents=True,mode=0o700)
-    write(directory/'config.tfvars.json',config)
     backend={'bucket':target['backend']['bucket'],'key':state['key'],'region':target['region'],'profile':target['profile'],
              'allowed_account_ids':[target['account_id']],'encrypt':True,'use_lockfile':True}
     write(directory/'backend.json',backend)
@@ -1334,6 +1350,23 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
         if key.startswith('TF_VAR_'): del env[key]
     run(['tofu',f'-chdir={root}','init','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f'-chdir={root}','validate','-no-color'],env)
+    if stage=='launch':
+        # Initialization must not spend the saved heartbeat's admission window.
+        # Reserve 90 seconds for planning, final checks and OpenTofu admission.
+        deadline=time.monotonic()+90
+        while True:
+            try:
+                config['guard_observation'],details=bounded(max(0.01,deadline-time.monotonic()),
+                    lambda:observe_guard(base,client,config,heartbeat_max_age=30))
+                break
+            except Exception as exc:
+                if time.monotonic()>=deadline:
+                    reason='guard/IAM observation failed within the 90-second readiness bound'
+                    if isinstance(exc,Failure): reason += ': '+str(exc)
+                    raise Failure(reason) from None
+                time.sleep(min(2,max(0,deadline-time.monotonic())))
+        require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease not open')
+    write(directory/'config.tfvars.json',config)
     command=['tofu',f'-chdir={root}','plan','-input=false','-lock-timeout=30s','-no-color',f'-var-file={directory}/config.tfvars.json',f'-out={directory}/saved.tfplan']
     # Limit access changes to the selected boundary and the exact additional
     # job-document resource in the deployer grant. The policy scope stays closed.
@@ -1414,15 +1447,6 @@ def apply(directory):
         platform_compute_absent(base,client,config)
         if not config.get('provision_alert_topic'): alarm_destination(base,client,config)
         shared_lambda_pool(base,client)
-    if m['stage']=='launch':
-        preparation=read(Path(m['dependencies'][0]['directory'])/'review.json')
-        platform_plan,platform_dependencies=reviewed_platform_plan(preparation)
-        require(platform_dependencies==m['dependencies'][1:],'reviewed platform dependency chain changed')
-        observation,details=bounded(90,lambda:observe_guard(base,client,config))
-        compare_platform_alarms(platform_plan,details)
-        require(details==m['guard_iam'],'guard/IAM/document drift')
-        require(0 <= (dt.datetime.now(dt.timezone.utc)-utc(m['guard_observation']['observed_at'])).total_seconds()<=120,'saved launch observation stale; fresh exact plan/review required')
-        require(utc(config['lease']['starts_at'])<=dt.datetime.now(dt.timezone.utc)<utc(config['lease']['launch_before']),'lease closed')
     if m['stage']=='cleanup':
         absence=inventory(base,client,config)
         if not recovery: remaining_owned(base,client,read(Path(m['dependencies'][0]['directory'])/'retired-owned.json'))
@@ -1442,10 +1466,25 @@ def apply(directory):
             require(owned['lease_id']==config['lease']['id'],'launch ownership lease mismatch')
         write(directory/'retired-owned.json',owned)
     if m['stage']=='workspace-access': verify_access_policies(plan,base,client)
+    run(['tofu',f"-chdir={m['root']}",'init','-reconfigure','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
+    if m['stage']=='launch':
+        preparation=read(Path(m['dependencies'][0]['directory'])/'review.json')
+        platform_plan,platform_dependencies=reviewed_platform_plan(preparation)
+        require(platform_dependencies==m['dependencies'][1:],'reviewed platform dependency chain changed')
+        observation,details=bounded(90,lambda:observe_guard(base,client,config))
+        compare_platform_alarms(platform_plan,details)
+        require(details==m['guard_iam'],'guard/IAM/document drift')
+        now=dt.datetime.now(dt.timezone.utc)
+        # The saved plan embeds BOTH timestamps. A newer live readback cannot
+        # replace either one. Leave 30 seconds for OpenTofu admission and reject
+        # stale evidence before consuming this exact plan's authorization.
+        require(all(0 <= (now-utc(m['guard_observation'][key])).total_seconds() <= 90
+                    for key in ('observed_at','heartbeat_at')),
+                'saved launch heartbeat/observation lacks apply headroom; fresh exact plan/review required')
+        require(utc(config['lease']['starts_at'])<=now<utc(config['lease']['launch_before']),'lease closed')
     write(directory/'apply-started.json',{'review_sha256':authorization['review_sha256'],'started_at':stamp()})
     # Never replan, autoapprove a fresh plan, destroy directly, or replay after
     # interruption. Raw provider diagnostics stay out of terminal/chat logs.
-    run(['tofu',f"-chdir={m['root']}",'init','-reconfigure','-input=false','-lockfile=readonly',f'-backend-config={directory}/backend.json','-no-color'],env)
     run(['tofu',f"-chdir={m['root']}",'apply','-input=false','-lock-timeout=30s','-no-color',str(directory/'saved.tfplan')],env,300)
     if m['stage']=='launch':
         value=json.loads(run(['tofu',f"-chdir={m['root']}",'output','-json','workspace_preparation'],env,30))
