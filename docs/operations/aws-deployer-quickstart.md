@@ -247,6 +247,11 @@ deployment evidence, and never changes IAM permissions or bypasses S3 retention
 or MFA protection. The signed-in operator must already have the required S3
 listing, version deletion, multipart-abort and part-listing permissions.
 
+If sign-in has expired, the command prints `./workspace login --profile NAME
+--region REGION` for the selected project. Run it in your terminal, then rerun
+`make s3-clean` with the same options for a fresh inventory and manual review.
+Cleanup does not sign in automatically or retry deletion after authentication.
+
 Immediately after confirmation, cleanup checks ownership and the inventory
 again. Changed contents require a new review. Deletion requests name only the
 reviewed version/upload IDs; newly written versions are preserved. Requests are

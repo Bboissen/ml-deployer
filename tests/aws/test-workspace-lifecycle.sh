@@ -17,6 +17,7 @@ import sys
 import types
 import unittest
 from unittest.mock import Mock, patch
+import botocore.exceptions as sdk_errors
 
 sys.dont_write_bytecode=True
 ROOT=Path.cwd()
@@ -112,10 +113,33 @@ class SDKSessionBoundary(unittest.TestCase):
                                          get_caller_identity=lambda:self.identity)
         self.session=types.SimpleNamespace(client=client)
         self.boto=types.SimpleNamespace(__version__='1.43.109',Session=lambda **kwargs:self.session)
-        self.core=types.SimpleNamespace(__version__='1.43.109')
+        self.core=types.SimpleNamespace(__version__='1.43.109',exceptions=sdk_errors)
     def sessions(self):
         with patch.dict(sys.modules,{'boto3':self.boto,'botocore':self.core,'botocore.config':fake_cfg}):
             return LIFE['sessions'](self.target)
+    def test_expired_or_missing_native_login_prints_the_selected_recovery_command(self):
+        errors=(sdk_errors.LoginRefreshRequired(), sdk_errors.LoginTokenLoadError(error_msg='SENTINEL_SECRET'),
+                sdk_errors.UnauthorizedSSOTokenError(), sdk_errors.SSOTokenLoadError(error_msg='SENTINEL_SECRET'))
+        for error in errors:
+            for stage in ('session','client','identity'):
+                with self.subTest(error=type(error).__name__,stage=stage):
+                    session=Mock()
+                    if stage=='session': session.side_effect=error
+                    elif stage=='client': session.return_value.client.side_effect=error
+                    else:
+                        sts=session.return_value.client.return_value
+                        sts.meta=types.SimpleNamespace(region_name='us-east-1',endpoint_url='https://sts.us-east-1.amazonaws.com')
+                        sts.get_caller_identity.side_effect=error
+                    with patch.object(self.boto,'Session',session),self.assertRaises(LIFE['Failure']) as caught:
+                        self.sessions()
+                    self.assertIn('./workspace login --profile offline --region us-east-1',str(caught.exception))
+                    self.assertIn('fresh review',str(caught.exception)); self.assertNotIn('SENTINEL',str(caught.exception))
+                    session.assert_called_once_with(profile_name='offline',region_name='us-east-1')
+    def test_permission_errors_are_not_reported_as_expired_login(self):
+        error=sdk_errors.ClientError({'Error':{'Code':'AccessDenied','Message':'SENTINEL_SECRET'}},'GetCallerIdentity')
+        with patch.object(self.boto,'Session',side_effect=error),self.assertRaises(sdk_errors.ClientError) as caught:
+            self.sessions()
+        self.assertIs(caught.exception,error)
     def test_standard_global_iam_is_accepted(self):
         self.responses['iam']=('aws-global','https://iam.amazonaws.com')
         base,client,_=self.sessions()

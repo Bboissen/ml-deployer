@@ -14,6 +14,7 @@ import types
 import unittest
 from unittest.mock import patch
 import uuid
+from botocore.exceptions import LoginRefreshRequired
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
@@ -120,6 +121,7 @@ class Cleanup(unittest.TestCase):
                                {'Key':'results/another-workspace/run/result','VersionId':'other','Size':2}]
         self.store.uploads = [{'Key':self.results+'run/incomplete','UploadId':'owned-upload'},
                               {'Key':'results/another-workspace/incomplete','UploadId':'other-upload'}]
+        self.native_sessions = L['sessions']
         self.patches = [patch.object(C.D,'extensions',return_value={'onboarding':self.O,'config':W.P}),
                         patch.dict(L, {'sessions':lambda _: (None,lambda *_:self.store,None)}),
                         patch.dict(L['boundary'], {'profile_environment':lambda *_:{}})]
@@ -192,6 +194,20 @@ class Cleanup(unittest.TestCase):
         with patch('builtins.input',side_effect=AssertionError('prompt before verification')),self.assertRaisesRegex(ValueError,'compute remains'):
             self.clean()
         self.assertEqual(self.store.deleted,[])
+
+    def test_expired_login_stops_before_confirmation_and_preserves_dataset_reuse(self):
+        L['write'](self.registry/'dataset.json', {'kept':True})
+        self.O.verify_retained = lambda *_: self.native_sessions(self.target)
+        with patch('boto3.Session',side_effect=LoginRefreshRequired()) as session, \
+             patch('builtins.input',side_effect=AssertionError('prompt before sign-in')), \
+             self.assertRaises(L['Failure']) as caught:
+            self.clean(include_datasets=True)
+        self.assertIn('./workspace login --profile '+self.target['profile']+' --region '+self.target['region'],str(caught.exception))
+        session.assert_called_once_with(profile_name=self.target['profile'],region_name=self.target['region'])
+        self.assertEqual(self.store.deleted,[]); self.assertEqual(self.store.aborted,[])
+        self.assertEqual(L['read'](self.registry/'dataset.json'),{'kept':True})
+        with C.D.locked(L,ROOT/'evidence/aws/locks'/(self.target['inventory']['resource_prefix']+'.lock')):
+            pass
 
     def test_region_versioning_and_external_assignments_are_refused(self):
         for field, value in (('region','eu-west-1'),('versioning','Suspended')):
