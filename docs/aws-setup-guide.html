@@ -72,7 +72,7 @@
 <pre><code>git clone https://github.com/Bboissen/ml-deployer.git
 cd ml-deployer
 make</code></pre>
-      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open; Ctrl+C stops setup and this page. Rerunning <code>make</code> resumes.</p>
+      <p><code>make</code> downloads hash-pinned AWS CLI, OpenTofu, Python and Session Manager builds into the repository's ignored <code>.tools/</code> folder (about 600 MB), then asks for your project settings. Keep the terminal open while it runs; after the deployment command finishes, <code>make</code> exits and closes this companion. If setup is paused, Ctrl+C stops the companion. Rerunning <code>make</code> resumes.</p>
       <div class="note"><p><strong>Laptop connected over SSH?</strong> Keep the repository on the server and run <code>make</code> there. It detects SSH and prints a tunnel command to run in a new laptop terminal <strong>outside SSH</strong> and the link to open in your laptop browser. Answer the questions in the SSH terminal.</p></div>
       <p class="meta">Ubuntu/Debian: if setup reports missing system packages, run <code>./workspace setup --system-packages</code> (sudo installs curl, unzip, tar, dpkg), then <code>make</code> again. macOS: install the Command Line Tools when prompted. Supported: Linux with glibc (x86_64, arm64) and macOS (Intel, Apple Silicon).</p>
     </li>
@@ -122,9 +122,11 @@ make</code></pre>
 
     <li data-step="outputs">
       <h3>Find your outputs and confirm cleanup</h3>
+      <p>The dataset is your input, read through <code>DATA_DIR</code>. Results are files your commands create in <code>OUTPUT_DIR</code>, saved at the printed <code>output_uri</code>. Both share the workload bucket; the other bucket holds OpenTofu infrastructure state. See <a href="operations/aws-deployer-quickstart.md#7-outputs-and-cleanup">storage paths and snapshot hashes</a>.</p>
       <p>The outcome lists infrastructure, setup, job, output persistence and cleanup separately. <code>compute cleanup: success</code> with <code>outputs verified after compute deletion: True</code> means the machine, disk and network interface are gone and your results are still readable at the printed <code>s3://…/output/</code> prefix.</p>
 <pre><code>./workspace ~/aws-workspace/demo/project.json logs</code></pre>
       <p class="meta">Kept on purpose: the dataset and output bucket, the separate state bucket, the no-ingress network, IAM boundaries and the expiry guard. They can keep costing money; deleting them is a separate reviewed decision. A second Deploy with the same data reuses the retained versions without uploading again.</p>
+      <p class="meta">To keep this read-only page open separately: <code>./workspace guide ~/aws-workspace/demo/project.json --read-only</code>. Stop it with Ctrl+C.</p>
     </li>
   </ol>
 
