@@ -518,6 +518,29 @@ class Boundary(unittest.TestCase):
         LIFE['compare_platform_alarms'](plan,details)
         details['alarms']['alarm0']['alarm_actions']=['different-topic']
         with self.assertRaises(LIFE['Failure']): LIFE['compare_platform_alarms'](plan,details)
+    def test_new_topic_unknown_arn_is_bound_to_reviewed_name_account_and_region(self):
+        fields={key:None for key in LIFE['ALARM_FIELDS']}; fields.update(dimensions={})
+        fields.pop('alarm_actions')
+        topic='arn:aws:sns:us-east-1:000000000000:ml-infra-workspace-alerts'
+        resources=[{'address':'aws_cloudwatch_metric_alarm.workspace_guard'+str(i),
+                    'values':{**fields,'alarm_name':'alarm'+str(i)}} for i in range(4)]
+        plan={'planned_values':{'root_module':{'resources':resources+[
+            {'address':'aws_sns_topic.workspace_alerts[0]','values':{'name':'ml-infra-workspace-alerts'}}]}},
+            'variables':{key:{'value':value} for key,value in {
+                'aws_account_id':'000000000000','aws_region':'us-east-1','provision_alert_topic':True}.items()},
+            'resource_changes':[{'address':r['address'],'change':{'after_unknown':{'alarm_actions':True}}} for r in resources]}
+        details={'alarms':{'alarm'+str(i):{**fields,'alarm_actions':[topic]} for i in range(4)}}
+        LIFE['compare_platform_alarms'](plan,details)
+        for fault in ('topic','account','region','not-provisioned','missing-unknown-flag','other-field'):
+            changed=copy.deepcopy(plan)
+            if fault=='topic': changed['planned_values']['root_module']['resources'][-1]['values']['name']='other-topic'
+            elif fault in ('account','region'):
+                changed['variables']['aws_account_id' if fault=='account' else 'aws_region']['value']='other'
+            elif fault=='not-provisioned': changed['variables']['provision_alert_topic']['value']=False
+            elif fault=='missing-unknown-flag': changed['resource_changes'][0]['change']['after_unknown']={}
+            else: changed['planned_values']['root_module']['resources'][0]['values'].pop('period')
+            with self.subTest(fault=fault),self.assertRaises(LIFE['Failure']):
+                LIFE['compare_platform_alarms'](changed,details)
     def platform_chain(self,change=None):
         folder=OUT/('platform-chain-'+str(len(list(OUT.glob('platform-chain-*')))))
         folder.mkdir()

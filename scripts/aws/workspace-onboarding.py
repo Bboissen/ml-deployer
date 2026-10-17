@@ -37,7 +37,8 @@ def target(deployment, operator):
             'deployment_role_arn': names['deployer_role_arn'], 'backend': deployment['backend'],
             'inventory': {'resource_prefix': prefix, 'buckets': [names['workload_bucket']], 'repositories': [],
                           'roles': [prefix+'-workspace-deployer', prefix+'-workspace-watchdog', prefix+'-workspace-watchdog-invoke'],
-                          'policies': [prefix+'-ws-'+project+'-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal']}}
+                          'policies': [prefix+'-ws-'+project+'-boundary', prefix+'-workspace-launch-boundary', prefix+'-session-manager-minimal'],
+                          'schedule_groups': ['default']}}
 
 
 def pages(L, api, operation, result, **arguments):
@@ -207,6 +208,12 @@ def iam_migration(L, binding, selected):
                      actual[0]['Action'] in ('iam:*',['iam:*']) and
                      (actual[0]['Resource'] if isinstance(actual[0]['Resource'],list) else [actual[0]['Resource']])==operators,
                      'retained deployer needs a separately reviewed IAM policy repair')
+    documents=next(s for s in after['Statement'] if s.get('Sid')=='ManageReviewedNonRootTerminalDocuments')
+    resources=documents['Resource'] if isinstance(documents['Resource'],list) else [documents['Resource']]
+    normalized=[arn.rsplit('/',1)[0]+'/'+L['ssm_name'](arn.rsplit('/',1)[1]) for arn in resources]
+    if normalized!=resources:
+        documents['Resource']=normalized
+        required=True
     L['deployer_access_scope'](before,after,{'deployer_principal_arns':{'value':operators}})
     return {'required':required,'role_arn':selected['deployment_role_arn'],'operator_arns':operators,
             'before_policy_sha256':L['sha'](L['canon'](before))}

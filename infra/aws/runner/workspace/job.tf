@@ -24,7 +24,7 @@ PYTHON
 }
 
 resource "aws_ssm_document" "job" {
-  name            = "${local.role_name}-job"
+  name            = "${local.document_name_prefix}-job"
   document_type   = "Command"
   document_format = "JSON"
   content = jsonencode({

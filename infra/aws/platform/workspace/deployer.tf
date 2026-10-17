@@ -1,5 +1,9 @@
 data "aws_partition" "current" {}
 
+locals {
+  ssm_resource_prefix = can(regex("^(aws|amazon|amzn)", var.resource_prefix)) ? "ml-${substr(var.resource_prefix, 0, 12)}" : substr(var.resource_prefix, 0, 12)
+}
+
 data "aws_iam_policy_document" "deployer_assume" {
   statement {
     sid     = "ReviewedTemporaryPrincipalsOnly"
@@ -49,8 +53,8 @@ data "aws_iam_policy_document" "deployer" {
       effect  = "Allow"
       actions = ["ssm:CreateDocument", "ssm:DeleteDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:GetDocument", "ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"]
       resources = [
-        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-terminal",
-        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${substr(var.resource_prefix, 0, 12)}-run-ws-*-job",
+        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${local.ssm_resource_prefix}-run-ws-*-terminal",
+        "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:document/${local.ssm_resource_prefix}-run-ws-*-job",
       ]
     }
   }

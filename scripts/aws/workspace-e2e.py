@@ -231,8 +231,9 @@ def verify_result(L, value, target, job, config, instance, s3, directory, first=
 def run_command(L, base, client, target, config, launch, instance, job, directory, cancelled=lambda:False):
     expected = {r['address']: r['values'] for r in L['read'](launch/'plan.json')['planned_values']['root_module']['resources']}
     ssm = client(base, 'ssm'); name = L['role_name'](config)
-    document = ssm.get_document(Name=name+'-job', DocumentVersion='1')
-    description = ssm.describe_document(Name=name+'-job', DocumentVersion='1')['Document']
+    document_name = L['ssm_name'](name)+'-job'
+    document = ssm.get_document(Name=document_name, DocumentVersion='1')
+    description = ssm.describe_document(Name=document_name, DocumentVersion='1')['Document']
     L['require'](json.loads(document['Content']) == json.loads(expected['aws_ssm_document.job']['content']) and
                  document['DocumentType'] == 'Command' and document['DocumentVersion'] == '1'
                  and description['DocumentVersion'] == '1' and description['HashType'] == 'Sha256', 'Unattended command document differs from the exact reviewed plan')
@@ -249,7 +250,7 @@ def run_command(L, base, client, target, config, launch, instance, job, director
         L['require'](time.monotonic() < deadline, 'Bootstrap/SSM registration timed out')
         time.sleep(5)
     encoded = base64.b64encode(L['canon'](job)).decode()
-    response = ssm.send_command(InstanceIds=[instance], DocumentName=name+'-job', DocumentVersion='1',
+    response = ssm.send_command(InstanceIds=[instance], DocumentName=document_name, DocumentVersion='1',
                                 DocumentHash=description['Hash'], DocumentHashType='Sha256', Parameters={'job':[encoded]},
                                 TimeoutSeconds=60, MaxConcurrency='1', MaxErrors='0')
     command = response['Command']; identifier = command['CommandId']

@@ -72,7 +72,8 @@ locals {
     LeaseStart  = var.lease.starts_at, LaunchBefore = var.lease.launch_before
   }
   terminate_at           = timeadd(var.lease.expires_at, "-5m")
-  terminal_document_name = "${local.role_name}-terminal"
+  document_name_prefix   = can(regex("^(aws|amazon|amzn)", lower(local.role_name))) ? "ml-${local.role_name}" : local.role_name
+  terminal_document_name = "${local.document_name_prefix}-terminal"
   deadline_name          = "${local.role_name}-deadline"
 }
 

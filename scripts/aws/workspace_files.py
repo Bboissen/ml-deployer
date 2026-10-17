@@ -29,9 +29,12 @@ def local_file(path):
             yield stream
     finally: os.close(parent)
 
-def local_stamp(stream):
-    value=os.fstat(stream.fileno())
+def stat_stamp(value):
     return [value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns]
+
+
+def local_stamp(stream):
+    return stat_stamp(os.fstat(stream.fileno()))
 
 
 def stream_hash(stream,size,deadline,cancelled=None,sink=None):

@@ -23,6 +23,33 @@ def module(name):
 G=module('workspace-generic-job.py'); W=module('workspace.py'); E=module('workspace-e2e.py')
 
 class Jobs(unittest.TestCase):
+    def test_real_sdk_transfer_can_close_its_stream_without_losing_mutation_checks(self):
+        import boto3
+        from botocore.stub import Stubber
+        path=self.root/'sdk-output'; path.write_bytes(b'actual transfer contract')
+        s3=boto3.client('s3',region_name='us-east-1',
+                        aws_access_key_id='offline-test',aws_secret_access_key='offline-test')
+        with Stubber(s3) as stub:
+            stub.add_response('put_object',{'VersionId':'version'})
+            stub.add_response('head_object',{'VersionId':'version','ContentLength':path.stat().st_size})
+            record=G.persist(s3,'111111111111','offline-data','outputs/result',path)
+        self.assertEqual(record['sha256'],hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertEqual(record['version_id'],'version')
+
+    def test_sdk_stream_closure_still_rejects_modified_or_replaced_output(self):
+        for replace in (False,True):
+            with self.subTest(replace=replace):
+                path=self.root/('mutated-output-'+str(replace)); path.write_bytes(b'original')
+                def upload(stream,*args,**kwargs):
+                    stream.read(); stream.close()
+                    if replace:
+                        replacement=path.with_suffix('.replacement'); replacement.write_bytes(b'original')
+                        replacement.replace(path)
+                    else: path.write_bytes(b'modified')
+                s3=types.SimpleNamespace(upload_fileobj=upload,head_object=lambda **_:self.fail('accepted changed output'))
+                with self.assertRaisesRegex(ValueError,'output changed during upload'):
+                    G.persist(s3,'111111111111','offline-data','outputs/result',path)
+
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory(dir=ROOT/'evidence'); self.addCleanup(self.temporary.cleanup)
         self.root=Path(self.temporary.name); self.project=self.root/'project'; self.project.mkdir()

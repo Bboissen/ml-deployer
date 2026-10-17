@@ -78,7 +78,20 @@ class Operations(unittest.TestCase):
         with patch.object(D,'validate_operation',return_value=(self.directory,{},{})),patch.object(D,'execute',return_value=result) as execute:
             self.assertEqual(D.resume({'L':L},'config',self.directory),result)
             execute.assert_called_once()
-    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None,migration=False,migration_failure=False,legacy_scope=False):
+    def test_resume_pre_apply_failure_preserves_receipt_without_replaying_stale_scope(self):
+        scope={'operation_id':self.directory.name}
+        L['write'](self.directory/'scope.json',scope)
+        journal=D.Journal(L,self.directory,L['sha'](L['canon'](scope)))
+        journal.record('foundation','unknown')
+        result={'status':'failure','cleanup_status':'not_needed','error':{'reason':'explicit inventory fields required'}}
+        L['write'](self.directory/'result.json',result)
+        before={p:p.read_bytes() for p in self.directory.rglob('*.json')}
+        with patch.object(D,'validate_operation',return_value=(self.directory,scope,{})),\
+             patch.object(D,'execute',side_effect=AssertionError('stale scope replayed')):
+            self.assertEqual(D.resume({'L':L},'config',self.directory),result)
+            self.assertEqual(D.cancel({'L':L},'config',self.directory),result)
+        self.assertEqual({p:p.read_bytes() for p in self.directory.rglob('*.json')},before)
+    def pipeline(self,ingest_failure=False,unknown_launch=False,mode='job',cancelled=False,store=None,migration=False,migration_failure=False,legacy_scope=False,foundation_failure=None):
         directory=self.directory; calls=[]; project=json.loads((ROOT/'infra/aws/project.example.json').read_text()); project['mode']=mode
         target={'profile':'offline','account_id':'111111111111','region':'us-east-1','operator_arn':'arn:aws:iam::111111111111:user/operator',
             'deployment_role_arn':'arn:aws:iam::111111111111:role/deployer','backend':{},'inventory':{'resource_prefix':self.prefix,'buckets':['workload']}}
@@ -103,7 +116,16 @@ class Operations(unittest.TestCase):
             self.assertEqual(args[4],scope['foundation_iam_migration'])
             if migration_failure: raise TimeoutError('uncertain IAM migration')
             return migrated
-        O=types.SimpleNamespace(prepare=lambda *a:calls.append('foundation-inputs'),provision=lambda *a:calls.append('foundation') or binding,
+        def provision(*args):
+            calls.append('foundation')
+            if foundation_failure:
+                if foundation_failure=='after-bootstrap':
+                    bootstrap=directory/'foundation/bootstrap'
+                    L['write'](bootstrap/'apply-started.json',{})
+                    L['write'](bootstrap/'apply-result.json',{'status':'success'})
+                raise L['Failure']('foundation failed')
+            return binding
+        O=types.SimpleNamespace(prepare=lambda *a:calls.append('foundation-inputs'),provision=provision,
             capacity=lambda *a,**kw: {'candidates':[size]},migrate_iam=migrate,iam_migration=lambda *a:{'required':True})
         def ingest(*a,**kw):
             calls.append('ingestion')
@@ -145,6 +167,21 @@ class Operations(unittest.TestCase):
     def test_failed_ingestion_launches_no_compute(self):
         result,calls=self.pipeline(ingest_failure=True)
         self.assertEqual(result['status'],'failure'); self.assertNotIn('launch',calls); self.assertNotIn('job',calls)
+        self.assertFalse(result['recovery_required'])
+    def test_pre_apply_failure_releases_ownership_and_allows_a_new_review(self):
+        result,calls=self.pipeline(foundation_failure='before-apply')
+        self.assertEqual(result['cleanup_status'],'not_needed')
+        self.assertFalse(result['recovery_required'])
+        self.assertEqual(list((self.directory/'registry').glob('*-active.json')),[])
+        self.assertIn('new review','\n'.join(D.describe_result('config',result)))
+        self.assertNotIn('launch',calls)
+    def test_completed_bootstrap_with_incomplete_foundation_keeps_recovery_ownership(self):
+        result,calls=self.pipeline(foundation_failure='after-bootstrap')
+        self.assertEqual(result['cleanup_status'],'not_needed')
+        self.assertTrue(result['recovery_required'])
+        self.assertEqual(len(list((self.directory/'registry').glob('*-active.json'))),1)
+        self.assertIn('config resume','\n'.join(D.describe_result('config',result)))
+        self.assertNotIn('launch',calls)
     def test_public_retained_foundation_migrates_before_ingestion_and_updates_binding(self):
         result,calls=self.pipeline(migration=True)
         self.assertEqual(result['status'],'success',result)

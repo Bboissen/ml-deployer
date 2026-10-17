@@ -127,8 +127,8 @@ def foundation_extension():
             ('aws_iam_role.launch', lambda: iam.get_role(RoleName=name+'-launch'), {'NoSuchEntity'}),
             (f'aws_iam_instance_profile.workspace["{wid}"]', lambda: iam.get_instance_profile(InstanceProfileName=name), {'NoSuchEntity'}),
             (operator_address(value), lambda: operator_policy(iam, value, name+'-terminal'), {'NoSuchEntity'}),
-            ('aws_ssm_document.terminal', lambda: client(base, 'ssm').get_document(Name=name+'-terminal'), {'InvalidDocument'}),
-            ('aws_ssm_document.job', lambda: client(base, 'ssm').get_document(Name=name+'-job'), {'InvalidDocument'}),
+            ('aws_ssm_document.terminal', lambda: client(base, 'ssm').get_document(Name=L['ssm_name'](name)+'-terminal'), {'InvalidDocument'}),
+            ('aws_ssm_document.job', lambda: client(base, 'ssm').get_document(Name=L['ssm_name'](name)+'-job'), {'InvalidDocument'}),
             ('aws_scheduler_schedule.workspace_deadline', lambda: client(base, 'scheduler').get_schedule(Name=name+'-deadline', GroupName='default'), {'ResourceNotFoundException'}),
         ]
         for address, callback, codes in checks:
@@ -454,6 +454,11 @@ def snapshot(base, client, target, key):
     require(isinstance(value.get('serial'),int) and value.get('lineage'), 'invalid state lineage')
     return {'key':key,'version':head['VersionId'],'lineage':value['lineage'],'serial':value['serial'],'sha256':sha(raw)}
 
+def ssm_name(name):
+    """AWS reserves these document prefixes, including names in our account."""
+    return 'ml-'+name if name.lower().startswith(('aws','amazon','amzn')) else name
+
+
 def role_name(config):
     ident=config['workspace_identity']; request=ident['request']; wid=request['workspace_id']
     suffix=sha(f"{config['aws_account_id']}/{config['aws_region']}/{ident['ml_project_name']}/{wid}".encode())[:10]
@@ -541,7 +546,7 @@ def bound_instance(base,client,config,instance_id):
 
 def terminal_argv(target,config,instance_id):
     return ['aws','ssm','start-session','--profile',target['profile'],'--region',target['region'],
-            '--target',instance_id,'--document-name',role_name(config)+'-terminal']
+            '--target',instance_id,'--document-name',ssm_name(role_name(config))+'-terminal']
 
 def connect(target_name,config_path,instance_id):
     config=read(config_path); ts=boundary['targets'](); require(target_name in ts,'unknown target')
@@ -602,7 +607,7 @@ def collect(target_name,plan_directory,handoff_path,guest_path,output):
     require(not sessions.get('NextToken') and len(sessions['Sessions'])==1,'terminal session observation incomplete')
     terminal=sessions['Sessions'][0]
     require(terminal['Target']==hand['machine_id'] and terminal['Owner']==target['operator_arn']
-            and terminal['DocumentName']==role_name(config)+'-terminal','terminal operator/document/instance mismatch')
+            and terminal['DocumentName']==ssm_name(role_name(config))+'-terminal','terminal operator/document/instance mismatch')
     facts=guest['facts']; require(facts['non_root'] and facts['project_directory_writable'] and not facts['missing_tools'],'guest toolbox failed')
     require(guest['instance_role_arn']==f"arn:aws:sts::{target['account_id']}:assumed-role/{role_name(config)}/{hand['machine_id']}",'guest native identity mismatch')
     require(facts['versions']['python']==TOOLBOX['rpms']['python3.13']['ver'] and facts['versions']['git']=='git version '+TOOLBOX['rpms']['git']['ver']
@@ -661,9 +666,23 @@ def alarm_record(alarm):
             'dimensions':{item['Name']:item['Value'] for item in alarm.get('Dimensions',[])}}
 
 def compare_platform_alarms(plan,details):
-    expected={r['values']['alarm_name']:{**{k:r['values'][k] for k in ALARM_FIELDS},'dimensions':r['values'].get('dimensions') or {}}
-              for r in plan['planned_values']['root_module']['resources']
-              if r['address'].startswith('aws_cloudwatch_metric_alarm.workspace_guard')}
+    resources={r['address']:r['values'] for r in plan['planned_values']['root_module']['resources']}
+    unknown={r['address']:r['change'].get('after_unknown',{}) for r in plan.get('resource_changes',[])}
+    expected={}
+    for address,values in resources.items():
+        if not address.startswith('aws_cloudwatch_metric_alarm.workspace_guard'): continue
+        values=values.copy()
+        if 'alarm_actions' not in values:
+            variables=plan.get('variables',{})
+            topic=resources.get('aws_sns_topic.workspace_alerts[0]',{})
+            require(unknown.get(address,{}).get('alarm_actions') is True and
+                    variables.get('provision_alert_topic',{}).get('value') is True and
+                    isinstance(topic.get('name'),str) and topic['name'] and
+                    all(isinstance(variables.get(k,{}).get('value'),str) for k in ('aws_region','aws_account_id')),
+                    'unknown alarm destination must bind the reviewed new topic')
+            values['alarm_actions']=[f"arn:aws:sns:{variables['aws_region']['value']}:{variables['aws_account_id']['value']}:{topic['name']}"]
+        require(all(k in values for k in ALARM_FIELDS),'guard alarm field absent from reviewed plan')
+        expected[values['alarm_name']]={**{k:values[k] for k in ALARM_FIELDS},'dimensions':values.get('dimensions') or {}}
     require(len(expected)==4 and details['alarms']==expected,'guard alarm settings differ from exact reviewed platform plan')
 
 def reviewed_platform_plan(preparation):
@@ -791,7 +810,7 @@ def observe_guard(base, client, config):
     require(not response.get('IsTruncated'), 'operator tags incomplete')
     tag_values={t['Key']:t['Value'] for t in response['Tags']}
     require(tag_values.get('SSMSessionRunAs','workspace')=='workspace','operator run-as override differs')
-    doc=client(base,'ssm').get_document(Name=role_name(config)+'-terminal',DocumentVersion='$DEFAULT')
+    doc=client(base,'ssm').get_document(Name=ssm_name(role_name(config))+'-terminal',DocumentVersion='$DEFAULT')
     inputs=json.loads(doc['Content'])['inputs']
     require(inputs['runAsEnabled'] and inputs['runAsDefaultUser']=='workspace','terminal run-as mismatch')
     alarms=client(base,'cloudwatch').describe_alarms(AlarmNames=guard['alarm_names'])
@@ -902,8 +921,13 @@ def deployer_access_scope(before, after, variables):
     sid='ManageReviewedNonRootTerminalDocuments'
     original=old.pop(sid); updated=new.pop(sid)
     resources=values(original['Resource']); changed=values(updated['Resource'])
-    extra=[arn.removesuffix('-terminal')+'-job' for arn in resources if arn.endswith('-terminal')]
-    require(set(changed)==set(resources) or (len(extra)==1 and set(changed)==set(resources+extra)),
+    normalized=[arn.rsplit('/',1)[0]+'/'+ssm_name(arn.rsplit('/',1)[1]) for arn in resources]
+    allowed=[]
+    for names in (resources,normalized):
+        extra=[arn.removesuffix('-terminal')+'-job' for arn in names if arn.endswith('-terminal')]
+        allowed.append(set(names))
+        if len(extra)==1: allowed.append(set(names+extra))
+    require(set(changed) in allowed,
             'job access changes unrelated document resources')
     old_actions=values(original['Action']); new_actions=values(updated['Action'])
     require(set(old_actions)==set(new_actions) and len(old_actions)==len(new_actions) and

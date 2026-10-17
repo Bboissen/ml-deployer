@@ -19,6 +19,32 @@ def module(name):
 W=module('workspace.py'); O=module('workspace-onboarding.py'); R=module('workspace_ram.py'); L=W.L
 
 class Onboarding(unittest.TestCase):
+    def test_reserved_ssm_prefixes_migrate_only_the_owned_document_names(self):
+        operator='arn:aws:iam::111111111111:user/operator'
+        target={'operator_arn':operator,'deployment_role_arn':'arn:aws:iam::111111111111:role/deployer'}
+        for prefix in ('aws-example','amazon-example','amzn-example','AWSSupport-example','demand'):
+            with self.subTest(prefix=prefix),tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
+                name=prefix+'-run-ws-project-hash'
+                safe=L['ssm_name'](name)
+                self.assertFalse(safe.lower().startswith(('aws','amazon','amzn')))
+                self.assertEqual(L['ssm_name'](safe),safe)
+                arn='arn:aws:ssm:us-east-1:111111111111:document/'
+                before={'Version':'2012-10-17','Statement':[
+                    {'Sid':'ManageReviewedNonRootTerminalDocuments','Effect':'Allow','Action':['ssm:CreateDocument'],
+                     'Resource':[arn+name+'-terminal',arn+name+'-job']},
+                    {'Sid':'DenyReviewedOperatorPolicyMutation','Effect':'Deny','Action':['iam:*'],'Resource':[operator]}]}
+                after=copy.deepcopy(before)
+                after['Statement'][0]['Resource']=[arn+safe+'-terminal',arn+safe+'-job']
+                L['deployer_access_scope'](before,after,{})
+                bad=copy.deepcopy(after); bad['Statement'][0]['Resource'].append(arn+'other-project-*')
+                with self.assertRaisesRegex(L['Failure'],'unrelated document resources'):
+                    L['deployer_access_scope'](before,bad,{})
+                L['write'](Path(temporary)/'config.tfvars.json',{'deployer_principal_arns':[operator]})
+                iam=types.SimpleNamespace(get_role_policy=lambda **_: {'RoleName':'deployer','PolicyName':'deployer','PolicyDocument':before})
+                with patch.dict(L,{'sessions':lambda _: (None,lambda *args:iam,None)}):
+                    review=O.iam_migration(L,{'plan_directory':temporary},target)
+                self.assertEqual(review['required'],safe!=name)
+
     def test_iam_migration_reviews_only_exact_operator_tightening(self):
         operator='arn:aws:iam::111111111111:user/operator'; role='demand-workspace-deployer'
         target={'operator_arn':operator,'deployment_role_arn':'arn:aws:iam::111111111111:role/'+role}
@@ -152,6 +178,13 @@ class Onboarding(unittest.TestCase):
             with tempfile.TemporaryDirectory(dir=ROOT/'evidence') as temporary:
                 result=O.prepare(L,deployment,Path(temporary)/'foundation',{'guard_zip_path':'guard.zip','guard_zip_sha256':'a'*64},
                     {'selected':{**L['supported_sizes']()['r8i.4xlarge'],'instance_type':'r8i.4xlarge','availability_zone':'us-east-1b','hourly_usd':1}},operator)
+                target_name='aws-'+selected['inventory']['resource_prefix']
+                target_config=Path(temporary)/'target-config.json'
+                L['write'](target_config,{'target_name':target_name,'target':L['read'](Path(result['directory'])/'target.json')})
+                with patch.dict(os.environ,{'WORKSPACE_CONFIG':str(target_config)}):
+                    validated=L['boundary']['targets']()[target_name]
+                self.assertEqual(validated,selected)
+                self.assertEqual(validated['inventory']['schedule_groups'],['default'])
                 config=L['read'](Path(result['directory'])/'platform.tfvars.json')
                 self.assertEqual(list(config['ml_projects']),[project])
                 plan={'variables':{'ml_projects':{'value':config['ml_projects']},'provision_alert_topic':{'value':True}},
