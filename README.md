@@ -22,7 +22,7 @@ steps are skipped on rerun. A companion page at `http://127.0.0.1:8765/` shows
 progress; it never logs in or deploys.
 
 **From a laptop over SSH**, keep the checkout on the server and run
-`make remote` there. It prints the tunnel command for your laptop and the link
+`make` there. It detects SSH and prints the tunnel command for your laptop and the link
 to open in your browser; questions are still answered in the SSH terminal.
 
 Then review and deploy from the same checkout:
@@ -39,9 +39,11 @@ immutable review and launches only after you type `deploy`. Automation passes
 `logs`, `connect`, `resume` and `cancel` take the same project file.
 
 - `make` — start or resume guided setup
-- `make remote` — same, with the guide in your laptop browser
 - `make REPO=owner/name DATASET=path` — set up without questions (browser logins only)
-- `make FRESH=1` — rebuild the tools; keep settings and logins
+- `make clean` — remove interrupted tool builds; keep installed tools
+- `make fclean` — also remove managed tools, the project settings and its AWS sign-in;
+  keep the GitHub login, datasets and evidence
+- `make re` — full clean, then reinstall tools and restart guided setup
 - `make DEBUG=1` — show detailed diagnostics
 - `make check` — run the offline test suite (developers)
 - `make help` — list these commands

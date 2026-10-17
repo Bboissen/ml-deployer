@@ -290,10 +290,13 @@ class MakeFlow(unittest.TestCase):
         self.make_flow()
 
     @unittest.skipUnless(shutil.which('rtk'), 'RTK is optional for the standalone installer')
-    def test_make_remote_through_rtk_keeps_questions_color_and_safe_paths(self):
-        self.make_flow(remote=True)
+    def test_make_detects_ssh_through_rtk_and_keeps_questions_color_and_safe_paths(self):
+        self.make_flow(relay=True)
 
-    def make_flow(self, remote=False):
+    def test_make_re_cleans_before_reinstalling_and_resuming_setup_with_parallel_make(self):
+        self.make_flow(rebuild=True)
+
+    def make_flow(self, relay=False, rebuild=False):
         # Reuse the bootstrap's verified archive fixtures, rather than depending
         # on host cloud tools or downloading anything in this acceptance check.
         spec = importlib.util.spec_from_file_location('setup_fixtures', ROOT/'tests/aws/test-workstation-setup.py')
@@ -311,12 +314,15 @@ class MakeFlow(unittest.TestCase):
         new_hash = fixture.archive('gh.tgz', {'gh/bin/gh': fake_gh})
         lock = fixture.repo/'scripts/aws/workstation-tools.lock.tsv'
         lock.write_text(lock.read_text().replace(old_hash, new_hash))
+        if rebuild:
+            self.assertEqual(fixture.run_setup('--github').returncode, 0)
+            previous = (fixture.prefix/'current').resolve()
         spec = importlib.util.spec_from_file_location('offline_snapshot', ROOT/'tests/aws/run-offline.py')
         runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
         repo = fixture.root/'full repo'; runner.source_snapshot(ROOT, repo)
         for name in ('workstation-tools.lock.tsv', 'controller-requirements.lock'):
             (repo/'scripts/aws'/name).write_bytes((fixture.repo/'scripts/aws'/name).read_bytes())
-        config = fixture.root/("project's `touch MAKE-INJECTION` folder/project.json" if remote else 'project/project.json')
+        config = fixture.root/("project's `touch MAKE-INJECTION` folder/project.json" if relay else 'project/project.json')
         dataset = fixture.root/'data.csv'; dataset.write_text('x\n1\n')
         files = {}
         for name in ('AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE'):
@@ -330,8 +336,8 @@ class MakeFlow(unittest.TestCase):
             reservation.bind(('127.0.0.1', 0)); port = reservation.getsockname()[1]
         environment['WORKSPACE_GUIDE_PORT'] = str(port)
         master, slave = pty.openpty()
-        command = [*([shutil.which('rtk'), 'proxy'] if remote else []), 'make',
-                   *(['remote'] if remote else []), 'PROJECT=' + str(config)]
+        command = [*([shutil.which('rtk'), 'proxy'] if relay else []), 'make',
+                   *(['-j4', 're'] if rebuild else []), 'PROJECT=' + str(config)]
         process = subprocess.Popen(command, cwd=repo, env=environment,
                                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
@@ -357,6 +363,10 @@ class MakeFlow(unittest.TestCase):
         answers = ['operator/project', str(dataset), 'n']
         os.write(master, ('\n'.join(answers) + '\n').encode())
         until('Companion stays available')
+        if rebuild:
+            self.assertFalse(previous.exists())
+            self.assertNotEqual((fixture.prefix/'current').resolve(), previous)
+            self.assertEqual(len(list((repo/'evidence').glob('workstation-cleanup.*'))), 1)
         value = json.loads(config.read_text())
         self.assertEqual(value['profile'], S.DEFAULT_PROFILE)
         self.assertEqual(value['repository'], {'url': 'https://github.com/operator/project.git', 'ref': 'main'})
@@ -371,7 +381,7 @@ class MakeFlow(unittest.TestCase):
         self.assertNotIn('Your local setup guide', output)
         self.assertFalse((repo/'MAKE-INJECTION').exists())
         self.assertEqual(list(Path(environment.get('TMPDIR', '/tmp')).glob('workspace-setup.*')), [])
-        if remote:
+        if relay:
             self.assertIn('laptop terminal outside SSH', output)
             self.assertIn('192.0.2.20', output)
             self.assertIn('setup continues here', output)

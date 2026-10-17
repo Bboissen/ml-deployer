@@ -14,7 +14,7 @@ Usage: workspace COMMAND | workspace PROJECT.json [COMMAND] [OPTIONS]
 First use:
   workspace guide [PROJECT.json]               Guided tools/project/login setup with an HTML companion (also: make)
                                                --fresh rebuilds tools; --debug shows details; --read-only skips questions
-                                               --remote keeps setup here and guides browser access from your laptop (make remote)
+                                               SSH is detected automatically; --remote forces browser access from another device
                                                --repo OWNER/NAME --dataset PATH|URL sets up without questions (make REPO=... DATASET=...)
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
@@ -31,6 +31,9 @@ Deploy and operate (Deploy is the default command):
   workspace project.json resume                Reconcile an interrupted operation; never repeats a launch
 
 Repair:
+  make clean                                  Remove interrupted managed-tool builds
+  make fclean                                 Remove managed tools, project settings and AWS sign-in
+  make re                                     Full clean, then restart guided setup
   workspace setup --fresh                      Rebuild the managed tools; keeps logins, config and evidence
   workspace setup --check                      Verify managed tools without installing
   workspace setup --system-packages            Ubuntu/Debian: install missing OS packages with sudo first

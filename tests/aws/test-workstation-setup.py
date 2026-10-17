@@ -5,12 +5,15 @@ import io
 import json
 import os
 from pathlib import Path
+import pty
+import select
 import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -37,9 +40,11 @@ class Bootstrap(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root/'repo'
         (self.repo/'scripts/aws').mkdir(parents=True)
+        (self.repo/'evidence').mkdir()
         for name in ('workstation-setup.sh', 'workstation-ui.sh'):
             shutil.copy(ROOT/'scripts/aws'/name, self.repo/'scripts/aws'/name)
         shutil.copy(ROOT/'workspace', self.repo/'workspace')
+        shutil.copy(ROOT/'Makefile', self.repo/'Makefile')
         self.shims = self.root/'shims'; self.shims.mkdir()
         self.cache = self.root/'archives'; self.cache.mkdir()
         self.prefix = self.root/'tools'
@@ -299,6 +304,144 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(self.run_setup('--fresh').returncode, 0)
         self.assertFalse(leftover.exists())
 
+    def run_make(self, target):
+        return subprocess.run(['make', target], cwd=self.repo, env=self.env,
+                              capture_output=True, text=True, timeout=30)
+
+    def test_clean_then_fclean_preserve_settings_and_evidence_and_allow_reinstall(self):
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        downloads = self.ledger.read_text()
+        incomplete = self.prefix/'releases'/('a'*64+'.ABC123'); incomplete.mkdir()
+        (incomplete/'archive.part').write_text('unfinished download')
+        protected = [*self.protected, self.root/'project.json', self.root/'dataset.csv',
+                     self.repo/'evidence/saved.tfplan', self.repo/'evidence/authorization.json']
+        for path in protected: path.write_text('preserve existing user settings\n')
+        # Cleanup must not execute or verify the installed tools.
+        (selected/'bin/tofu').write_text('#!/bin/sh\nexit 9\n')
+        result = self.run_make('clean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(incomplete.exists())
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertTrue(selected.exists())
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.prefix/'current').is_symlink())
+        self.assertFalse(selected.exists())
+        self.assertEqual(self.ledger.read_text(), downloads)
+        self.assertFalse((self.prefix/'install.lock').exists())
+        receipts = list((self.repo/'evidence').glob('workstation-cleanup.*'))
+        self.assertEqual(len(receipts), 2)
+        deleted = []
+        for receipt in receipts:
+            self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+            self.assertIn('cleanup_verified=true', receipt.read_text())
+            deleted += [line.removeprefix('deleted=') for line in receipt.read_text().splitlines() if line.startswith('deleted=')]
+        self.assertCountEqual(deleted, [str(incomplete), str(self.prefix/'current'), str(selected),
+                                       str(self.prefix/'install.lock'), str(self.prefix/'install.lock')])
+        for path in protected: self.assertEqual(path.read_text(), 'preserve existing user settings\n')
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        self.assertNotEqual((self.prefix/'current').resolve(), selected)
+        self.assertEqual(self.run_setup('--check', '--github').returncode, 0)
+
+    def test_fclean_forgets_project_settings_and_its_aws_login(self):
+        self.assertEqual(self.run_setup('--github').returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        calls = self.root/'aws-calls'
+        (selected/'bin/aws').unlink()
+        executable(selected/'bin/aws', '#!/bin/sh\necho "$*" >> ' + shlex.quote(str(calls)) + '\n')
+        demo = self.host_home/'aws-workspace/demo'; demo.mkdir(parents=True)
+        project = demo/'project.json'; project.write_text(json.dumps({'profile': 'ml-deployer'}))
+        dataset = self.host_home/'aws-workspace/dataset.csv'; dataset.write_text('x\n1\n')
+        link = self.root/'linked.json'; link.symlink_to(dataset)
+        result = subprocess.run(['make', 'fclean', 'PROJECT=' + str(link)], cwd=self.repo, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not a regular file you own', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertFalse(calls.exists())
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text(), 'logout --profile ml-deployer\n')
+        self.assertFalse(demo.exists())
+        self.assertFalse(selected.exists())
+        self.assertEqual(dataset.read_text(), 'x\n1\n')
+        for path in self.protected: self.assertEqual(path.read_text(), 'preserve existing user settings\n')
+        receipt = max((self.repo/'evidence').glob('workstation-cleanup.*'), key=lambda p: p.stat().st_mtime_ns).read_text()
+        self.assertIn('aws_logout=ml-deployer\n', receipt)
+        self.assertIn('deleted=' + str(project) + '\n', receipt)
+        self.assertIn('deleted=' + str(demo) + '\n', receipt)
+        self.assertIn('cleanup_verified=true', receipt)
+
+    def test_cleanup_without_an_installation_is_a_noop(self):
+        for target in ('clean', 'fclean'):
+            result = self.run_make(target)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.prefix.exists())
+        self.assertFalse(self.ledger.exists())
+
+    def test_cleanup_refuses_foreign_prefix_and_live_install_lock(self):
+        self.prefix.mkdir(); sentinel = self.prefix/'keep'; sentinel.write_text('foreign')
+        for target in ('clean', 'fclean'):
+            result = self.run_make(target)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('not owned by this installer', result.stderr)
+        self.assertEqual(sentinel.read_text(), 'foreign')
+        (self.prefix/'owner').write_text('aws-workstation-v1:' + str(os.getuid()))
+        process = subprocess.Popen(['sleep', '30']); self.addCleanup(process.wait); self.addCleanup(process.kill)
+        self.lock(str(process.pid)+'\n'+os.uname().nodename+'\n')
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.prefix/'install.lock/owner').exists())
+        self.assertEqual(sentinel.read_text(), 'foreign')
+
+    def test_fclean_refuses_tools_in_use_and_preserves_release_symlinks(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        foreign = self.root/'foreign'; foreign.mkdir(); (foreign/'keep').write_text('foreign')
+        link = self.prefix/'releases/foreign'; link.symlink_to(foreign)
+        unknown = self.prefix/'releases/user-directory'; unknown.mkdir(); (unknown/'keep').write_text('foreign')
+        binary = selected/'bin/busy-tool'; shutil.copy2(shutil.which('sleep'), binary)
+        # An aliased argv[0] must not hide a running managed executable.
+        process = subprocess.Popen(['busy-tool', '30'], executable=str(binary))
+        try:
+            result = self.run_make('fclean')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('managed tools are in use', result.stderr)
+            self.assertEqual((self.prefix/'current').resolve(), selected)
+        finally:
+            process.kill(); process.wait(timeout=5)
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(selected.exists())
+        self.assertTrue(link.is_symlink())
+        self.assertEqual((foreign/'keep').read_text(), 'foreign')
+        self.assertEqual((unknown/'keep').read_text(), 'foreign')
+
+    def test_cleanup_refuses_when_runtime_usage_cannot_be_verified(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        executable(self.shims/'lsof', '#!/bin/sh\necho "cannot inspect processes" >&2\nexit 1\n')
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('cannot verify whether managed tools are in use', result.stderr)
+        self.assertEqual((self.prefix/'current').resolve(), selected)
+        self.assertTrue(selected.exists())
+
+    def test_fclean_handles_missing_current_release_but_refuses_foreign_selection(self):
+        self.assertEqual(self.run_setup().returncode, 0)
+        selected = (self.prefix/'current').resolve()
+        shutil.rmtree(selected)
+        result = self.run_make('fclean')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.prefix/'current').is_symlink())
+        foreign = self.root/'foreign'; foreign.mkdir(); (foreign/'keep').write_text('foreign')
+        (self.prefix/'current').symlink_to(foreign)
+        result = self.run_make('fclean')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('outside owned releases', result.stderr)
+        self.assertEqual((foreign/'keep').read_text(), 'foreign')
+
     def test_debug_diagnostics_are_bounded_and_never_show_values(self):
         self.assertEqual(self.run_setup().returncode, 0)
         self.env['AWS_SECRET_ACCESS_KEY'] = 'SECRETVALUE'
@@ -447,11 +590,69 @@ class Authentication(unittest.TestCase):
             A.interactive(['aws','login'])
         call.assert_not_called()
 
-    def test_native_login_accepts_a_proxy_with_terminal_input(self):
-        with patch.object(sys.stdin, 'isatty', return_value=True), \
-             patch.object(sys.stdout, 'isatty', return_value=False), patch.object(subprocess, 'call', return_value=0) as call:
-            A.interactive(['aws', 'login'])
-        call.assert_called_once_with(['aws', 'login'])
+    def test_remote_login_waits_for_code_in_terminal_with_captured_output(self):
+        self.remote_code_prompt()
+
+    @unittest.skipUnless(shutil.which('rtk'), 'RTK is optional for the standalone installer')
+    def test_remote_login_through_rtk_waits_for_code_in_terminal(self):
+        self.remote_code_prompt(relay=True)
+
+    def test_remote_login_with_read_only_terminal_input(self):
+        self.remote_code_prompt(read_only=True)
+
+    def remote_code_prompt(self, relay=False, read_only=False):
+        with tempfile.TemporaryDirectory(dir=BASE) as directory:
+            directory = Path(directory)
+            # Model the pinned CLI's blank-answer failure without contacting AWS.
+            executable(directory/'aws', '#!' + sys.executable + '\n'
+                       'import sys\n'
+                       'print("Browser will not be automatically opened.")\n'
+                       'print("Please visit the following URL: https://example.invalid/login")\n'
+                       'code = input("Enter the authorization code displayed in your browser: ")\n'
+                       'if not code: raise TypeError("empty authorization code")\n'
+                       'sys.exit(0 if code == "synthetic-code" else 7)\n')
+            driver = ('import importlib.util\n'
+                      'spec = importlib.util.spec_from_file_location("auth", ' + repr(str(ROOT/'scripts/aws/workstation-auth.py')) + ')\n'
+                      'auth = importlib.util.module_from_spec(spec); spec.loader.exec_module(auth)\n'
+                      'auth.profile_method = lambda *_: "new"\n'
+                      'auth.auth_check = lambda *_: {}\n'
+                      'auth.login("temporary", "us-east-1", "auto", True)\n')
+            master, slave = pty.openpty()
+            process = None
+            try:
+                if read_only:
+                    readable = os.open(os.ttyname(slave), os.O_RDONLY | os.O_NOCTTY)
+                    os.close(slave); slave = readable
+                # A leftover Enter from setup must not answer the code prompt.
+                os.write(master, b'\n')
+                command = [*([shutil.which('rtk'), 'proxy'] if relay else []), sys.executable, '-B', '-c', driver]
+                process = subprocess.Popen(command, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           env={**os.environ, 'PATH': str(directory) + ':' + os.environ['PATH']})
+                os.close(slave); slave = None
+                transcript = bytearray()
+                prompt = b'Enter the authorization code displayed in your browser: '
+                deadline = time.monotonic() + 10
+                while prompt not in transcript and time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.1)[0]:
+                        transcript.extend(os.read(master, 4096))
+                self.assertIn(prompt, transcript)
+                self.assertIn(b'waiting terminal prompt', transcript)
+                # Prove the child stays alive waiting for actual user input.
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    process.communicate(timeout=0.2)
+                os.write(master, b'synthetic-code\n')
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, stderr.decode())
+                for output in (stdout, stderr):
+                    self.assertNotIn(prompt, output)
+                    self.assertNotIn(b'synthetic-code', output)
+                    self.assertNotIn(b'example.invalid/login', output)
+            finally:
+                if process is not None:
+                    if process.poll() is None: process.kill()
+                    process.communicate(timeout=5)
+                os.close(master)
+                if slave is not None: os.close(slave)
 
     def test_conflicting_credentials_are_rejected_before_new_profile_creation(self):
         with patch.dict(os.environ,{'AWS_ACCESS_KEY_ID':'SECRET'},clear=True), self.assertRaisesRegex(A.B['Failure'],'conflicting environment'):

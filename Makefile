@@ -6,27 +6,34 @@ export WORKSPACE_PYTHON
 
 .DEFAULT_GOAL := guide
 PROJECT ?=
-FRESH ?= 0
 DEBUG ?= 0
 REPO ?=
 DATASET ?=
 export PROJECT REPO DATASET
 
-.PHONY: guide remote help help-all check workspace-test-setup workspace-test aws-automation-test repository-check scaffold-test fmt fmt-check
+.PHONY: guide clean fclean re help help-all check workspace-test-setup workspace-test aws-automation-test repository-check scaffold-test fmt fmt-check
 
-remote: ## Run setup here; show instructions for opening the guide on another device.
-guide: ## Guided first use: tools, project, native login and companion (PROJECT=path, REPO=owner/name, DATASET=path, FRESH=1, DEBUG=1).
-guide remote:
-	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $${REPO:+--repo "$$REPO"} $${DATASET:+--dataset "$$DATASET"} $(if $(filter remote,$@),--remote) $(if $(filter 1,$(FRESH)),--fresh) $(if $(filter 1,$(DEBUG)),--debug)
+guide: ## Guided first use: tools, project, native login and companion (PROJECT=path, REPO=owner/name, DATASET=path, DEBUG=1); detects SSH.
+	@env -u WORKSPACE_PYTHON bash ./workspace guide "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}" $${REPO:+--repo "$$REPO"} $${DATASET:+--dataset "$$DATASET"} $(if $(filter 1,$(DEBUG)),--debug)
+
+clean: ## Remove interrupted managed-tool builds; keep installed tools, settings and logins.
+	@bash ./workspace setup --clean
+
+fclean: ## Remove managed tools, the project settings (PROJECT=path) and its AWS sign-in; keep GitHub login, datasets and evidence.
+	@bash ./workspace setup --fclean --project "$${PROJECT:-$${HOME}/aws-workspace/demo/project.json}"
+
+re: fclean ## Full clean, then restart guided setup (also over SSH).
+	+@$(MAKE) guide
 
 help: ## Show first-use, remote and repair commands.
 	@printf '\nAWS workspace\n\n'
 	@printf '  %-42s %s\n' \
 		'make' 'Start or resume guided setup' \
-		'make remote' 'Run setup here; guide in your laptop browser' \
 		'make PROJECT=/path/project.json' 'Choose the project configuration' \
 		'make REPO=owner/name DATASET=path' 'Set up without questions (logins only)' \
-		'make FRESH=1' 'Rebuild tools; keep settings and logins' \
+		'make clean' 'Remove interrupted tool builds; keep installed tools' \
+		'make fclean' 'Remove managed tools, project settings and AWS sign-in' \
+		'make re' 'Full clean, then restart guided setup' \
 		'make DEBUG=1' 'Show detailed diagnostics' \
 		'make check' 'Run the offline test suite (developers)' \
 		'make help-all' 'List every command'

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import termios
 
 sys.dont_write_bytecode = True
 ROOT = Path.cwd().resolve()
@@ -112,8 +113,20 @@ def native_profiles(region):
 
 def interactive(command):
     require(user_terminal(), 'login needs an interactive terminal for browser consent/MFA; run this command in your terminal')
-    # Native login output (including device URLs) goes only to the user's terminal.
-    require(subprocess.call(command) == 0, 'native login did not finish; rerun it in your terminal')
+    # A relay such as RTK can capture stdout/stderr even with terminal stdin.
+    # Give native authentication the actual terminal for both its prompt and
+    # answer, and discard typeahead left over from earlier setup questions.
+    # In the pinned CLI an empty remote-login answer crashes its code decoder.
+    sys.stdout.flush(); sys.stderr.flush()
+    # Reopen for writing too: redirected terminal stdin may be read-only.
+    with open(os.ttyname(sys.stdin.fileno()), 'r+b', buffering=0) as terminal:
+        termios.tcflush(terminal, termios.TCIFLUSH)
+        if command[:2] == ['aws', 'login'] and '--remote' in command:
+            terminal.write(b'\nSign in at the AWS link below, then paste the browser\'s authorization code\n'
+                           b'at the waiting terminal prompt and press Enter. Ctrl+C cancels.\n')
+        # Native login output (including device URLs) goes only to the user's terminal.
+        require(subprocess.call(command, stdin=terminal, stdout=terminal, stderr=terminal) == 0,
+                'native login did not finish; rerun it in your terminal and paste the code only when prompted')
 
 
 def login(profile, region, method, remote):
