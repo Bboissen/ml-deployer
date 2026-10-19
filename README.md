@@ -1,7 +1,9 @@
 # ml-deployer
 
-Run your ML project in your own AWS account. Bring a GitHub repository and dataset;
-the deployer handles the machine, S3 storage, tools and cleanup.
+Run your ML project in your own AWS account. Choose a GitHub repository and a
+dataset; after you approve deployment, the deployer uploads the data to S3,
+connects EC2 to it, runs your code and saves the results back to S3.
+It handles storage, permissions, data transfers and machine cleanup for you.
 
 ## Start
 
@@ -40,7 +42,7 @@ See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
 
 ## How deployment works
 
-![Six steps: configure, check and approve on your host; then prepare AWS, launch, and run with cleanup.](docs/diagrams/deployment.svg)
+![Configure, check and approve; then upload the dataset to S3, connect EC2, run the job and save results.](docs/diagrams/deployment.svg)
 
 The first deployment creates the buckets, network, permissions and expiry guard;
 later runs reuse them. AWS enforces the deadline even if you disconnect. After a
@@ -48,11 +50,21 @@ job, the machine is removed and your storage stays.
 
 ## Code and data flow
 
-![A pinned GitHub commit and verified S3 dataset feed the non-root EC2 workspace, which saves outputs, logs and a receipt to S3.](docs/diagrams/code-and-data.svg)
+![The deployer uploads your dataset to S3, stages it on EC2 alongside your GitHub code, and uploads results back to S3.](docs/diagrams/code-and-data.svg)
 
-Your project handles dependencies and training. The deployer checks dataset
-versions and saved outputs. Datasets and results live in a private, encrypted,
-versioned **workload bucket**; OpenTofu state lives in a separate **state bucket**.
+After approval, the deployer handles the full path:
+
+1. **Upload your dataset to S3.** It accepts a local file or folder, an S3 source
+   or a public HTTPS URL. Unchanged data reuses the verified upload.
+2. **Connect EC2 to your storage.** It creates the permissions, checks the data
+   and copies it onto the machine. Your code reads local files in `DATA_DIR`.
+3. **Save results back to S3.** Your code writes to `OUTPUT_DIR`; the deployer
+   uploads the declared outputs, logs and execution receipt, then verifies them.
+
+Your project supplies dependencies and training code. The deployer handles the
+AWS wiring—no manual bucket setup, EC2 credentials or copy commands.
+Datasets and results stay in a private, encrypted, versioned **workload bucket**;
+OpenTofu state has a separate **state bucket**.
 
 Find inputs under `datasets/<source>/` and outputs under `results/<workspace>/`,
 with UTC timestamps for each version or run. See
