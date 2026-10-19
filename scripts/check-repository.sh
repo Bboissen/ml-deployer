@@ -27,7 +27,6 @@ required_files=(
   evidence/README.md
   docs/aws-setup-guide.html
   docs/aws-setup-guide.js
-  goal/README.md
   shared/workspace/schema.json
   shared/workspace/project.schema.json
   shared/workspace/toolbox.json
@@ -86,7 +85,7 @@ done < <(
     '\]\(([^)#]+)(?:#[^)]+)?\)' \
     --replace '$1' \
     --glob '*.md' \
-    README.md AGENTS.md CONTRIBUTING.md SECURITY.md docs goal infra shared scripts tests
+    README.md AGENTS.md CONTRIBUTING.md SECURITY.md docs infra shared scripts tests
 )
 ((link_failure == 0)) || exit 1
 

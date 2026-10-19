@@ -25,7 +25,7 @@ def duration(seconds):
 
 
 class Console:
-    """Zelab-style terminal: one mark per finished step, a timed spinner while working."""
+    """Step-by-step terminal: one mark per finished step, a timed spinner while working."""
     MARKS = {'done': ('✓', 'ok', '32'), 'next': ('›', '>', '36'), 'error': ('!', '!', '31'), 'wait': ('○', '-', '33')}
 
     def __init__(self, stream=None, reader=None):

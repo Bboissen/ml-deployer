@@ -1,4 +1,4 @@
-"""Shared terminal detection; recognize RTK's relay through stdin like Zelab."""
+"""Shared terminal detection; recognize relays such as RTK through stdin."""
 import os
 import sys
 

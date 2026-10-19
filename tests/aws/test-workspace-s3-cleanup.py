@@ -409,7 +409,7 @@ class Cleanup(unittest.TestCase):
         shutil.copyfile(ROOT/'Makefile',source/'Makefile')
         (source/'workspace').write_text('#!/bin/bash\nprintf "%s\\n" "$@"\ntest -z "${WORKSPACE_PYTHON:-}"\n')
         path = str(self.root/"project's `touch SENTINEL` folder/project.json")
-        result = subprocess.run(['make','s3-clean','S3_DATASETS=1','DRY_RUN=1','PROJECT='+path],cwd=source,
+        result = subprocess.run(['make','--no-print-directory','s3-clean','S3_DATASETS=1','DRY_RUN=1','PROJECT='+path],cwd=source,
                                 capture_output=True,text=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(result.stdout.splitlines(),[path,'clean-s3','--include-datasets','--dry-run'])
