@@ -1,34 +1,33 @@
-# Native acceptance scope and remaining evidence
+# Native acceptance
 
-No new cloud mutation, key registration or dataset upload is authorized by the
-source implementation handoff. This is the review procedure for an eventual
-bounded campaign, not permission to execute it.
+`make check` runs offline against mocked providers. Before a release, each case
+below must also pass in a real AWS account. This page is the procedure for that
+run; it does not authorize one.
 
-Start with one non-sensitive local input of 8–16 MiB, maximum transfer 64 MiB,
-maximum outputs 100 MiB, maximum runtime 30 minutes and an explicit hourly price
-ceiling. Use a small external repository with declared setup/run commands. Run
-`project.json deploy` without authorization on committed source and retain its
-scope. This resolves the actual account/operator, region/zone, commit, source
-hash and bytes, precise bucket/key/resource namespaces, current RAM/quota/price,
-retained resources and compute estimate. Attach that concrete scope before
-asking for native execution authorization; no historical account/ARN or fee
-assumption is sufficient.
+## Scope a run
 
-Scope includes a separate encrypted versioned state bucket and workload bucket,
-no-ingress network, deployer/project boundaries, watchdog/expiry schedules,
-queue/logs/alarms and encrypted SNS topic with rotating customer KMS key. A
-private repository additionally needs an exact new read-only deploy key/native
-secret scope or verified owned reference. These persistent resources survive
-the job. Record their owner, retention/decommission deadline and extra
-storage/KMS/IPv4/request/observability charges separately from the compute quote.
-No paid quota increase, production Gold, permanent IAM keys or unrelated
-resource deletion is in scope. A later retained-resource deletion needs its
-own exact authorization and verified receipt.
+Start small: one non-sensitive local input of 8–16 MiB, at most 64 MiB
+transferred, 100 MiB of outputs and 30 minutes of runtime, with an explicit
+hourly price ceiling and a small repository that provides `make setup` and
+`make train`. Run `./workspace project.json` on committed source, stop at the
+review and keep the printed scope. It resolves the real account,
+region and zone, commit, source hash and bytes, bucket and resource names,
+machine size, quota, price and compute estimate. Authorize only that scope.
 
-Authorize only the selected operation after that review. Each additional
-deployment needs a scope inside the authorized campaign's total launch/transfer
-budget. The source controller defaults to one launch per reviewed operation;
-it does not enforce a multi-operation campaign spending cap.
+A first run also creates persistent resources that outlive the job: separate
+encrypted, versioned state and workload buckets, a network without ingress,
+IAM boundaries, expiry schedules, queue, logs, alarms and an encrypted SNS topic
+with a rotating KMS key. A private repository adds a read-only deploy key and
+its secret. Record an owner and retention deadline for them, and their storage,
+KMS, IPv4, request and logging charges separately from the compute quote.
+Quota increases, permanent IAM keys and deleting unrelated resources are out of
+scope; deleting retained resources later needs its own authorization and a
+verified receipt.
+
+Each further deployment needs its own reviewed scope. The controller allows one
+launch per reviewed operation; it does not cap total spending across runs.
+
+## Cases
 
 | Case | Offline source coverage | Required native evidence |
 | --- | --- | --- |
@@ -40,10 +39,9 @@ it does not enforce a multi-operation campaign spending cap.
 | Controller loss/cancel | Locks, fsynced journal, uncertain launch refusal, ownership recovery | Terminal/network loss, expired login, partial apply and SIGKILL leave no duplicate VM and preserve expiry |
 | Teardown | Guarded mocked retirement and exact owned absence checks | Instance, root disk and interface absence; output versions still readable; unrelated resources unchanged |
 
-Keep native state, immutable plans, authorizations, journal, receipts and exact
-object metadata under that installation's ignored evidence root. Preserve the
-historical PR24 evidence. Remove only campaign-owned disposable test payloads,
-containers, runtimes and caches after every test, including failures, with
-verified exact IDs/paths; retained native resources/evidence are not scratch.
-Publish a release only after the named native cases pass or their unsupported
-scope is explicitly narrowed. Mocked CI passing is not that acceptance receipt.
+Keep native state, plans, authorizations, journals and receipts under the
+installation's ignored `evidence/` root. After every test, including failures,
+remove only the disposable payloads, containers, runtimes and caches it
+created, by exact ID or path; retained resources and evidence are not scratch.
+Publish a release only after these cases pass or the unsupported scope is
+explicitly narrowed.

@@ -70,8 +70,6 @@ uses its exact selected port rather than falling back silently to another port;
 an occupied port is reported. To choose another port, set `WORKSPACE_GUIDE_PORT`
 on the server and forward that port on the laptop. SSH sessions never launch a
 browser on the server; the printed companion link is opened on the laptop.
-The CLI presentation and connection-derived instructions follow Zelab's
-installer patterns; this repository retains its live, read-only companion.
 
 A new runtime becomes current only after every pinned binary ran and reported
 its version and every Python package matched the hash lock. Failure leaves the
