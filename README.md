@@ -1,8 +1,15 @@
 # ml-deployer
 
-Provision an ML workspace in your AWS account: EC2 compute, persistent S3 storage,
-a pinned toolbox and automatic expiry. You bring the GitHub repository and dataset;
-this repo manages infrastructure, access and cleanup.
+Run your ML project on AWS without wiring AWS yourself. Point it at a GitHub
+repository and a dataset, review the plan and type `deploy`. The deployer
+uploads your dataset to S3, gives a temporary EC2 machine access to exactly
+that data, runs your code there and saves the results back to S3.
+
+![The deployer uploads your dataset to S3, grants EC2 scoped S3 access and launches it; EC2 clones your code, copies the data into DATA_DIR, runs make setup and make train, and saves OUTPUT_DIR back to S3.](docs/diagrams/how-it-works.svg)
+
+You never create buckets, IAM roles, EC2 credentials or copy commands. Your
+code reads local files in `DATA_DIR` and writes to `OUTPUT_DIR`; the deployer
+moves them to and from S3 and verifies every transfer.
 
 ## Start
 
@@ -14,71 +21,55 @@ cd ml-deployer
 make
 ```
 
-`make` installs pinned tools, asks for your repository and dataset, saves
-`~/aws-workspace/demo/project.json`, and guides GitHub/AWS sign-in. Valid completed
-steps are reused. Your repository supplies
+`make` installs tools, walks you through configuration and sign-in, then offers
+to deploy. It saves your settings in `~/aws-workspace/demo/project.json` and
+reuses completed steps. Your ML repository must provide
 [`make setup` and `make train`](docs/operations/aws-deployer-quickstart.md#runtime-contract).
-After the deployment command finishes, `make` exits and closes its companion.
-To keep only the companion running, use `./workspace guide --read-only`.
+
+For later runs:
 
 ```sh
-./workspace doctor ~/aws-workspace/demo/project.json  # verify tools, config and access
-./workspace ~/aws-workspace/demo/project.json         # display deployment details; type deploy to approve
+./workspace doctor ~/aws-workspace/demo/project.json  # check your setup
+./workspace ~/aws-workspace/demo/project.json         # review, then type deploy
 ```
 
-Use an [AWS account prepared for deployment](docs/account-setup/aws.md).
-Over SSH, run `make` on the server; it prints the tunnel command for the
-read-only companion page. See the [quickstart](docs/operations/aws-deployer-quickstart.md)
-for configuration, automation and setup/clean commands; `make help` lists targets.
+Prepare your [AWS account](docs/account-setup/aws.md) first. Over SSH, start
+`make` on the server and follow its tunnel instructions for the companion
+page. The page closes when `make` exits; use `./workspace guide --read-only`
+to open it on its own.
 
-To remove saved S3 results, use `make s3-clean` (`DRY_RUN=1` previews;
-`S3_DATASETS=1` also includes shared inputs). It warns about permanent deletion
-and requires a manually typed confirmation. Buckets and infrastructure state
-remain. See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
+See the [quickstart](docs/operations/aws-deployer-quickstart.md) for more options,
+or run `make help`.
 
-## From host setup to AWS execution
+To delete saved results, use `make s3-clean`; add `DRY_RUN=1` to preview or
+`S3_DATASETS=1` to include shared inputs. Deletion is permanent and requires
+typed confirmation. Buckets and infrastructure state remain.
+See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
 
-```mermaid
-flowchart TB
-    subgraph host["On your host"]
-        direction LR
-        setup["1. Initialize tools<br/>Project config + sign-in"] --> check["2. Verify host setup<br/>Tools, AWS identity, GitHub access"]
-        check --> approve["3. Confirm deployment<br/>Account, commit, data,<br/>size, cost and lifetime"]
-    end
-    subgraph aws["In your AWS account"]
-        direction LR
-        foundation["4. Create / verify AWS<br/>State + workload S3 buckets<br/>Network, IAM, expiry guard"] --> launch["5. Prepare and launch<br/>Verify dataset in S3<br/>Arm expiry, create EC2"]
-        launch --> run["6. Execute and clean up<br/>Run setup + training<br/>Save/verify outputs, remove compute"]
-    end
-    host -->|type deploy| aws
-```
+## What happens when you deploy
 
-The first deployment creates the AWS foundation; later ones verify and reuse it.
-The deadline is armed before launch. AWS enforces expiry even if your host
-disconnects. Compute is removed after a job; the buckets and foundation remain.
+1. **Review.** The deployer shows one plan: account, commit, dataset, machine
+   size, hourly price and maximum lifetime. Typing `deploy` approves exactly that.
+2. **Upload your dataset to S3.** A local file or folder, an S3 source or a
+   public HTTPS URL. Unchanged data reuses the verified upload.
+3. **Connect EC2 to S3.** The first run creates the buckets, network,
+   permissions and expiry guard; later runs reuse them. The machine's IAM role
+   can read only this dataset and write only this run's results.
+4. **Run your code.** EC2 clones your repository, copies the data into
+   `DATA_DIR` and runs `make setup` then `make train` as a non-root user.
+5. **Save results.** Declared outputs, logs and an execution receipt go to S3
+   and are verified. Then EC2 is removed; your storage stays. AWS enforces the
+   deadline even if you disconnect.
 
-## Code and data flow
+Datasets and results live in a private, encrypted, versioned **workload
+bucket**: inputs under `datasets/<source>/`, outputs under
+`results/<workspace>/`, with UTC timestamps for each version or run.
+OpenTofu state has a separate **state bucket**. See
+[bucket names and storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
 
-```mermaid
-flowchart LR
-    repo["GitHub repository<br/>Pinned commit"] -->|clone| compute["Non-root EC2 workspace<br/>make setup / make train"]
-    data["S3 dataset<br/>Verified versions"] -->|DATA_DIR| compute
-    compute -->|OUTPUT_DIR| results["S3 results<br/>Outputs, logs, receipt"]
-```
-
-Datasets and results share the private, encrypted, versioned **workload bucket**.
-OpenTofu state has a separate **state bucket**. Your project owns dependencies
-and ML logic; the deployer verifies dataset versions and persisted outputs.
-
-New projects use `<project>-storage-<account>-<region>` and
-`<project>-state-<account>-<region>`. Browse inputs under `datasets/<source>/`
-and outputs under `results/<workspace>/`; each version/run starts with its UTC
-date and time. Existing foundations keep their original names and layout.
-See [storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
-
-In `workspace` mode, setup runs without training; use `connect` for a Session
-Manager terminal with no inbound network rules. Compute stays until `cancel`
-or expiry.
+For an interactive session, choose `workspace` mode: it runs setup without
+training. Use `connect` to open a Session Manager terminal; no inbound ports
+are needed. The machine stays until you run `cancel` or it expires.
 
 ## Progress and operations
 
@@ -86,10 +77,10 @@ or expiry.
 ./workspace ~/aws-workspace/demo/project.json status --wait 30
 ```
 
-Use `logs`, `connect`, `resume` or `cancel` in place of `status --wait 30`.
-Keep ignored `evidence/` intact for recovery. See the
-[operations guide](docs/operations/aws-deploy-operation.md) for approval hashes,
-failure handling and cleanup rules.
+Replace `status --wait 30` with `logs`, `connect`, `resume` or `cancel` as needed.
+Keep `evidence/` for recovery; Git ignores it. The
+[operations guide](docs/operations/aws-deploy-operation.md) covers approvals,
+recovery and cleanup.
 
 <details>
 <summary>Deployment log stages</summary>
@@ -116,4 +107,4 @@ are JSON on stdout.
 
 Release candidate `0.1.0-rc.1`; see [native acceptance status](docs/operations/aws-native-acceptance.md).
 
-[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Goals](goal/README.md) · [MIT license](LICENSE)
+[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
