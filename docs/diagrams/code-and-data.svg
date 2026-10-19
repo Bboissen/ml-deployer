@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="300" viewBox="0 0 900 300" role="img" aria-labelledby="title description">
+  <title id="title">Code and data flow</title>
+  <desc id="description">EC2 clones the pinned GitHub commit and stages verified S3 dataset versions in DATA_DIR. Setup and training run as a non-root user. Files from OUTPUT_DIR are saved to S3 with logs and an execution receipt.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+    .label { font-size: 20px; font-weight: 600; }
+    .detail { font-size: 18px; fill: #334155; }
+    .code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 16px; fill: #334155; }
+    .flow { fill: none; stroke: #475569; stroke-width: 2; marker-end: url(#arrow); }
+  </style>
+  <rect width="900" height="300" rx="12" fill="#ffffff"/>
+  <rect x="16" y="20" width="240" height="100" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text class="label" x="36" y="60">GitHub repository</text>
+  <text class="detail" x="36" y="91">Pinned commit</text>
+  <rect x="16" y="180" width="240" height="100" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text class="label" x="36" y="220">S3 dataset</text>
+  <text class="detail" x="36" y="251">Verified versions</text>
+  <rect x="386" y="80" width="240" height="140" rx="8" fill="#f0fdf4" stroke="#86b89a"/>
+  <text class="label" x="406" y="113">EC2 workspace</text>
+  <text class="detail" x="406" y="142">Non-root user</text>
+  <text class="code" x="406" y="171">make setup</text>
+  <text class="code" x="406" y="198">make train</text>
+  <rect x="756" y="90" width="128" height="120" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text class="label" x="772" y="123">S3 results</text>
+  <text class="detail" x="772" y="150">Outputs,</text>
+  <text class="detail" x="772" y="176">logs, receipt</text>
+  <path class="flow" d="M 256 70 H 354 V 120 H 383"/>
+  <text class="detail" x="280" y="57">clone</text>
+  <path class="flow" d="M 256 230 H 354 V 180 H 383"/>
+  <text class="code" x="272" y="256">DATA_DIR</text>
+  <path class="flow" d="M 626 150 H 753"/>
+  <text class="code" x="646" y="134">OUTPUT_DIR</text>
+</svg>

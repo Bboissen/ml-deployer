@@ -1,8 +1,7 @@
 # ml-deployer
 
-Provision an ML workspace in your AWS account: EC2 compute, persistent S3 storage,
-a pinned toolbox and automatic expiry. You bring the GitHub repository and dataset;
-this repo manages infrastructure, access and cleanup.
+Run your ML project in your own AWS account. Bring a GitHub repository and dataset;
+the deployer handles the machine, S3 storage, tools and cleanup.
 
 ## Start
 
@@ -14,71 +13,54 @@ cd ml-deployer
 make
 ```
 
-`make` installs pinned tools, asks for your repository and dataset, saves
-`~/aws-workspace/demo/project.json`, and guides GitHub/AWS sign-in. Valid completed
-steps are reused. Your repository supplies
+`make` installs tools, walks you through configuration and sign-in, then offers
+to deploy. It saves your settings in `~/aws-workspace/demo/project.json` and
+reuses completed steps. Your ML repository must provide
 [`make setup` and `make train`](docs/operations/aws-deployer-quickstart.md#runtime-contract).
-After the deployment command finishes, `make` exits and closes its companion.
-To keep only the companion running, use `./workspace guide --read-only`.
+
+For later runs:
 
 ```sh
-./workspace doctor ~/aws-workspace/demo/project.json  # verify tools, config and access
-./workspace ~/aws-workspace/demo/project.json         # display deployment details; type deploy to approve
+./workspace doctor ~/aws-workspace/demo/project.json  # check your setup
+./workspace ~/aws-workspace/demo/project.json         # review, then type deploy
 ```
 
-Use an [AWS account prepared for deployment](docs/account-setup/aws.md).
-Over SSH, run `make` on the server; it prints the tunnel command for the
-read-only companion page. See the [quickstart](docs/operations/aws-deployer-quickstart.md)
-for configuration, automation and setup/clean commands; `make help` lists targets.
+Prepare your [AWS account](docs/account-setup/aws.md) first. Over SSH, start
+`make` on the server and follow its tunnel instructions for the companion
+page. The page closes when `make` exits; use `./workspace guide --read-only`
+to open it on its own.
 
-To remove saved S3 results, use `make s3-clean` (`DRY_RUN=1` previews;
-`S3_DATASETS=1` also includes shared inputs). It warns about permanent deletion
-and requires a manually typed confirmation. Buckets and infrastructure state
-remain. See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
+See the [quickstart](docs/operations/aws-deployer-quickstart.md) for more options,
+or run `make help`.
 
-## From host setup to AWS execution
+To delete saved results, use `make s3-clean`; add `DRY_RUN=1` to preview or
+`S3_DATASETS=1` to include shared inputs. Deletion is permanent and requires
+typed confirmation. Buckets and infrastructure state remain.
+See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
 
-```mermaid
-flowchart TB
-    subgraph host["On your host"]
-        direction LR
-        setup["1. Initialize tools<br/>Project config + sign-in"] --> check["2. Verify host setup<br/>Tools, AWS identity, GitHub access"]
-        check --> approve["3. Confirm deployment<br/>Account, commit, data,<br/>size, cost and lifetime"]
-    end
-    subgraph aws["In your AWS account"]
-        direction LR
-        foundation["4. Create / verify AWS<br/>State + workload S3 buckets<br/>Network, IAM, expiry guard"] --> launch["5. Prepare and launch<br/>Verify dataset in S3<br/>Arm expiry, create EC2"]
-        launch --> run["6. Execute and clean up<br/>Run setup + training<br/>Save/verify outputs, remove compute"]
-    end
-    host -->|type deploy| aws
-```
+## How deployment works
 
-The first deployment creates the AWS foundation; later ones verify and reuse it.
-The deadline is armed before launch. AWS enforces expiry even if your host
-disconnects. Compute is removed after a job; the buckets and foundation remain.
+![Six steps: configure, check and approve on your host; then prepare AWS, launch, and run with cleanup.](docs/diagrams/deployment.svg)
+
+The first deployment creates the buckets, network, permissions and expiry guard;
+later runs reuse them. AWS enforces the deadline even if you disconnect. After a
+job, the machine is removed and your storage stays.
 
 ## Code and data flow
 
-```mermaid
-flowchart LR
-    repo["GitHub repository<br/>Pinned commit"] -->|clone| compute["Non-root EC2 workspace<br/>make setup / make train"]
-    data["S3 dataset<br/>Verified versions"] -->|DATA_DIR| compute
-    compute -->|OUTPUT_DIR| results["S3 results<br/>Outputs, logs, receipt"]
-```
+![A pinned GitHub commit and verified S3 dataset feed the non-root EC2 workspace, which saves outputs, logs and a receipt to S3.](docs/diagrams/code-and-data.svg)
 
-Datasets and results share the private, encrypted, versioned **workload bucket**.
-OpenTofu state has a separate **state bucket**. Your project owns dependencies
-and ML logic; the deployer verifies dataset versions and persisted outputs.
+Your project handles dependencies and training. The deployer checks dataset
+versions and saved outputs. Datasets and results live in a private, encrypted,
+versioned **workload bucket**; OpenTofu state lives in a separate **state bucket**.
 
-New projects use `<project>-storage-<account>-<region>` and
-`<project>-state-<account>-<region>`. Browse inputs under `datasets/<source>/`
-and outputs under `results/<workspace>/`; each version/run starts with its UTC
-date and time. Existing foundations keep their original names and layout.
-See [storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
+Find inputs under `datasets/<source>/` and outputs under `results/<workspace>/`,
+with UTC timestamps for each version or run. See
+[bucket names and storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
 
-In `workspace` mode, setup runs without training; use `connect` for a Session
-Manager terminal with no inbound network rules. Compute stays until `cancel`
-or expiry.
+For an interactive session, choose `workspace` mode: it runs setup without
+training. Use `connect` to open a Session Manager terminal; no inbound ports
+are needed. The machine stays until you run `cancel` or it expires.
 
 ## Progress and operations
 
@@ -86,10 +68,10 @@ or expiry.
 ./workspace ~/aws-workspace/demo/project.json status --wait 30
 ```
 
-Use `logs`, `connect`, `resume` or `cancel` in place of `status --wait 30`.
-Keep ignored `evidence/` intact for recovery. See the
-[operations guide](docs/operations/aws-deploy-operation.md) for approval hashes,
-failure handling and cleanup rules.
+Replace `status --wait 30` with `logs`, `connect`, `resume` or `cancel` as needed.
+Keep `evidence/` for recovery; Git ignores it. The
+[operations guide](docs/operations/aws-deploy-operation.md) covers approvals,
+recovery and cleanup.
 
 <details>
 <summary>Deployment log stages</summary>
