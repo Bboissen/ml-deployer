@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="572" viewBox="0 0 1040 572" role="img" aria-labelledby="title description">
+  <title id="title">What the deployer wires up in your AWS account</title>
+  <desc id="description">After you approve, the deployer: 1 uploads your dataset to the S3 workload bucket and verifies it; 2 gives EC2 an IAM role scoped to that dataset and its results folder, then launches EC2; 3 EC2 clones your GitHub code; 4 EC2 copies the dataset from S3 into local DATA_DIR and runs make setup and make train; 5 EC2 saves OUTPUT_DIR, logs and a receipt to S3. The deployer verifies the results and removes EC2. An AWS-enforced deadline removes EC2 even if you disconnect.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#c2410c"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+    .heading { font-size: 20px; font-weight: 700; }
+    .label { font-size: 19px; font-weight: 600; }
+    .detail { font-size: 16px; fill: #475569; }
+    .code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 17px; font-weight: 600; }
+    .step { font-size: 16px; font-weight: 700; fill: #c2410c; }
+    .flow { fill: none; stroke: #c2410c; stroke-width: 2.5; marker-end: url(#arrow); }
+  </style>
+  <rect width="1040" height="572" rx="12" fill="#ffffff"/>
+
+  <text class="heading" x="16" y="36">On your computer</text>
+  <rect x="16" y="56" width="254" height="100" rx="8" fill="#fff7ed" stroke="#fdba74"/>
+  <text class="label" x="34" y="88">ml-deployer</text>
+  <text class="detail" x="34" y="114">You review and type deploy;</text>
+  <text class="detail" x="34" y="136">it does steps 1–5</text>
+  <rect x="16" y="228" width="254" height="100" rx="8" fill="#fff7ed" stroke="#fdba74"/>
+  <text class="label" x="34" y="262">Your dataset</text>
+  <text class="detail" x="34" y="288">Local files, S3 or HTTPS URL</text>
+
+  <rect x="780" y="8" width="244" height="72" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text class="label" x="798" y="38">GitHub repository</text>
+  <text class="detail" x="798" y="62">Your ML code, pinned commit</text>
+
+  <rect x="350" y="128" width="674" height="432" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+  <text class="heading" x="370" y="160">Your AWS account</text>
+
+  <rect x="370" y="176" width="280" height="300" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text class="label" x="386" y="206">S3 workload bucket</text>
+  <text class="detail" x="386" y="230">Private, encrypted, versioned</text>
+  <rect x="386" y="246" width="248" height="64" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+  <text class="code" x="402" y="273">datasets/</text>
+  <text class="detail" x="402" y="296">Reused while unchanged</text>
+  <rect x="386" y="386" width="248" height="64" rx="6" fill="#ffffff" stroke="#93c5fd"/>
+  <text class="code" x="402" y="413">results/</text>
+  <text class="detail" x="402" y="436">Outputs, logs, receipt</text>
+
+  <rect x="740" y="176" width="264" height="300" rx="8" fill="#f0fdf4" stroke="#86b89a"/>
+  <text class="label" x="756" y="206">EC2 workspace</text>
+  <text class="detail" x="756" y="230">Temporary, non-root</text>
+  <rect x="756" y="246" width="232" height="64" rx="6" fill="#ffffff" stroke="#86b89a"/>
+  <text class="code" x="772" y="273">DATA_DIR</text>
+  <text class="detail" x="772" y="296">Local copy of inputs</text>
+  <text class="code" x="772" y="346">make setup</text>
+  <text class="code" x="772" y="370">make train</text>
+  <rect x="756" y="386" width="232" height="64" rx="6" fill="#ffffff" stroke="#86b89a"/>
+  <text class="code" x="772" y="413">OUTPUT_DIR</text>
+  <text class="detail" x="772" y="436">Files your code writes</text>
+
+  <text class="detail" x="370" y="512">EC2's IAM role reads only this dataset and writes only its results.</text>
+  <text class="detail" x="370" y="538">The deployer then verifies results and removes EC2; an AWS deadline backs this up.</text>
+
+  <path class="flow" d="M 270 278 H 384"/>
+  <text class="step" x="280" y="268">1 Upload</text>
+  <path class="flow" d="M 270 106 H 800 V 174"/>
+  <text class="step" x="290" y="96">2 Grant S3 access, launch EC2</text>
+  <path class="flow" d="M 912 80 V 174"/>
+  <text class="step" x="922" y="112">3 Clone</text>
+  <path class="flow" d="M 634 278 H 754"/>
+  <text class="step" x="660" y="268">4 Copy</text>
+  <path class="flow" d="M 756 418 H 636"/>
+  <text class="step" x="660" y="408">5 Save</text>
+</svg>

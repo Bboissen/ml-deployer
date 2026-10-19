@@ -1,9 +1,15 @@
 # ml-deployer
 
-Run your ML project in your own AWS account. Choose a GitHub repository and a
-dataset; after you approve deployment, the deployer uploads the data to S3,
-connects EC2 to it, runs your code and saves the results back to S3.
-It handles storage, permissions, data transfers and machine cleanup for you.
+Run your ML project on AWS without wiring AWS yourself. Point it at a GitHub
+repository and a dataset, review the plan and type `deploy`. The deployer
+uploads your dataset to S3, gives a temporary EC2 machine access to exactly
+that data, runs your code there and saves the results back to S3.
+
+![The deployer uploads your dataset to S3, grants EC2 scoped S3 access and launches it; EC2 clones your code, copies the data into DATA_DIR, runs make setup and make train, and saves OUTPUT_DIR back to S3.](docs/diagrams/how-it-works.svg)
+
+You never create buckets, IAM roles, EC2 credentials or copy commands. Your
+code reads local files in `DATA_DIR` and writes to `OUTPUT_DIR`; the deployer
+moves them to and from S3 and verifies every transfer.
 
 ## Start
 
@@ -40,34 +46,25 @@ To delete saved results, use `make s3-clean`; add `DRY_RUN=1` to preview or
 typed confirmation. Buckets and infrastructure state remain.
 See [S3 cleanup](docs/operations/aws-deployer-quickstart.md#s3-cleanup).
 
-## How deployment works
+## What happens when you deploy
 
-![Configure, check and approve; then upload the dataset to S3, connect EC2, run the job and save results.](docs/diagrams/deployment.svg)
+1. **Review.** The deployer shows one plan: account, commit, dataset, machine
+   size, hourly price and maximum lifetime. Typing `deploy` approves exactly that.
+2. **Upload your dataset to S3.** A local file or folder, an S3 source or a
+   public HTTPS URL. Unchanged data reuses the verified upload.
+3. **Connect EC2 to S3.** The first run creates the buckets, network,
+   permissions and expiry guard; later runs reuse them. The machine's IAM role
+   can read only this dataset and write only this run's results.
+4. **Run your code.** EC2 clones your repository, copies the data into
+   `DATA_DIR` and runs `make setup` then `make train` as a non-root user.
+5. **Save results.** Declared outputs, logs and an execution receipt go to S3
+   and are verified. Then EC2 is removed; your storage stays. AWS enforces the
+   deadline even if you disconnect.
 
-The first deployment creates the buckets, network, permissions and expiry guard;
-later runs reuse them. AWS enforces the deadline even if you disconnect. After a
-job, the machine is removed and your storage stays.
-
-## Code and data flow
-
-![The deployer uploads your dataset to S3, stages it on EC2 alongside your GitHub code, and uploads results back to S3.](docs/diagrams/code-and-data.svg)
-
-After approval, the deployer handles the full path:
-
-1. **Upload your dataset to S3.** It accepts a local file or folder, an S3 source
-   or a public HTTPS URL. Unchanged data reuses the verified upload.
-2. **Connect EC2 to your storage.** It creates the permissions, checks the data
-   and copies it onto the machine. Your code reads local files in `DATA_DIR`.
-3. **Save results back to S3.** Your code writes to `OUTPUT_DIR`; the deployer
-   uploads the declared outputs, logs and execution receipt, then verifies them.
-
-Your project supplies dependencies and training code. The deployer handles the
-AWS wiring—no manual bucket setup, EC2 credentials or copy commands.
-Datasets and results stay in a private, encrypted, versioned **workload bucket**;
-OpenTofu state has a separate **state bucket**.
-
-Find inputs under `datasets/<source>/` and outputs under `results/<workspace>/`,
-with UTC timestamps for each version or run. See
+Datasets and results live in a private, encrypted, versioned **workload
+bucket**: inputs under `datasets/<source>/`, outputs under
+`results/<workspace>/`, with UTC timestamps for each version or run.
+OpenTofu state has a separate **state bucket**. See
 [bucket names and storage paths](docs/operations/aws-deployer-quickstart.md#7-outputs-and-cleanup).
 
 For an interactive session, choose `workspace` mode: it runs setup without
@@ -110,4 +107,4 @@ are JSON on stdout.
 
 Release candidate `0.1.0-rc.1`; see [native acceptance status](docs/operations/aws-native-acceptance.md).
 
-[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Goals](goal/README.md) · [MIT license](LICENSE)
+[Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
