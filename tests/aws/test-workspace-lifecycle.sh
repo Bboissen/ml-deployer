@@ -187,6 +187,26 @@ class SDKSessionBoundary(unittest.TestCase):
         sts.assume_role=Mock(side_effect=ValueError('invalid request'))
         with patch.object(LIFE['time'],'sleep') as sleep,self.assertRaises(ValueError): assume(base,arn)
         sleep.assert_not_called()
+        # The fresh session can lag its trust: GetCallerIdentity is retried on
+        # the same bounded budget, then the exact identity is still enforced.
+        class Invalid(Exception): response={'Error':{'Code':'InvalidClientTokenId'}}
+        class Other(Exception): response={'Error':{'Code':'ExpiredToken'}}
+        sts.assume_role=Mock(return_value=credentials)
+        for errors,outcome in (([Denied(),Invalid()],None),([Invalid()]*6,Invalid),([Other()],Other)):
+            calls=iter(errors)
+            def lagging():
+                error=next(calls,None)
+                if error: raise error
+                return identity
+            fresh=types.SimpleNamespace(client=lambda *a,**k:types.SimpleNamespace(meta=sts.meta,get_caller_identity=lagging))
+            self.boto.Session=lambda fresh=fresh,**kwargs:fresh
+            with self.subTest(errors=len(errors),outcome=outcome),patch.object(LIFE['time'],'sleep') as sleep:
+                if outcome:
+                    with self.assertRaises(outcome): assume(base,arn)
+                else:
+                    self.assertEqual(assume(base,arn),(fresh,expected))
+                self.assertEqual(sleep.call_count,0 if outcome is Other else min(len(errors),5))
+        self.boto.Session=lambda **kwargs:assumed
         sts.assume_role=Mock(return_value=credentials); identity['Arn']=expected.replace('/launch/','/other/')
         with self.assertRaisesRegex(LIFE['Failure'],'assumed identity mismatch'): assume(base,arn)
     def test_global_iam_requires_exact_endpoint_and_partition(self):
