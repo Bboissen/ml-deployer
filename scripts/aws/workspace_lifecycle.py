@@ -436,18 +436,22 @@ def sessions(target):
                       ' --region '+target['region']+'; then rerun the original command for a fresh review') from None
     require(observed['Account'] == target['account_id'] and operator_matches(target['operator_arn'], observed['Arn']), 'SDK operator differs from named target')
     def assume(session, arn):
-        # New role trust can become visible after the preparation apply returns.
-        # Retry only that denial, with no delay once the exact role is usable.
+        # A new role becomes usable in two steps after the preparation apply
+        # returns: its trust (AssumeRole AccessDenied), then the fresh session
+        # (GetCallerIdentity, which no policy can deny, answers AccessDenied or
+        # InvalidClientTokenId). Retry only those propagation denials, bounded,
+        # with no delay once the exact role is usable.
         for attempt in range(6):
             try:
                 credentials = client(session,'sts').assume_role(RoleArn=arn,RoleSessionName='workspace-preflight',DurationSeconds=900)['Credentials']
+                assumed = boto3.Session(aws_access_key_id=credentials['AccessKeyId'],aws_secret_access_key=credentials['SecretAccessKey'],
+                                       aws_session_token=credentials['SessionToken'],region_name=target['region'])
+                result = client(assumed,'sts').get_caller_identity()
                 break
             except Exception as error:
-                if attempt==5 or getattr(error,'response',{}).get('Error',{}).get('Code')!='AccessDenied': raise
+                code = getattr(error,'response',{}).get('Error',{}).get('Code')
+                if attempt==5 or code not in ('AccessDenied','InvalidClientTokenId'): raise
                 time.sleep(2)
-        assumed = boto3.Session(aws_access_key_id=credentials['AccessKeyId'],aws_secret_access_key=credentials['SecretAccessKey'],
-                               aws_session_token=credentials['SessionToken'],region_name=target['region'])
-        result = client(assumed,'sts').get_caller_identity()
         prefix = f"arn:aws:sts::{target['account_id']}:assumed-role/{arn.rsplit('/',1)[1]}/"
         require(result['Account'] == target['account_id'] and result['Arn'].startswith(prefix), 'SDK assumed identity mismatch')
         return assumed, result['Arn']
