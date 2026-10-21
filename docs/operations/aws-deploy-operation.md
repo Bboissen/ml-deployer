@@ -93,7 +93,9 @@ attributes. Each policy must match its original before or after value; recovery
 can finish those updates or record that they already completed. It cannot create
 or delete resources, replay a consumed plan, or adopt unrelated policy drift.
 The exact live policies are read again before apply, so changes outside OpenTofu
-also stop a stale saved plan. Repeated interruptions preserve the entire recovery chain. An uncertain
+also stop a stale saved plan. A plan the planner refused never gets a review or
+an apply receipt; resume reports it and settles the operation as a failure
+without recovery, so a new review can follow. Repeated interruptions preserve the entire recovery chain. An uncertain
 retirement apply without a verifiable success receipt still stops for ownership
 reconciliation.
 
