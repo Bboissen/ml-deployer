@@ -14,11 +14,14 @@ repository owns dependencies, data content, ML scripts and results.
 | --- | --- | --- |
 | Guided first use | `make` installs pinned tools, asks for project settings, saves the file and offers native sign-in; a read-only companion page shows progress | Implemented; offline and clean-container coverage |
 | Reviewed deploy | One immutable scope (account, zone, commit, bytes, size, price, lifetime), one confirmation bound to its hash, durable recovery | Implemented offline; [native acceptance](docs/operations/aws-native-acceptance.md) pending |
+| Batch | One review for N job-mode project files, each with its own scope hash; one at a time, bounded launch retries, durable stop and continue, S3 result manifest | Implemented offline; native acceptance pending |
 | Bounded workspace | Non-root toolbox on EC2, S3 data/output prefixes, Session Manager terminal, provider-side expiry guard | Private job accepted natively; generic acceptance pending |
 | Release | Deterministic archive and standalone installer from committed source | Candidate `0.1.0-rc.1` |
 
 Out of scope: other clouds, GPU workspaces, distributed frameworks, persistent
-ML services and any ML code, dependencies or data transformation.
+ML services, job scheduling, dependencies between jobs, experiment selection,
+spending limits (AWS billing owns them) and any ML code, dependencies or data
+transformation.
 
 ## Principles
 

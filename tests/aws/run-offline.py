@@ -26,6 +26,7 @@ DEFAULT_TESTS = [
     'tests/aws/test-workspace-ingest.py',
     'tests/aws/test-workspace-generic-job.py',
     'tests/aws/test-workspace-deploy.py',
+    'tests/aws/test-workspace-batch.py',
     'tests/aws/test-workspace-s3-cleanup.py',
     'tests/aws/test-workspace-release.py',
     'tests/aws/test-workspace-e2e.sh',

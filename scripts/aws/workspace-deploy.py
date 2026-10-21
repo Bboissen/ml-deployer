@@ -186,7 +186,7 @@ def disk_fit(L,selected,dataset_bytes,output_bytes):
             'cost':'fixed gp3 root volume, no added cost'}
 
 
-def prepare(W,config,directory=None):
+def prepare(W,config,directory=None,instance_type=None):
     L=W['L']; modules=extensions(L); P,O,I= (modules[k] for k in ('config','onboarding','ingest'))
     if directory:
         status=P.operation_status(L,config,directory); directory=L['checked_path'](directory)
@@ -206,6 +206,11 @@ def prepare(W,config,directory=None):
     if rebinding: L['require'](not migration['required'],'apply the pending deployer IAM migration with the original operator before rebinding')
     capacity=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'),
                         availability_zone=platform['availability_zone'] if platform else None)
+    if instance_type:
+        # A batch keeps the size its review pinned; no re-sizing between jobs.
+        pinned=[c for c in capacity['candidates'] if c['instance_type']==instance_type]
+        L['require'](pinned,'reviewed size '+instance_type+' no longer fits remaining quota/offering/price ceiling')
+        capacity={**capacity,'selected':pinned[0]}
     adapter=I.source_adapter({**deployment['dataset'],'maximum_bytes':project['dataset'].get('maximum_bytes',640*1024**3)},client(base,'s3'),project['region'])
     records=adapter.inventory(time.monotonic()+3600); total=sum(r['bytes'] for r in records)
     L['require'](total<=project['dataset'].get('maximum_bytes',total),'dataset exceeds configured transfer ceiling')
