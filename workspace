@@ -35,6 +35,13 @@ Deploy and operate (Deploy is the default command):
                                                --include-datasets also includes shared inputs; --dry-run only previews
   workspace project.json resume                Reconcile an interrupted operation; never repeats a launch
 
+Batch (several job-mode project files, one at a time):
+  workspace batch A.json B.json ...            Review every job once, confirm once interactively, then run
+  workspace batch A.json B.json ... --authorization TEXT   Run or continue the reviewed batch
+                                               --launch-attempts N (default 3) retries jobs that never started
+                                               --max-failures N (default 2) stops after consecutive job failures
+  workspace batch status [BATCH_ID]            Show the latest (or given) batch manifest
+
 Repair:
   make clean                                  Remove interrupted managed-tool builds
   make fclean                                 Remove managed tools, project settings and AWS sign-in
@@ -51,6 +58,7 @@ for deployment options.
 HELP
     exit 0 ;;
   setup|login|auth-check|github-login|identity-center) ;;
+  batch) export WORKSPACE_CALLER_DIR="$PWD" ;;
   guide) shift; exec bash "$repo_root/scripts/aws/workspace-guide.sh" "$@" ;;
   doctor)
     shift

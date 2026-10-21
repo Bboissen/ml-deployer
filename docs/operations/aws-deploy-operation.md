@@ -32,6 +32,8 @@ foundation, access, prepare, launch and teardown stages need no repeated prompt.
 A changed configuration/source requires another review. `--operation` can select
 an earlier operation explicitly; operators need not copy state paths or hashes.
 Configuration paths are resolved before the CLI changes its working directory.
+To run several job-mode project files in order with one review, see
+[batch](aws-batch.md).
 
 The ordered stages are artifacts, state/bootstrap and platform, any reviewed
 retained IAM update, optional private repository access, ingestion, guarded

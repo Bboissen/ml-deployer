@@ -84,7 +84,8 @@ are needed. The machine stays until you run `cancel` or it expires.
 Replace `status --wait 30` with `logs`, `connect`, `resume` or `cancel` as needed.
 Keep `evidence/` for recovery; Git ignores it. The
 [operations guide](docs/operations/aws-deploy-operation.md) covers approvals,
-recovery and cleanup.
+recovery and cleanup. To run several project files one after another with a
+single review, use [`./workspace batch`](docs/operations/aws-batch.md).
 
 <details>
 <summary>Deployment log stages</summary>

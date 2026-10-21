@@ -54,15 +54,13 @@ def pages(L, api, operation, result, **arguments):
     raise ValueError('provider inventory pagination exhausted')
 
 
-def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone=None):
-    catalog = L['supported_sizes'](); ec2 = client(base, 'ec2')
-    images = ec2.describe_images(ImageIds=[L['TOOLBOX']['ami_id']], Owners=['137112412989'])['Images']
-    L['require'](len(images) == 1 and images[0]['State'] == 'available' and images[0]['Architecture'] == 'x86_64'
-                 and images[0]['Name'] == L['TOOLBOX']['ami_name'] and images[0]['EnaSupport'], 'supported image provenance differs')
+def vcpu_usage(L, base, client, types=()):
+    """Standard On-Demand vCPU quota, conservative account-wide use and type metadata."""
+    ec2 = client(base, 'ec2')
     reservations = pages(L, ec2, 'describe_instances', 'Reservations', MaxResults=100,
                          Filters=[{'Name':'instance-state-name','Values':['pending','running','stopping','stopped','shutting-down']}])
     instances = [i for r in reservations for i in r['Instances']]
-    types = sorted(set(catalog) | {i['InstanceType'] for i in instances})
+    types = sorted(set(types) | {i['InstanceType'] for i in instances})
     observed = {}
     for offset in range(0, len(types), 100):
         for item in pages(L, ec2, 'describe_instance_types', 'InstanceTypes', InstanceTypes=types[offset:offset+100]):
@@ -71,6 +69,15 @@ def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone
     quota = client(base, 'service-quotas').get_service_quota(ServiceCode='ec2', QuotaCode='L-1216C47A')['Quota']['Value']
     # Conservative: do not discount other families, stopped or reserved use.
     used = sum(observed[i['InstanceType']]['VCpuInfo']['DefaultVCpus'] for i in instances)
+    return quota, used, observed
+
+
+def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone=None):
+    catalog = L['supported_sizes'](); ec2 = client(base, 'ec2')
+    images = ec2.describe_images(ImageIds=[L['TOOLBOX']['ami_id']], Owners=['137112412989'])['Images']
+    L['require'](len(images) == 1 and images[0]['State'] == 'available' and images[0]['Architecture'] == 'x86_64'
+                 and images[0]['Name'] == L['TOOLBOX']['ami_name'] and images[0]['EnaSupport'], 'supported image provenance differs')
+    quota, used, observed = vcpu_usage(L, base, client, catalog)
     zones = sorted(z['ZoneName'] for z in ec2.describe_availability_zones()['AvailabilityZones']
                    if z['State'] == 'available' and z.get('OptInStatus') in (None, 'opt-in-not-required', 'opted-in'))
     if availability_zone:

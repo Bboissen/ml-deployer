@@ -158,6 +158,9 @@ def guest_commands(value, config):
 
 def main():
     os.umask(0o077)
+    if sys.argv[1:2] == ['batch']:
+        from workspace_batch import main as batch
+        sys.exit(batch(globals(), sys.argv[2:]))
     parser = argparse.ArgumentParser(description='AWS workspace: one project config, reviewed saved plans, non-root terminal, S3 and teardown.')
     parser.add_argument('config')
     sub = parser.add_subparsers(dest='verb', required=True)
@@ -275,5 +278,5 @@ if __name__ == '__main__':
     except Exception as exc:
         reason=str(exc) if isinstance(exc,(L['Failure'],ValueError)) else 'stage failed: '+type(exc).__name__+'; use status/auth-check to reconcile'
         print('aws-workspace: FAIL: '+reason, file=sys.stderr)
-        if len(sys.argv)>1 and not sys.argv[1].startswith('-'): print('aws-workspace: ./workspace doctor '+shlex.quote(sys.argv[1])+' lists the next step', file=sys.stderr)
+        if len(sys.argv)>1 and not sys.argv[1].startswith('-') and sys.argv[1]!='batch': print('aws-workspace: ./workspace doctor '+shlex.quote(sys.argv[1])+' lists the next step', file=sys.stderr)
         sys.exit(2)
