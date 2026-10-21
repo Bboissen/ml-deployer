@@ -37,6 +37,17 @@ trust; it does not sandbox the external project's code.
   only previews. Request intents and a pending receipt precede deletion;
   success requires a fresh empty-prefix check and a verified receipt. It grants
   no additional IAM permissions or retention bypass.
+- **Long sign-in without keys.** `./workspace identity-center` reviews one
+  scope hash before creating an Identity Center permission set that may only
+  assume an owner-managed operator role. The role trusts only that permission
+  set's AWS-reserved role. New `~/.aws/config` sections are appended and existing
+  ones are never edited. A longer portal session means anyone using the
+  workstation account can deploy until it ends; see
+  [Identity Center sign-in](docs/operations/aws-identity-center.md).
+- **Reviewed operator rebinding.** Moving a retained foundation to another
+  operator is a line in the deploy review bound to its scope hash. Its saved plan
+  may change only the deployer trust's principal and the matching
+  operator-mutation denial.
 - **Sign-in recovery before review.** Interactive Deploy and S3 cleanup offer
   native AWS browser sign-in when the selected console/SSO session has expired.
   Successful sign-in continues to a fresh review with the normal identity checks;

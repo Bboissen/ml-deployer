@@ -14,6 +14,9 @@ These steps establish basic access; they do not authorize resource creation.
    network, IAM roles and permissions boundaries, the Lambda/Scheduler guard
    and its alarms. Deploy checks the exact permissions against its saved plans.
 5. Do not create an IAM access key for this repository.
+6. Optional, for unattended jobs longer than the 12-hour console sign-in: set
+   up [IAM Identity Center sign-in](../operations/aws-identity-center.md) with
+   `./workspace identity-center`.
 
 ## Workstation
 

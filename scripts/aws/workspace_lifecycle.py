@@ -713,7 +713,7 @@ def compare_platform_alarms(plan,details):
 
 def reviewed_platform_plan(preparation):
     """Targeted credential plans retain the full platform through bound receipts."""
-    edge=preparation['dependencies']; seen=set(); bindings=[]; newer=None
+    edge=preparation['dependencies']; seen=set(); bindings=[]; newer=None; expected=preparation['target']; rebound=False
     for _ in range(32):
         require(len(edge)==1,'platform evidence requires one exact dependency')
         binding=edge[0]; directory=checked_path(binding['directory'])
@@ -722,16 +722,21 @@ def reviewed_platform_plan(preparation):
         review=read(directory/'review.json'); receipt=read(directory/'apply-result.json')
         require(sha(canon(review))==binding['review_sha256'] and sha(canon(receipt))==binding['receipt_sha256'],
                 'platform dependency receipt changed')
-        require(receipt['status']=='success' and prior_source(review['source']) and
-                review['target_name']==preparation['target_name'] and review['target']==preparation['target'],
-                'platform dependency target/source/apply mismatch')
         config=read(directory/'config.tfvars.json'); plan=read(directory/'plan.json')
+        rebinding=newer is not None and newer.get('deployer_principal_arns')!=config.get('deployer_principal_arns')
+        require(receipt['status']=='success' and prior_source(review['source']) and
+                review['target_name']==preparation['target_name'] and (rebinding or review['target']==expected),
+                'platform dependency target/source/apply mismatch')
         require(sha(canon(config))==review['config_sha256'] and
                 sha((directory/'plan.json').read_bytes())==review['plan_json_sha256'] and
                 sha((directory/'saved.tfplan').read_bytes())==review['plan_sha256'],'platform evidence drift')
+        if rebinding:
+            # A reviewed operator rebinding is the only edge that changes trust.
+            require(rebound,'platform dependency changes its operator outside a rebinding plan')
+            operator_rebinding(review['target'],expected,config,newer); expected=review['target']
         if newer is not None:
-            require({k:v for k,v in newer.items() if k!='workspace_git_secret_arns'}==
-                    {k:v for k,v in config.items() if k!='workspace_git_secret_arns'},
+            require({k:v for k,v in newer.items() if k not in ('workspace_git_secret_arns','deployer_principal_arns')}==
+                    {k:v for k,v in config.items() if k not in ('workspace_git_secret_arns','deployer_principal_arns')},
                     'credential dependency changed retained platform inputs')
         bindings.append(binding)
         if review['stage'] in ('platform','fresh-platform'): return plan,bindings
@@ -741,9 +746,11 @@ def reviewed_platform_plan(preparation):
                       if r['mode']=='managed' and r['change']['actions']!=['no-op']]
         projects=config.get('workspace_git_secret_arns',{})
         require(len(projects)<=1,'credential dependency must select at most one project')
-        allowed={'aws_iam_role_policy.deployer'} | {
-            'aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']' for project in projects}
         recovery=review.get('recovery')
+        rebound=any(s['address']=='aws_iam_role.deployer' for s in access_scope) or \
+            'aws_iam_role.deployer' in (recovery or {}).get('access_changes',{})
+        allowed={'aws_iam_role_policy.deployer','aws_iam_role.deployer'} | {
+            'aws_iam_policy.project_workspace_boundary['+json.dumps(project)+']' for project in projects}
         require(review['stage']=='workspace-access' and access_scope==review['scope'] and (access_scope or recovery) and
                 all(s['address'] in allowed and s['actions']==['update'] for s in access_scope),
                 'platform dependency is not a closed credential access plan')
@@ -950,13 +957,31 @@ def validate_config(config, target, stage):
     require(utc(config['lease']['starts_at']) < utc(config['lease']['launch_before']) <= utc(config['lease']['starts_at'])+dt.timedelta(minutes=5),'invalid launch window')
     require(utc(config['lease']['expires_at'])==utc(config['lease']['starts_at'])+dt.timedelta(minutes=request['maximum_runtime_minutes']),'lease extends/shortens request')
 
-def deployer_access_scope(before, after, variables):
+def operator_rebinding(older, newer, older_config, newer_config):
+    """Only the operator identity (and its local profile name) may change between platform receipts."""
+    rest=lambda t:{k:v for k,v in t.items() if k not in ('operator_arn','profile')}
+    old,new=older['operator_arn'],newer['operator_arn']
+    require(rest(older)==rest(newer) and old!=new, 'dependency target configuration differs')
+    require(older_config['deployer_principal_arns']==[old] and newer_config['deployer_principal_arns']==[new],
+            'operator rebinding must replace exactly the reviewed operator')
+    return {'from':old,'to':new}
+
+def deployer_access_scope(before, after, variables, rebinding=None):
     """Permit only the reviewed document addition and removal of caller escalation."""
     def values(value):
         return value if isinstance(value, list) else [value]
 
     old={s['Sid']:s for s in before['Statement']}; new={s['Sid']:s for s in after['Statement']}
     require(len(old)==len(before['Statement']) and len(new)==len(after['Statement']), 'duplicate deployer statement IDs')
+    if rebinding:
+        # The operator self-mutation denial follows the rebound trust exactly.
+        denial='DenyReviewedOperatorPolicyMutation'
+        require(denial in old and denial in new and 'ManageReviewedNamedOperatorWorkspaceGrant' not in old and
+                sorted(values(old[denial]['Resource']))==sorted(rebinding['from']) and
+                sorted(values(new[denial]['Resource']))==sorted(rebinding['to']) and
+                {k:v for k,v in old[denial].items() if k!='Resource'}=={k:v for k,v in new[denial].items() if k!='Resource'},
+                'operator rebinding changes unrelated deployer denial')
+        old[denial]=new[denial]
     sid='ManageReviewedNonRootTerminalDocuments'
     original=old.pop(sid); updated=new.pop(sid)
     resources=values(original['Resource']); changed=values(updated['Resource'])
@@ -991,6 +1016,36 @@ def deployer_access_scope(before, after, variables):
             {k:v for k,v in after.items() if k!='Statement'}, 'job access changes unrelated deployer permissions')
 
 
+def policy_field(address):
+    # An operator rebinding also updates the deployer trust document.
+    return 'assume_role_policy' if address=='aws_iam_role.deployer' else 'policy'
+
+
+def trust_rebinding(item, principals):
+    """The deployer trust may change only its AWS principals to the reviewed operators."""
+    before,after=item['change']['before'],item['change']['after']
+    require(item['change']['actions']==['update'] and all(isinstance(side.get('assume_role_policy'),str) for side in (before,after)),
+            'operator rebinding requires a known in-place deployer trust update')
+    require({k:v for k,v in before.items() if k!='assume_role_policy'}=={k:v for k,v in after.items() if k!='assume_role_policy'},
+            'operator rebinding changes unrelated deployer role attributes')
+    old,new=(json.loads(side['assume_role_policy']) for side in (before,after))
+    def principal(document):
+        statements=document.get('Statement')
+        require(isinstance(statements,list) and len(statements)==1 and isinstance(statements[0],dict) and
+                set(statements[0])<={'Sid','Effect','Action','Principal'} and statements[0].get('Effect')=='Allow' and
+                statements[0].get('Action') in ('sts:AssumeRole',['sts:AssumeRole']) and
+                isinstance(statements[0].get('Principal'),dict) and set(statements[0]['Principal'])=={'AWS'},
+                'deployer trust shape differs from the reviewed source')
+        value=statements[0]['Principal']['AWS']
+        return sorted(value if isinstance(value,list) else [value])
+    previous=principal(old)
+    require(principal(new)==sorted(principals) and previous!=sorted(principals) and
+            {**old,'Statement':[{k:v for k,v in old['Statement'][0].items() if k!='Principal'}]}==
+            {**new,'Statement':[{k:v for k,v in new['Statement'][0].items() if k!='Principal'}]},
+            'operator rebinding changes more than the trusted operator')
+    return {'from':previous,'to':sorted(principals)}
+
+
 def runner_provider_scope(plan):
     configuration=plan.get('configuration',{})
     operator=configuration.get('provider_config',{}).get('aws.operator',{})
@@ -1016,6 +1071,10 @@ def verify_access_policies(plan, base, client):
             require(observed['RoleName']==before['role'] and observed['PolicyName']==before['name'],
                     'live access policy identity differs')
             policy=observed['PolicyDocument']
+        elif address=='aws_iam_role.deployer':
+            observed=iam.get_role(RoleName=before['name'])['Role']
+            require(observed['RoleName']==before['name'] and observed['Arn']==before['arn'], 'live deployer role identity differs')
+            policy=observed['AssumeRolePolicyDocument']
         elif address.startswith('aws_iam_policy.project_workspace_boundary['):
             observed=iam.get_policy(PolicyArn=before['arn'])['Policy']
             require(observed['Arn']==before['arn'], 'live access boundary identity differs')
@@ -1023,25 +1082,30 @@ def verify_access_policies(plan, base, client):
             require(version['IsDefaultVersion'], 'live access boundary default version changed')
             policy=version['Document']
         else: continue
-        require(policy==json.loads(before['policy']), 'live access policy changed after planning; replan and review')
+        require(policy==json.loads(before[policy_field(address)]), 'live access policy changed after planning; replan and review')
 
 
 def plan_scope(plan, stage, recovery=None):
-    mutations=[]
+    mutations=[]; rebinding=None
+    if stage=='workspace-access' and not recovery:
+        role=[r for r in plan.get('resource_changes',[]) if r['address']=='aws_iam_role.deployer' and r['change']['actions']!=['no-op']]
+        if role:
+            require(len(role)==1 and role[0].get('mode')=='managed','operator rebinding must update one deployer role')
+            rebinding=trust_rebinding(role[0],plan['variables']['deployer_principal_arns']['value'])
     for item in plan.get('resource_changes',[]):
         actions=item['change']['actions']; address=item['address']
         if stage=='workspace-access' and recovery:
-            changes=recovery['access_changes']
+            changes=recovery['access_changes']; field=policy_field(address)
             if address in changes:
                 require(actions in (['update'],['no-op']) and
-                        json.loads(item['change']['after']['policy'])==changes[address]['after'],
+                        json.loads(item['change']['after'][field])==changes[address]['after'],
                         'access recovery must finish the exact original policy update')
             if actions==['update']:
                 require(address in changes and item.get('mode')=='managed' and
-                        json.loads(item['change']['before']['policy']) in
+                        json.loads(item['change']['before'][field]) in
                         (changes[address]['before'],changes[address]['after']) and
-                        {k:v for k,v in item['change']['before'].items() if k!='policy'}==
-                        {k:v for k,v in item['change']['after'].items() if k!='policy'},
+                        {k:v for k,v in item['change']['before'].items() if k!=field}==
+                        {k:v for k,v in item['change']['after'].items() if k!=field},
                         'access recovery changes unreviewed policy or resource attributes')
                 mutations.append({'address':address,'actions':actions})
                 continue
@@ -1049,13 +1113,16 @@ def plan_scope(plan, stage, recovery=None):
         if actions in (['no-op'],['read']): continue
         require(item.get('mode')=='managed','unexpected mutation')
         if stage=='workspace-access':
-            projects=plan['variables']['workspace_git_secret_arns']['value']
+            projects=plan['variables'].get('workspace_git_secret_arns',{}).get('value',{})
+            if address=='aws_iam_role.deployer':
+                mutations.append({'address':address,'actions':actions})
+                continue
             if address=='aws_iam_role_policy.deployer':
                 require(actions==['update'],'job access cannot replace the deployer grant')
                 require(all(isinstance(item['change'][side].get('policy'),str) for side in ('before','after')),
                         'job access requires known exact deployer policy values')
                 before=json.loads(item['change']['before']['policy']); after=json.loads(item['change']['after']['policy'])
-                deployer_access_scope(before,after,plan['variables'])
+                deployer_access_scope(before,after,plan['variables'],rebinding)
                 require(all(item['change']['before'].get(k)==v for k,v in item['change']['after'].items() if k!='policy'),
                         'job access changes unrelated deployer attributes')
                 mutations.append({'address':address,'actions':actions})
@@ -1140,7 +1207,7 @@ def access_recovery_changes(plan, review, current, state, target, base, client):
             'original access recovery scope differs')
     changes=(review.get('recovery') or {}).get('access_changes')
     if changes is None:
-        changes={r['address']:{side:json.loads(r['change'][side]['policy']) for side in ('before','after')}
+        changes={r['address']:{side:json.loads(r['change'][side][policy_field(r['address'])]) for side in ('before','after')}
                  for r in plan['resource_changes'] if r['change']['actions']==['update']}
     require(changes, 'access recovery has no original reviewed policy changes')
 
@@ -1163,11 +1230,12 @@ def access_recovery_changes(plan, review, current, state, target, base, client):
     for address,attributes in retained.items():
         previous=baseline[address]
         if address in changes:
+            field=policy_field(address)
             for candidate in (previous,attributes):
-                require(json.loads(candidate['policy']) in (changes[address]['before'],changes[address]['after']),
+                require(json.loads(candidate[field]) in (changes[address]['before'],changes[address]['after']),
                         'access recovery contains an unreviewed policy')
-            attributes={k:v for k,v in attributes.items() if k!='policy'}
-            previous={k:v for k,v in previous.items() if k!='policy'}
+            attributes={k:v for k,v in attributes.items() if k!=field}
+            previous={k:v for k,v in previous.items() if k!=field}
         require(attributes==previous, 'access recovery changed retained resource attributes: '+address)
     return sorted(retained),changes
 
@@ -1327,13 +1395,20 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
                     require(credential['secret_arn'] in platform_config.get('workspace_git_secret_arns',{}).get(config['workspace_identity']['ml_project_name'],[]),
                             'runtime SSH requires a successful exact credential-boundary apply receipt')
             else:
-                require({k:v for k,v in config.items() if k!='workspace_git_secret_arns'}==
-                        {k:v for k,v in platform_config.items() if k!='workspace_git_secret_arns'},
+                require({k:v for k,v in config.items() if k not in ('workspace_git_secret_arns','deployer_principal_arns')}==
+                        {k:v for k,v in platform_config.items() if k not in ('workspace_git_secret_arns','deployer_principal_arns')},
                         'credential plan must preserve every existing foundation input')
         dependencies=[{'directory':str(dep),'review_sha256':sha(canon(prior)),'receipt_sha256':sha(canon(receipt))}]
     target,env,base,client,identities,state=context(target_name,stage,config)
     recovery=recovery_context(recover_from,target_name,stage,config,target,state,base,client) if recover_from else None
-    if dependencies:require(prior['target']==target,'dependency target configuration differs')
+    rebinding=None
+    if dependencies and stage=='workspace-access' and prior['target']!=target:
+        require(deployer_only,'operator rebinding requires a deployer-only access plan')
+        rebinding=operator_rebinding(prior['target'],target,platform_config,config)
+    elif dependencies:
+        require(prior['target']==target,'dependency target configuration differs')
+        if stage=='workspace-access':
+            require(config['deployer_principal_arns']==platform_config['deployer_principal_arns'],'access plan changes the trusted operator')
     if is_platform(stage): verify_artifact(config['workspace_guard']['zip_path'],config['workspace_guard']['zip_sha256'],'guard')
     else: verify_artifact(config['toolbox_zip_path'],config['toolbox_zip_sha256'],'toolbox')
     if stage=='fresh-platform' and not recovery:foundation['absent'](base,client,config)
@@ -1385,6 +1460,7 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     if stage=='workspace-access':
         if config.get('workspace_git_secret_arns') and not deployer_only: command.append(credential_plan_target(config))
         command.append('-target=aws_iam_role_policy.deployer')
+        if rebinding: command.append('-target=aws_iam_role.deployer')
     # Native readbacks above and below verify preparation independently. Avoid
     # asking the restricted launch identity to refresh unrelated control-plane
     # resources; it only needs to create its exact prepared instance.
@@ -1395,6 +1471,9 @@ def native_plan(target_name,stage,config_path,directory,dependency=None,recover_
     plan=json.loads(raw)
     if not is_platform(stage): runner_provider_scope(plan)
     scope=plan_scope(plan,stage,recovery)
+    if rebinding and not recovery:
+        require(scope==[{'address':'aws_iam_role.deployer','actions':['update']},{'address':'aws_iam_role_policy.deployer','actions':['update']}],
+                'operator rebinding plan must update exactly the deployer trust and its operator denial')
     if stage=='launch':
         compare_prepared_iam(plan,details,config)
         preparation=read(checked_path(dependency)/'review.json')

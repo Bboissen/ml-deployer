@@ -33,6 +33,7 @@ launch per reviewed operation; it does not cap total spending across runs.
 | --- | --- | --- |
 | Linux/macOS installation and login | Four platform branches, corrupt downloads, installer faults, archive/config round trip | Clean-host runtime pins, CLI/SDK identity and supported operator grants on both OS families |
 | Foundation/access | Multiple accounts/projects/roles, scope/lineage checks, partial-state recovery boundaries | Least-privilege operator, actual IAM propagation, outputs, private key ownership and alarm delivery |
+| Identity Center sign-in and operator rebinding | Mocked setup review/apply, append-only profiles, chained-profile login, exact trust/denial rebinding plans and launch-evidence edges | Portal sign-in, credential renewal past one role-credential lifetime without a browser, and a retained foundation rebound from a console operator, followed by a launch |
 | Local/S3/public HTTPS ingestion | Streaming, multipart aborts, source change, checksum/version checks | >1 MiB input, same-region source, immutable destination manifest, failed transfer before any launch |
 | Generic projects | Two command styles; setup/job/output failures; non-root and timeout boundaries; mocked dataset staging and its rejections | Two ordinary repositories reading `DATA_DIR` and writing `OUTPUT_DIR`, with durable declared outputs without fixture-specific result hashes |
 | Retained reuse | Two mocked Deploys reuse exact manifests without another upload | Second native operation rereads exact source/output versions and retains storage after compute absence |

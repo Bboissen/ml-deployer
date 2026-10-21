@@ -95,7 +95,20 @@ def profile_method(profile, region):
         return 'sso'
     if config.has_option(section, 'login_session'):
         return 'console'
+    if sign_in_profile(profile) != profile:
+        return 'sso'
     raise B['Failure']('this profile uses a credential process, temporary credentials or a source profile; renew its original native login instead')
+
+
+def sign_in_profile(profile):
+    """An operator role profile signs in through its Identity Center source profile."""
+    config, _ = B['profile_documents']()
+    seen = [profile]
+    while config.has_option('profile ' + seen[-1], 'source_profile') and len(seen) < 5:
+        seen.append(config.get('profile ' + seen[-1], 'source_profile'))
+    root = 'profile ' + seen[-1]
+    sso = config.has_option(root, 'sso_session') or config.has_option(root, 'sso_start_url')
+    return seen[-1] if len(seen) > 1 and sso else profile
 
 
 def ensure_login(profile, region, allow_login=True):
@@ -164,7 +177,7 @@ def login(profile, region, method, remote):
         if existing == 'new':
             interactive(['aws', 'configure', 'sso', '--profile', profile])
             require(profile_method(profile, region) == 'sso', 'SSO profile configuration did not finish')
-        command = ['aws', 'sso', 'login', '--profile', profile, '--region', region]
+        command = ['aws', 'sso', 'login', '--profile', sign_in_profile(profile), '--region', region]
         if remote:
             command += ['--no-browser', '--use-device-code']
     else:

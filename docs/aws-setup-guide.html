@@ -98,6 +98,7 @@ make</code></pre>
       <p><code>make</code> offers sign-in with the derived profile and opens the AWS browser flow. Over SSH it prints a link: open it on your laptop, finish signing in, then copy the authorization code AWS displays back into the waiting terminal prompt and press Enter. This repository never sees or stores a password or access key.</p>
 <pre><code>./workspace login --profile my-workspace --region us-east-1</code></pre>
       <p class="meta">Add <code>--method sso</code> for IAM Identity Center and <code>--remote</code> when the browser is on another device. Static access keys are refused. A successful login does not prove permission to create infrastructure; Deploy checks that against its saved plans.</p>
+      <p class="meta">Console sign-in lasts at most 12 hours. For longer unattended jobs, an account administrator runs <code>./workspace identity-center --profile ADMIN_PROFILE --region us-east-1 --user NAME</code> once; one sign-in then lasts for the Identity Center portal session, up to 90 days. See <a href="operations/aws-identity-center.md">Identity Center sign-in</a>.</p>
       <p class="meta"><code>./workspace login</code> runs native <code>aws login</code> with the project's pinned CLI, checks the profile for conflicting credentials, and verifies the resulting CLI and SDK identities. You can also run <code>aws login --profile my-workspace --region us-east-1 --remote</code> directly with a compatible CLI, then run <code>./workspace auth-check --profile my-workspace --region us-east-1</code>.</p>
       <div class="note warn"><p><strong>Browser shows “400 Bad Request”?</strong> Each sign-in link works once, for a few minutes, while the login command still waits. Press Ctrl+C, run the login again and use only the newly opened page.</p></div>
     </li>
@@ -146,6 +147,7 @@ make</code></pre>
     <tr><td>Commands in one page</td><td><a href="operations/aws-deployer-quickstart.md">Quickstart</a>, <code>./workspace --help</code></td></tr>
     <tr><td>Installer checks, flags and repair</td><td><a href="operations/aws-workstation-setup.md">Workstation setup</a></td></tr>
     <tr><td>What Deploy does and how recovery works</td><td><a href="operations/aws-deploy-operation.md">Deploy operation</a></td></tr>
+    <tr><td>Long sign-in for unattended jobs, moving a workspace to a new operator</td><td><a href="operations/aws-identity-center.md">Identity Center sign-in</a></td></tr>
     <tr><td>Account prerequisites</td><td><a href="account-setup/aws.md">AWS account setup</a></td></tr>
     <tr><td>Security, reporting, what is verified</td><td><a href="../SECURITY.md">SECURITY</a></td></tr>
     <tr><td>Contributing, releases, license</td><td><a href="../CONTRIBUTING.md">CONTRIBUTING</a>, <a href="../LICENSE">MIT</a></td></tr>

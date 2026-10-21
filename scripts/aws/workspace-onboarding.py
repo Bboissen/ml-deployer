@@ -24,7 +24,7 @@ def canonical_operator(L, identity, iam=None):
         # AWS owns SSO role grants; attaching arbitrary inline policies to them
         # would be overwritten by permission-set provisioning.
         L['require']('/aws-reserved/sso.amazonaws.com/' not in arn,
-                     'SSO requires an owner-managed non-reserved operator role; STS login alone is insufficient')
+                     'SSO requires an owner-managed non-reserved operator role; set one up with ./workspace identity-center')
     L['require'](re.fullmatch(r'arn:aws:iam::'+account+r':(?:user|role)/[A-Za-z0-9_+=,.@/-]+', arn), 'unsupported account-native operator')
     return arn
 
@@ -165,10 +165,24 @@ def capture(L, target_name, directory, output):
     return {'plan_directory':str(directory), 'outputs_file':str(output), 'outputs_sha256':L['sha'](output.read_bytes())}
 
 
-def verify_retained(L, binding, selected):
+def operator_rebinding(L, binding, selected):
+    """A retained foundation trusting another operator needs a reviewed rebinding first."""
+    directory = L['checked_path'](binding['plan_directory'])
+    prior = L['read'](directory/'review.json')['target']
+    if prior == selected: return None
+    config = L['read'](directory/'config.tfvars.json')
+    # Same checks as the native plan: only the operator and its local profile differ.
+    rebinding = L['operator_rebinding'](prior, selected, config, {**config, 'deployer_principal_arns':[selected['operator_arn']]})
+    L['require'](re.fullmatch(r'arn:aws:iam::'+selected['account_id']+r':(?:user|role)/[A-Za-z0-9_+=,.@/-]+', rebinding['to']) and
+                 '/aws-reserved/' not in rebinding['to'], 'rebinding needs an account-native non-reserved operator')
+    return rebinding
+
+
+def verify_retained(L, binding, selected, rebinding=None):
     directory = L['checked_path'](binding['plan_directory'])
     review = L['read'](directory/'review.json'); receipt = L['read'](directory/'apply-result.json')
-    L['require'](review['target']==selected and review['stage'] in ('fresh-platform','workspace-access') and receipt['status']=='success'
+    expected = selected if not rebinding else {**selected, 'operator_arn':rebinding['from'], 'profile':review['target']['profile']}
+    L['require'](review['target']==expected and review['stage'] in ('fresh-platform','workspace-access') and receipt['status']=='success'
                  and L['prior_source'](review['source']), 'retained foundation ownership/source mismatch')
     for name, field in (('saved.tfplan','plan_sha256'),('plan.json','plan_json_sha256')):
         L['require'](L['sha']((directory/name).read_bytes())==review[field], 'retained saved plan changed')
@@ -189,11 +203,11 @@ def verify_retained(L, binding, selected):
     return config
 
 
-def iam_migration(L, binding, selected):
+def iam_migration(L, binding, selected, rebinding=None):
     """Review the exact retained operator-policy tightening without mutation."""
     platform=L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
     operators=platform['deployer_principal_arns']
-    L['require'](operators==[selected['operator_arn']], 'retained IAM operators differ')
+    L['require'](operators==[rebinding['from'] if rebinding else selected['operator_arn']], 'retained IAM operators differ')
     role=selected['deployment_role_arn'].rsplit('/',1)[-1]
     base,client,_=L['sessions'](selected)
     observed=client(base,'iam').get_role_policy(RoleName=role,PolicyName=role)
@@ -229,6 +243,19 @@ def migrate_iam(L, target_name, binding, selected, reviewed, directory, authoriz
         L['require'](iam_migration(L,binding,selected)==reviewed,'retained IAM changed after review; prepare a new operation')
     platform=L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
     return apply_access(L,target_name,binding,platform,directory,authorization,iam_review=reviewed)
+
+
+def rebind_operator(L, target_name, binding, selected, rebinding, directory, authorization):
+    """Move the retained deployer trust and its self-mutation denial to the reviewed operator."""
+    directory=L['checked_path'](directory)
+    platform=L['read'](L['checked_path'](binding['plan_directory'])/'config.tfvars.json')
+    L['require'](platform['deployer_principal_arns']==[rebinding['from']] and selected['operator_arn']==rebinding['to'],
+                 'operator rebinding does not match reviewed scope')
+    if not directory.exists():
+        verify_retained(L,binding,selected,rebinding)
+        L['require'](not iam_migration(L,binding,selected,rebinding)['required'],
+                     'apply the pending deployer IAM migration with the original operator before rebinding')
+    return apply_access(L,target_name,binding,{**platform,'deployer_principal_arns':[rebinding['to']]},directory,authorization,rebinding=rebinding)
 
 
 def onboard_key(L, deployment, selected, directory, authorization):
@@ -377,7 +404,7 @@ def access(L, target_name, binding, project, reference, directory, authorization
     return apply_access(L,target_name,binding,platform,directory,authorization)
 
 
-def apply_access(L, target_name, binding, platform, directory, authorization,iam_review=None):
+def apply_access(L, target_name, binding, platform, directory, authorization,iam_review=None,rebinding=None):
     """Apply or reconcile one exact IAM update, preserving every consumed plan."""
     directory = L['checked_path'](directory)
     packet,stage=directory.parent,directory.name
@@ -385,7 +412,7 @@ def apply_access(L, target_name, binding, platform, directory, authorization,iam
     if not inputs.exists(): L['write'](inputs, platform)
     L['require'](L['read'](inputs)==platform,'access inputs drift')
     folder=recovered_folder(L,packet,stage)
-    options={'deployer_only':True} if iam_review else {}
+    options={'deployer_only':True} if iam_review or rebinding else {}
     if not (folder/'apply-result.json').exists():
         if (folder/'apply-started.json').exists():
             recovery=packet/(stage+'-recovery-'+uuid.uuid4().hex)
@@ -403,6 +430,16 @@ def apply_access(L, target_name, binding, platform, directory, authorization,iam
         scope=L['read'](folder/'review.json')['scope']
         L['require'](scope==[{'address':'aws_iam_role_policy.deployer','actions':['update']}] or
                      (folder!=directory and scope==[]),'IAM migration changes unrelated resources')
+    if rebinding:
+        original=L['read'](directory/'plan.json')
+        changed=[(item['address'],item['change']['actions']) for item in original['resource_changes']
+                 if item.get('mode')=='managed' and item['change']['actions']!=['no-op']]
+        L['require'](changed==[('aws_iam_role.deployer',['update']),('aws_iam_role_policy.deployer',['update'])] and
+                     original['variables']['deployer_principal_arns']['value']==[rebinding['to']],
+                     'operator rebinding saved plan differs from the reviewed operator')
+        scope=L['read'](folder/'review.json')['scope']
+        L['require'](scope==[{'address':a,'actions':c} for a,c in changed] or folder!=directory,
+                     'operator rebinding changes unrelated resources')
     if not (folder/'apply-result.json').exists():
         bind_plan(L,folder,authorization)
     else:

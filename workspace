@@ -19,6 +19,8 @@ First use:
                                                Exits after deployment; --read-only keeps the companion open until Ctrl+C
   workspace setup                              Install pinned local tools (no login, no cloud calls)
   workspace login --profile NAME --region REGION   Native AWS browser login (add --method sso for Identity Center)
+  workspace identity-center --profile ADMIN --region REGION --user NAME
+                                               Guided IAM Identity Center setup: one sign-in lasts up to 90 days
   workspace github-login                       GitHub login; reads repository settings and registers private deploy keys
   workspace doctor [PROJECT.json] [--debug]    Readiness report: tools, AWS identity, GitHub, project config
 
@@ -48,7 +50,7 @@ its scope hash. Use workspace PROJECT.json deploy --help
 for deployment options.
 HELP
     exit 0 ;;
-  setup|login|auth-check|github-login) ;;
+  setup|login|auth-check|github-login|identity-center) ;;
   guide) shift; exec bash "$repo_root/scripts/aws/workspace-guide.sh" "$@" ;;
   doctor)
     shift
@@ -132,5 +134,6 @@ if [[ -z "${WORKSPACE_PYTHON:-}" ]]; then
 fi
 case "${1:-}" in
   login|auth-check|github-login) exec "$WORKSPACE_PYTHON" scripts/aws/workstation-auth.py "$@" 3<&0 ;;
+  identity-center) shift; exec "$WORKSPACE_PYTHON" scripts/aws/workspace-identity-center.py "$@" 3<&0 ;;
 esac
 exec "$WORKSPACE_PYTHON" scripts/aws/workspace.py "$@" 3<&0

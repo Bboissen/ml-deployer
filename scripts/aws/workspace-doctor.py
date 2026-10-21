@@ -87,8 +87,10 @@ def check_aws(report, project):
         state = UNKNOWN if 'timed out' in reason else ACTION
         report.add('AWS identity', state, 'profile "' + profile + '": ' + reason, login); return
     identity = result['identity']
+    lifetime = ('; console sign-in lasts at most 12 hours (for longer unattended jobs see ./workspace identity-center)'
+                if method == 'console' else '')
     report.add('AWS identity', READY, 'account ' + identity['Account'] + ' as ' + identity['Arn'] +
-               '; login does not prove infrastructure permissions')
+               '; login does not prove infrastructure permissions' + lifetime)
 
 
 def text_of(exc):

@@ -41,6 +41,10 @@ to open it on its own.
 See the [quickstart](docs/operations/aws-deployer-quickstart.md) for more options,
 or run `make help`.
 
+Console sign-in lasts at most 12 hours. For longer unattended jobs,
+`./workspace identity-center` sets up [IAM Identity Center sign-in](docs/operations/aws-identity-center.md),
+where one sign-in lasts up to 90 days, without static keys.
+
 To delete saved results, use `make s3-clean`; add `DRY_RUN=1` to preview or
 `S3_DATASETS=1` to include shared inputs. Deletion is permanent and requires
 typed confirmation. Buckets and infrastructure state remain.
