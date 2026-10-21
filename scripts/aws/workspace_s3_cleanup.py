@@ -25,6 +25,8 @@ def context(W, config):
     L, P = W['L'], W['P']
     project = P.validate_project(L, config)
     P.supported_profile(L, project['region'])
+    require(D.selection(L, P, config).exists(),
+            'S3 cleanup is project-wide but needs a project file that was deployed; pass PROJECT= one of this project\'s deployed files')
     operation = D.latest(L, config)
     P.operation_status(L, config, operation)
     scope = L['read'](operation/'scope.json')

@@ -427,6 +427,8 @@ def apply_access(L, target_name, binding, platform, directory, authorization,iam
             folder=recovery
             recovery_pointer(L,packet,stage,folder)
         if not folder.exists(): L['native_plan'](target_name,'workspace-access',str(inputs),str(folder),binding['plan_directory'],**options)
+        # A refused planner leaves its folder without a review; nothing was applied.
+        L['require']((folder/'review.json').exists(),stage+' plan never completed and nothing was applied; prepare a new review')
     if iam_review:
         original=L['read'](directory/'plan.json')
         changed=[item for item in original['resource_changes'] if item.get('mode')=='managed' and item['change']['actions']!=['no-op']]

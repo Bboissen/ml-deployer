@@ -178,9 +178,11 @@ class Doctor(unittest.TestCase):
             ('pre-apply', 'foundation', 'unknown', None, 'not_needed', M.READY),
             ('partial-bootstrap', 'foundation', 'unknown', 'success', 'not_needed', M.ACTION),
             ('uncertain-bootstrap', 'foundation', 'unknown', 'unknown', 'not_needed', M.ACTION),
-            ('uncertain-iam', 'foundation-iam', 'unknown', None, 'not_needed', M.ACTION),
+            ('uncertain-iam', 'foundation-iam', 'unknown', 'stage', 'not_needed', M.ACTION),
+            ('refused-iam-plan', 'foundation-iam', 'unknown', None, 'not_needed', M.READY),
             ('uncertain-repository', 'repository', 'unknown', None, 'not_needed', M.ACTION),
-            ('uncertain-access', 'access', 'unknown', None, 'not_needed', M.ACTION),
+            ('uncertain-access', 'access', 'unknown', 'stage', 'not_needed', M.ACTION),
+            ('refused-access-plan', 'access', 'unknown', None, 'not_needed', M.READY),
             ('ingestion-failure', 'ingestion', 'unknown', None, 'not_needed', M.READY),
             ('job-failure', 'job', 'unknown', None, 'success', M.READY),
             ('uncertain-cleanup', 'job', 'unknown', None, 'unknown', M.ACTION),
@@ -194,7 +196,9 @@ class Doctor(unittest.TestCase):
                 journal = M.D.Journal(M.L, operation, M.L['sha'](M.L['canon'](scope)))
                 if stage != 'foundation': journal.record('foundation', 'completed', {})
                 journal.record(stage, state)
-                if applied:
+                if applied == 'stage':
+                    M.L['write'](operation/stage/'apply-started.json', {})
+                elif applied:
                     bootstrap = operation/'foundation/bootstrap'
                     M.L['write'](bootstrap/'apply-started.json', {})
                     if applied == 'success': M.L['write'](bootstrap/'apply-result.json', {'status': 'success'})

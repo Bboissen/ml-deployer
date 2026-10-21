@@ -157,8 +157,11 @@ class Journal:
 
 def pending_mutations(directory,journal):
     """Compute cleanup alone cannot settle partial foundation or access changes."""
-    if any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown')
-           for stage in ('foundation-operator','foundation-iam','repository','access')):
+    def uncertain(stage): return journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown')
+    if uncertain('repository'): return True
+    # IAM plans change nothing until an apply starts; a refused plan settles.
+    if any(uncertain(stage) and any(p.is_dir() and any(p.rglob('apply-started.json')) for p in directory.glob(stage+'*'))
+           for stage in ('foundation-operator','foundation-iam','access')):
         return True
     foundation=journal.latest('foundation')
     # Even a successful bootstrap apply needs recovery if the rest of the
@@ -258,6 +261,7 @@ def apply_stage(L,name,stage,inputs,folder,authorization,dependency=None,recover
         return str(folder)
     L['require'](not (folder/'apply-started.json').exists(),'uncertain '+stage+' apply; reconcile its state before retry')
     if not folder.exists(): L['native_plan'](name,stage,str(inputs),str(folder),dependency,recover_from)
+    L['require']((folder/'review.json').exists(),stage+' plan never completed and nothing was applied; prepare a new review')
     review=L['read'](folder/'review.json')
     if not (folder/'authorization.json').exists(): L['authorize'](str(folder),L['sha'](L['canon'](review)),authorization)
     L['apply'](str(folder)); return str(folder)

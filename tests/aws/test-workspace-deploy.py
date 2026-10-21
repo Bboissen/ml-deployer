@@ -118,7 +118,9 @@ class Operations(unittest.TestCase):
             calls.append('iam-migration')
             self.assertEqual(args[2],binding)
             self.assertEqual(args[4],scope['foundation_iam_migration'])
-            if migration_failure: raise TimeoutError('uncertain IAM migration')
+            if migration_failure=='refused': raise L['Failure']('planner refused before any apply')
+            if migration_failure:
+                L['write'](Path(args[5])/'apply-started.json',{}); raise TimeoutError('uncertain IAM migration')
             return migrated
         def provision(*args):
             calls.append('foundation')
@@ -213,6 +215,33 @@ class Operations(unittest.TestCase):
         self.assertNotIn('ingestion',calls); self.assertNotIn('launch',calls)
         self.assertEqual(len(list((self.directory/'registry').glob('*-active.json'))),1)
         self.assertEqual(D.Journal(L,self.directory,'b'*64).latest('foundation-iam')['state'],'unknown')
+    def test_refused_iam_plan_settles_the_operation_without_recovery(self):
+        result,calls=self.pipeline(migration=True,migration_failure='refused')
+        self.assertEqual((result['status'],result['recovery_required']),('failure',False))
+        self.assertNotIn('ingestion',calls)
+        self.assertEqual(list((self.directory/'registry').glob('*-active.json')),[])
+    def test_only_started_iam_applies_or_key_registration_keep_recovery_pending(self):
+        journal=D.Journal(L,self.directory,'b'*64)
+        journal.record('access','started'); journal.record('access','unknown')
+        # A refused planner leaves inputs and a saved plan but no apply receipt.
+        L['write'](self.directory/'access/backend.json',{}); L['write'](self.directory/'access.tfvars.json',{})
+        self.assertFalse(D.pending_mutations(self.directory,journal))
+        L['write'](self.directory/('access-recovery-'+'c'*32)/'apply-started.json',{})
+        self.assertTrue(D.pending_mutations(self.directory,journal))
+        other=self.directory.parent/('d'*32); other.mkdir()
+        journal=D.Journal(L,other,'b'*64); journal.record('repository','unknown')
+        self.assertTrue(D.pending_mutations(other,journal))
+    def test_incomplete_saved_plan_fails_clearly_instead_of_binding(self):
+        O=module('workspace-onboarding.py'); folder=self.directory/'access'
+        binding={'plan_directory':str(self.directory/'platform')}; L['write'](self.directory/'platform/config.tfvars.json',{})
+        L['write'](folder/'backend.json',{}); (folder/'saved.tfplan').write_bytes(b'unapplied')
+        with patch.dict(L,{'native_plan':lambda *a,**k:self.fail('incomplete plan re-planned silently'),
+                           'authorize':lambda *a:self.fail('incomplete plan authorized'),'apply':lambda *a:self.fail('incomplete plan applied')}):
+            with self.assertRaisesRegex(L['Failure'],'access plan never completed and nothing was applied'):
+                O.apply_access(L,'target',binding,{'workspace_git_secret_arns':{'p':['arn']}},folder,'authorized scope')
+            stage=self.directory/'workspace/prepare'; L['write'](stage/'backend.json',{})
+            with self.assertRaisesRegex(L['Failure'],'prepare plan never completed'):
+                D.apply_stage(L,'target','prepare',self.directory/'inputs.json',stage,'authorized scope')
     def test_legacy_authorization_requires_new_migration_review_before_ingestion(self):
         result,calls=self.pipeline(legacy_scope=True)
         self.assertEqual(result['status'],'failure')

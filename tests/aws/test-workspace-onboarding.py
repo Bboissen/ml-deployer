@@ -125,7 +125,7 @@ class Onboarding(unittest.TestCase):
             plans=[]; applies=[]
             def plan(name,stage,inputs,folder,dependency,recover_from=None):
                 plans.append({'directory':folder,'dependency':dependency,'recover_from':recover_from,'stage':stage})
-                Path(folder).mkdir()
+                Path(folder).mkdir(); L['write'](Path(folder)/'review.json',{'scope':[]})
             def apply(_L,folder,authorization):
                 applies.append(folder); L['write'](folder/'apply-started.json',{'review_sha256':'b'*64})
                 if len(applies)==1: raise TimeoutError('lost recovery response')
