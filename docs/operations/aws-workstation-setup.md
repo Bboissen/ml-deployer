@@ -242,7 +242,10 @@ new link and code.
 
 An existing console profile cannot silently become SSO; a credential-process or
 source-profile profile is renewed with its own native login and then accepted
-by `auth-check`. Ambient GitHub tokens are rejected by the assisted GitHub login.
+by `auth-check`. A role profile whose source is an Identity Center profile, as
+created by `./workspace identity-center`, signs in through that source with
+`aws sso login`. See [Identity Center sign-in](aws-identity-center.md) for the
+setup and the session-length trade-off. Ambient GitHub tokens are rejected by the assisted GitHub login.
 
 ## Verification
 

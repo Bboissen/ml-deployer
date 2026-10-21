@@ -101,6 +101,11 @@ train:
 ./workspace auth-check --profile my-workspace --region us-east-1
 ```
 
+Console sign-in lasts at most 12 hours. For longer unattended jobs, set up
+[IAM Identity Center sign-in](aws-identity-center.md) once with
+`./workspace identity-center`; one sign-in then lasts for the portal session,
+up to 90 days.
+
 Use a profile name other than `default` and temporary native identities, never
 static keys. Login shows the account and ARN; it does not prove infrastructure
 permissions, which Deploy checks against its saved plans. Ambient `AWS_PROFILE`

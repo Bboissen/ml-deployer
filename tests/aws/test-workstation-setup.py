@@ -738,6 +738,25 @@ class Authentication(unittest.TestCase):
             with patch.dict(os.environ, {'AWS_CONFIG_FILE':str(config), 'AWS_SHARED_CREDENTIALS_FILE':str(credentials)}, clear=True), self.assertRaisesRegex(A.B['Failure'],'implicit INI'):
                 A.profile_method('new','us-east-1')
 
+    def test_identity_center_operator_profile_signs_in_through_its_portal_profile(self):
+        with tempfile.TemporaryDirectory(dir=BASE) as directory:
+            config=Path(directory)/'config'; credentials=Path(directory)/'credentials'
+            text=('[sso-session team]\nsso_start_url = https://d-1234567890.awsapps.com/start\nsso_region = us-east-1\n'
+                  '[profile team-portal]\nsso_session = team\nsso_account_id = 111111111111\nsso_role_name = Operator\n'
+                  '[profile team]\nrole_arn = arn:aws:iam::111111111111:role/operator\nsource_profile = team-portal\n'
+                  '[profile console]\nlogin_session = arn:aws:iam::111111111111:user/operator\n'
+                  '[profile chained-console]\nrole_arn = arn:aws:iam::111111111111:role/operator\nsource_profile = console\n')
+            config.write_text(text); credentials.write_text('')
+            commands=[]
+            with patch.dict(os.environ, {'AWS_CONFIG_FILE':str(config), 'AWS_SHARED_CREDENTIALS_FILE':str(credentials)}, clear=True), \
+                 patch.object(A,'interactive',side_effect=commands.append), patch.object(A,'auth_check',return_value={}):
+                self.assertEqual(A.profile_method('team','us-east-1'),'sso')
+                A.login('team','us-east-1','auto',True)
+                with self.assertRaisesRegex(A.B['Failure'],'source profile'):
+                    A.profile_method('chained-console','us-east-1')
+            self.assertEqual(commands,[['aws','sso','login','--profile','team-portal','--region','us-east-1','--no-browser','--use-device-code']])
+            self.assertEqual(config.read_text(),text)
+
     def test_static_key_profile_rejected_before_native_login(self):
         with tempfile.TemporaryDirectory(dir=BASE) as directory:
             config=Path(directory)/'config'; credentials=Path(directory)/'credentials'

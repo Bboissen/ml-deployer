@@ -44,6 +44,8 @@ def describe_scope(scope):
         disk['dataset_bytes']/1024**3,disk['output_bytes']/1024**3,disk['reserve_bytes']//1024**3,disk['usable_bytes']//1024**3,disk['cost']))
     migration=scope.get('foundation_iam_migration')
     if migration and migration.get('required'): lines.append('  includes a reviewed tightening of the retained deployer IAM policy')
+    rebinding=scope.get('foundation_operator_rebinding')
+    if rebinding: lines.append('  operator:    rebind the retained deployer trust from '+rebinding['from']+' to '+rebinding['to']+' (the previous operator loses deploy access)')
     if scope.get('storage'):
         lines.extend(['  S3 datasets: '+scope['storage']['data_uri'],
                       '  S3 results:  '+scope['storage']['output_uri'],
@@ -156,7 +158,7 @@ class Journal:
 def pending_mutations(directory,journal):
     """Compute cleanup alone cannot settle partial foundation or access changes."""
     if any(journal.latest(stage) and journal.latest(stage)['state'] in ('started','unknown')
-           for stage in ('foundation-iam','repository','access')):
+           for stage in ('foundation-operator','foundation-iam','repository','access')):
         return True
     foundation=journal.latest('foundation')
     # Even a successful bootstrap apply needs recovery if the rest of the
@@ -198,8 +200,10 @@ def prepare(W,config,directory=None):
     selected=O.target(deployment,operator)
     registry=L['REPO']/'evidence/aws/projects'/deployment['names']['resource_prefix']
     retained=L['read'](registry/'foundation.json') if (registry/'foundation.json').exists() else None
-    platform=O.verify_retained(L,retained,selected) if retained else None
-    migration=O.iam_migration(L,retained,selected) if retained else None
+    rebinding=O.operator_rebinding(L,retained,selected) if retained else None
+    platform=O.verify_retained(L,retained,selected,rebinding) if retained else None
+    migration=O.iam_migration(L,retained,selected,rebinding) if retained else None
+    if rebinding: L['require'](not migration['required'],'apply the pending deployer IAM migration with the original operator before rebinding')
     capacity=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'),
                         availability_zone=platform['availability_zone'] if platform else None)
     adapter=I.source_adapter({**deployment['dataset'],'maximum_bytes':project['dataset'].get('maximum_bytes',640*1024**3)},client(base,'s3'),project['region'])
@@ -214,7 +218,7 @@ def prepare(W,config,directory=None):
         'configuration_sha256':L['sha'](L['canon'](project)),'deployment_sha256':L['sha'](L['canon'](deployment)),
         'target':selected,'capacity':capacity,'repository':deployment['repository'],
         'dataset':{'inventory':records,'total_bytes':total,'source':deployment['dataset']},'disk':disk,
-        'foundation':retained,'foundation_iam_migration':migration,'registry_directory':str(registry),'repository_reference':reference,
+        'foundation':retained,'foundation_iam_migration':migration,'foundation_operator_rebinding':rebinding,'registry_directory':str(registry),'repository_reference':reference,
         'retained_resources':['encrypted versioned state bucket','encrypted versioned workload bucket','no-ingress VPC/subnet/IGW',
             'deployer/project boundaries','provider watchdog/schedules/alarms/queue/logs','encrypted SNS topic/customer-managed rotating KMS key'],
         'new_private_access':deployment['repository']['url'].startswith('git@') and not reference,
@@ -310,10 +314,16 @@ def execute(W,config,directory,scope,task,resume=False):
                 raise InterruptedError('resumed launch reconciled; finish owned cleanup without another launch')
             artifacts=journal.stage('artifacts',lambda:L['build'](str(directory/'artifacts')),
                                     lambda:L['read'](directory/'artifacts/artifacts.json'))
+            retained=scope['foundation']; rebinding=scope.get('foundation_operator_rebinding')
+            if rebinding:
+                def rebind():
+                    return O.rebind_operator(L,name,scope['foundation'],selected,rebinding,directory/'foundation-operator',authorization)
+                retained=journal.stage('foundation-operator',rebind,rebind)
+                atomic(L,registry/'foundation.json',retained)
             def foundation():
                 packet=directory/'foundation'
                 if not packet.exists(): O.prepare(L,deployment,packet,artifacts,scope['capacity'],selected['operator_arn'])
-                return O.provision(L,name,packet,authorization,scope['foundation'])
+                return O.provision(L,name,packet,authorization,retained)
             binding=journal.stage('foundation',foundation,foundation)
             atomic(L,registry/'foundation.json',binding)
             if 'foundation_iam_migration' not in scope:

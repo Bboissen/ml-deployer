@@ -315,6 +315,10 @@ def setup_project(config, ui, doctor, M=None, remote=None, repo=None, dataset=No
     elif scripted or ui.confirm('Sign in to AWS now?'):
         def login_method(value):
             if value not in ('auto', 'console', 'sso'): raise ValueError('choose auto, console or sso')
+        if not scripted:
+            ui.hint('Console sign-in lasts at most 12 hours. For longer unattended jobs, IAM Identity Center keeps one '
+                    'sign-in for up to 90 days; an account administrator sets it up once with:')
+            ui.command('./workspace identity-center --profile ADMIN_PROFILE --region ' + project['region'] + ' --user NAME')
         method = 'auto' if scripted else ui.ask('AWS login (auto, console or sso)', 'auto', validate=login_method)
         try:
             M.A.login(project['profile'], project['region'], method,
