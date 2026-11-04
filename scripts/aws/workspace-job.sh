@@ -26,7 +26,7 @@ def validate(job):
                          'timeout_seconds', 'data_uri', 'data_version_id', 'data_sha256', 'output_uri'}, 'closed job settings required')
     require(re.fullmatch(r'[a-z0-9-]{3,48}', job['workspace_id']) and re.fullmatch(r'[0-9a-f]{32}', job['run_id']), 'invalid workspace/run ID')
     require(job['make_target'] is None or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', job['make_target']), 'invalid Make target')
-    require(type(job['timeout_seconds']) is int and 30 <= job['timeout_seconds'] <= 1800, 'invalid execution timeout')
+    require(type(job['timeout_seconds']) is int and 30 <= job['timeout_seconds'] <= 171000, 'invalid execution timeout')
     require(job['output_uri'].endswith('/output/' + job['run_id'] + '/'), 'unique output prefix required')
     require(not any(os.environ.get(k) for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE')), 'native role credentials required')
 

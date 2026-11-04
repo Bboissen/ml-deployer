@@ -28,7 +28,8 @@ the historical explicit controller configuration with `version: 1`.
 | `commands.setup`, `commands.run` | Nonempty argument arrays supplied by the external project; retained as intent, never executed during configuration |
 | `outputs.paths` | Relative project paths without traversal or `.git` access |
 | `resources.policy` | `ram-first`; current candidate remains the reviewed CPU profile, with quota/price/availability pending |
-| `maximum_runtime_minutes` | 15–60 minutes; records the future absolute-expiry scope |
+| `resources.disk_gb` | Optional usable disk, 25–2000 GiB; default 25. Must hold the dataset, the outputs and an 8 GiB environment reserve. A larger disk costs more while the machine exists |
+| `maximum_runtime_minutes` | 15–2880 minutes (48 hours, AWS's documented limit for one Run Command); default 60. AWS terminates the machine at this deadline. Clone, data staging, setup and the run share a timeout of 30 minutes at the default and of this value minus 30 minutes above 60. A stuck job bills until the deadline, so set what the job needs |
 | `mode` | Omit for `job`: setup/run on every future Deploy, then owned-compute cleanup. `workspace` retains the workspace until explicit teardown or expiry |
 
 Local paths are relative to the configuration file's directory, not the shell's

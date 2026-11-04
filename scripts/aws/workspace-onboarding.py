@@ -72,7 +72,7 @@ def vcpu_usage(L, base, client, types=()):
     return quota, used, observed
 
 
-def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone=None):
+def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone=None, disk_gb=None):
     catalog = L['supported_sizes'](); ec2 = client(base, 'ec2')
     images = ec2.describe_images(ImageIds=[L['TOOLBOX']['ami_id']], Owners=['137112412989'])['Images']
     L['require'](len(images) == 1 and images[0]['State'] == 'available' and images[0]['Architecture'] == 'x86_64'
@@ -106,7 +106,7 @@ def capacity(L, base, client, region, maximum_hourly_usd=None, availability_zone
                      and 'x86_64' in info['ProcessorInfo']['SupportedArchitectures'], 'supported SKU metadata changed')
         available = sorted({x['Location'] for x in offerings if x['InstanceType'] == sku} & set(zones))
         if size['cpus'] <= quota-used and available and (maximum_hourly_usd is None or prices[sku] <= maximum_hourly_usd):
-            candidates.append({**size, 'policy':'ram-first', 'instance_type':sku, 'availability_zone':available[0],
+            candidates.append({**size, 'disk_gb':disk_gb or size['disk_gb'], 'policy':'ram-first', 'instance_type':sku, 'availability_zone':available[0],
                                'hourly_usd':prices[sku]})
     L['require'](candidates, 'no supported RAM-first SKU fits remaining quota/offering/selected price ceiling')
     candidates.sort(key=lambda x:(-x['memory_mb'], -x['cpus'], x['instance_type']))
@@ -121,7 +121,8 @@ def prepare(L, deployment, directory, artifacts, observed_capacity, operator):
     selected = target(deployment, operator); prefix = selected['inventory']['resource_prefix']
     size = observed_capacity['selected']
     L['require'](size['instance_type'] in L['supported_sizes']() and
-                 all(size[k] == L['supported_sizes']()[size['instance_type']][k] for k in ('cpus','memory_mb','disk_gb')),
+                 all(size[k] == L['supported_sizes']()[size['instance_type']][k] for k in ('cpus','memory_mb')) and
+                 size['disk_gb'] >= L['supported_sizes']()[size['instance_type']]['disk_gb'],
                  'capacity not in supported catalog')
     L['require'](size['availability_zone'].startswith(selected['region']) and size['hourly_usd'] > 0, 'invalid discovered offering/price')
     directory.mkdir(parents=True, mode=0o700, exist_ok=False)

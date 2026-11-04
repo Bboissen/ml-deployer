@@ -82,7 +82,7 @@ resource "terraform_data" "lease" {
   lifecycle {
     precondition {
       condition = (var.workspace_identity != null && var.workspace_identity.request.resources.cpus <= jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes[var.instance_type].cpus &&
-        var.workspace_identity.request.resources.memory_mb <= jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes[var.instance_type].memory_mb && var.workspace_identity.request.resources.disk_gb <= 25
+        var.workspace_identity.request.resources.memory_mb <= jsondecode(file("${path.module}/../../workspace-profiles.json")).profiles["cpu-python-v1"].supported_sizes[var.instance_type].memory_mb && var.workspace_identity.request.resources.disk_gb <= 2000
       )
       error_message = "Request exceeds the selected supported SKU usable capacity."
     }

@@ -355,13 +355,14 @@ class Operations(unittest.TestCase):
     def test_dataset_and_outputs_must_fit_the_fixed_workspace_disk(self):
         size={'disk_gb':25}; outputs=100*1024*1024; fits=25*1024**3-D.DISK_RESERVE_BYTES-outputs
         self.assertEqual(D.disk_fit(L,size,fits,outputs)['usable_bytes'],25*1024**3)
+        self.assertEqual(D.disk_fit(L,{**size,'disk_gb':500},400*1024**3,outputs)['usable_bytes'],500*1024**3)
         for dataset,output in ((fits+1,outputs),(0,25*1024**3)):
             with self.subTest(dataset=dataset,output=output),self.assertRaisesRegex(L['Failure'],'exceed the 25 GiB workspace disk'):
                 D.disk_fit(L,size,dataset,output)
     def test_readable_scope_and_outcome_summaries(self):
         lines='\n'.join(D.describe_scope(self.review_scope()))
         for expected in ('111111111111','us-east-1a','r8i.2xlarge','30 minutes','0.75 USD','create new foundation','owner/project.git',
-                         '8 GiB environment reserve of 25 GiB usable; fixed gp3 root volume, no added cost'): self.assertIn(expected,lines)
+                         '8 GiB environment reserve of 25 GiB usable; gp3 root volume, billed separately while the machine exists'): self.assertIn(expected,lines)
         outcome='\n'.join(D.describe_result('/p/project.json',{'status':'failure','cleanup_status':'unknown','setup_exit':0,'job_exit':None,'outputs_persisted':False,'error':{'reason':'lost'}}))
         self.assertIn('./workspace /p/project.json resume',outcome); self.assertIn('lost',outcome)
         cleanup='\n'.join(D.describe_result('/p/project.json',{'status':'failure','cleanup_status':'unknown',

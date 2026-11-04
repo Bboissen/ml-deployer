@@ -375,6 +375,11 @@ def build(directory):
     write(directory/'artifacts.json',result)
     return result
 
+def job_timeout_limit(minutes):
+    # Bootstrap (up to 12 minutes), output upload and the guard's 5-minute margin
+    # come out of the lease. Longer leases reserve what a 60-minute lease reserves.
+    return max(min(1800,(minutes-10)*60),(minutes-30)*60)
+
 def lease(request, starts_at):
     start = utc(starts_at)
     require(request['maximum_runtime_minutes'] >= 15, 'lease too short')
@@ -1164,7 +1169,7 @@ def plan_scope(plan, stage, recovery=None):
             require(after['instance_type']==plan.get('variables',{}).get('instance_type',{}).get('value','r8i.2xlarge') and after['instance_type'] in supported_sizes() and after['ami']==TOOLBOX['ami_id'] and not after.get('key_name') and not after.get('disable_api_termination'),'unsafe launch values')
             require(len(base64.b64decode(after['user_data_base64'])) <= 16384,'EC2 user-data exceeds limit')
             root=after['root_block_device'][0]; metadata=after['metadata_options'][0]
-            require(root['encrypted'] and root['delete_on_termination'] and root['volume_size']==30 and
+            require(root['encrypted'] and root['delete_on_termination'] and root['volume_size']==plan.get('variables',{}).get('workspace_identity',{}).get('value',{}).get('request',{}).get('resources',{}).get('disk_gb',25)+5 and
                     metadata['http_tokens']=='required' and metadata['http_put_response_hop_limit']==1,'unsafe disk/metadata')
         elif stage=='prepare':
             require(item['type'] in ('terraform_data','aws_iam_role','aws_iam_role_policy','aws_iam_role_policy_attachment','aws_iam_instance_profile','aws_iam_user_policy','aws_ssm_document','aws_scheduler_schedule'), 'preparation cannot launch compute')

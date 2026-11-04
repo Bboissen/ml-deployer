@@ -67,7 +67,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_closed_types_versions_and_id_boundaries(self):
         for field, value in (("schema_version", "1.0.0"), ("maximum_runtime_minutes", True),
-                             ("maximum_runtime_minutes", 14), ("maximum_runtime_minutes", 721),
+                             ("maximum_runtime_minutes", 14), ("maximum_runtime_minutes", 2881),
                              ("maximum_runtime_minutes", 60.5), ("provider", "gcp"),
                              ("operators", []), ("secret", "do-not-print-this"),
                              ("workspace_id", "a" * 49)):

@@ -16,6 +16,7 @@ import shutil
 import resource
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -228,6 +229,16 @@ def verify_result(L, value, target, job, config, instance, s3, directory, first=
     return record
 
 
+def status_check_interrupted(error):
+    # The job runs on AWS without this controller: a network failure, throttling or
+    # an expired sign-in here says nothing about the job and must not end it.
+    import botocore.exceptions as failures
+    if isinstance(error, failures.BotoCoreError): return True
+    if not isinstance(error, failures.ClientError): return False
+    return (error.response.get('ResponseMetadata',{}).get('HTTPStatusCode',0) >= 500 or
+            error.response.get('Error',{}).get('Code') in ('ThrottlingException','ExpiredToken','ExpiredTokenException','RequestExpired'))
+
+
 def run_command(L, base, client, target, config, launch, instance, job, directory, cancelled=lambda:False):
     expected = {r['address']: r['values'] for r in L['read'](launch/'plan.json')['planned_values']['root_module']['resources']}
     ssm = client(base, 'ssm'); name = L['role_name'](config)
@@ -257,13 +268,19 @@ def run_command(L, base, client, target, config, launch, instance, job, director
     L['require'](command['InstanceIds'] == [instance], 'Command target mismatch')
     L['write'](directory/'command.json', {'command_id': identifier, 'instance_id': instance,
                                          'document_hash': description['Hash'], 'submitted_at': L['stamp'](command['RequestedDateTime'])})
-    deadline = time.monotonic()+job['timeout_seconds']+120
+    deadline = time.monotonic()+job['timeout_seconds']+120; warned = False
     while True:
         L['require'](not cancelled(),'cancel requested')
         try:
             invocation = ssm.get_command_invocation(CommandId=identifier, InstanceId=instance, PluginName='workspaceJob')
         except ssm.exceptions.InvocationDoesNotExist:
             invocation = {'Status': 'Pending'}
+        except Exception as error:
+            if not status_check_interrupted(error): raise
+            invocation = {'Status': 'Pending'}
+            if not warned:
+                print('job status check failed; the job keeps running on AWS. Retrying. If sign-in expired, sign in again from another terminal.', file=sys.stderr)
+                warned = True
         if invocation['Status'] in ('Success','Failed','TimedOut','Cancelled','Undeliverable','Terminated'):
             L['write'](directory/'invocation.json', invocation)
             if 'commands' not in job:

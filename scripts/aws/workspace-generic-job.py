@@ -54,7 +54,7 @@ def validate(job):
     require(set(job)=={'repository','workspace_id','account_id','region','run_id','commands','outputs','dataset_manifest','timeout_seconds','output_uri','mode'},'closed generic job required')
     require(re.fullmatch(r'[a-z0-9-]{3,48}',job['workspace_id']) and re.fullmatch(r'[0-9a-f]{32}',job['run_id']) and
             re.fullmatch(r'[0-9]{12}',job['account_id']), 'invalid job scope')
-    require(job['mode'] in ('job','workspace') and type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=1800,'invalid mode/timeout')
+    require(job['mode'] in ('job','workspace') and type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=171000,'invalid mode/timeout')
     require(set(job['commands'])=={'setup','run'},'explicit setup/run required')
     for argv in job['commands'].values():
         require(isinstance(argv,list) and 1<=len(argv)<=64 and all(isinstance(a,str) and a and not any(ord(c)<32 for c in a) for a in argv)

@@ -158,7 +158,7 @@
         "maximum_runtime_minutes": {
           "type": "integer",
           "minimum": 15,
-          "maximum": 720
+          "maximum": 2880
         }
       }
     },

@@ -238,8 +238,7 @@ def create_project(config, ui, M, repo=None, dataset=None, profile=None):
         failure_text(M, named)(profile)
     value['profile'] = profile or kept(('profile',), named) or aws_profile(ui, M, value['region'], scripted)
     value['mode'] = kept(('mode',)) or 'job'
-    value['maximum_runtime_minutes'] = (kept(('maximum_runtime_minutes',)) or
-                                        schema['properties']['maximum_runtime_minutes']['maximum'])
+    value['maximum_runtime_minutes'] = kept(('maximum_runtime_minutes',)) or template['maximum_runtime_minutes']
     value['outputs'] = kept(('outputs',)) or template['outputs']
     value['resources'] = kept(('resources',)) or template['resources']
     source = kept(('dataset', 'source'), dataset_ok) if dataset is None else None

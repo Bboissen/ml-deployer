@@ -4,8 +4,8 @@ variable "workspace_job_timeout_seconds" {
   type    = number
   default = 900
   validation {
-    condition     = var.workspace_job_timeout_seconds == floor(var.workspace_job_timeout_seconds) && var.workspace_job_timeout_seconds >= 30 && var.workspace_job_timeout_seconds <= 1800
-    error_message = "The workload execution timeout must be 30 through 1800 seconds."
+    condition     = var.workspace_job_timeout_seconds == floor(var.workspace_job_timeout_seconds) && var.workspace_job_timeout_seconds >= 30 && var.workspace_job_timeout_seconds <= 171000
+    error_message = "The workload execution timeout must be 30 through 171000 seconds."
   }
 }
 

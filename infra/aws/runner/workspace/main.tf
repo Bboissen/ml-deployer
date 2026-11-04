@@ -91,7 +91,8 @@ resource "aws_instance" "workspace" {
     instance_metadata_tags      = "disabled"
   }
   root_block_device {
-    volume_size           = 30
+    # 5 GiB above the requested usable size covers the operating system.
+    volume_size           = try(var.workspace_identity.request.resources.disk_gb, 25) + 5
     volume_type           = "gp3"
     encrypted             = true
     delete_on_termination = true

@@ -69,7 +69,7 @@ file), and derives the rest:
 | `repository.ref` | the repository's default branch |
 | `project` | repository name, lowercased to `[a-z][a-z0-9-]`, 3–24 characters |
 | `profile`, `region` | `AWS_PROFILE` or the only console/SSO profile (asked only among several; `ml-deployer` when none exists); `us-east-1` |
-| `mode`, `maximum_runtime_minutes` | `job`, 60 (the schema maximum) |
+| `mode`, `maximum_runtime_minutes` | `job`, 60 (the default; edit the file for up to 2880) |
 | `commands`, `outputs.paths` | `make setup` / `make train`, `outputs` |
 
 A rerun keeps existing values; edit the file (field reference:
@@ -104,7 +104,9 @@ train:
 Console sign-in lasts at most 12 hours. For longer unattended jobs, set up
 [IAM Identity Center sign-in](aws-identity-center.md) once with
 `./workspace identity-center`; one sign-in then lasts for the portal session,
-up to 90 days.
+up to 90 days. The job itself needs no sign-in and keeps running if yours
+expires or the network drops; status checks retry until you sign in again.
+`resume` removes the machine, so run it only once a job has finished or must end.
 
 Use a profile name other than `default` and temporary native identities, never
 static keys. Login shows the account and ARN; it does not prove infrastructure

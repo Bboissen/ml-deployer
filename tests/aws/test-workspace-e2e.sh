@@ -197,7 +197,7 @@ class GuestBoundary(unittest.TestCase):
         job = E['payload'](VALUE,TARGET,'a'*32)
         with patch.dict(os.environ,{},clear=True), patch('os.geteuid',return_value=1000), patch.object(G['pwd'],'getpwuid',return_value=types.SimpleNamespace(pw_name='workspace')):
             G['validate'](job)
-            for change in ({'make_target':'run;id'}, {'output_uri':'s3://other/output/'}, {'timeout_seconds':1801}):
+            for change in ({'make_target':'run;id'}, {'output_uri':'s3://other/output/'}, {'timeout_seconds':171001}):
                 with self.assertRaises(ValueError): G['validate']({**job,**change})
             with patch.dict(os.environ,{'AWS_PROFILE':'admin'}), self.assertRaises(ValueError): G['validate'](job)
             with patch('os.geteuid',return_value=0), self.assertRaises(ValueError): G['validate'](job)
@@ -248,6 +248,38 @@ class CommandBoundary(unittest.TestCase):
         self.assertEqual(calls[0]['InstanceIds'],[INSTANCE]); self.assertEqual(calls[0]['DocumentVersion'],'1')
         self.assertEqual(calls[0]['DocumentHash'],'d'*64); self.assertEqual(calls[0]['DocumentHashType'],'Sha256')
         self.assertNotIn('PRIVATE KEY',json.dumps(calls))
+    def test_status_check_failures_do_not_end_a_running_job(self):
+        import botocore.exceptions as failures
+        def denied(code,status):
+            return failures.ClientError({'Error':{'Code':code},'ResponseMetadata':{'HTTPStatusCode':status}},'GetCommandInvocation')
+        def poll(name,answers):
+            directory=OUT/name; directory.mkdir(); launch=directory/'launch'; launch.mkdir()
+            content={'schemaVersion':'2.2'}; policy={'Statement':[]}
+            L['write'](launch/'plan.json',{'planned_values':{'root_module':{'resources':[
+                {'address':'aws_ssm_document.job','values':{'content':json.dumps(content)}},
+                {'address':'aws_iam_user_policy.operator[0]','values':{'policy':json.dumps(policy)}}]}}})
+            def invocation(**_):
+                answer=answers.pop(0)
+                if isinstance(answer,Exception): raise answer
+                return answer
+            ssm=types.SimpleNamespace(
+                get_document=lambda **_: {'Content':json.dumps(content),'DocumentType':'Command','DocumentVersion':'1'},
+                describe_document=lambda **_: {'Document':{'Hash':'d'*64,'HashType':'Sha256','DocumentVersion':'1'}},
+                describe_instance_information=lambda **_: {'InstanceInformationList':[{'InstanceId':INSTANCE,'PingStatus':'Online','AgentVersion':L['TOOLBOX']['rpms']['amazon-ssm-agent']['ver']}]},
+                send_command=lambda **_: {'Command':{'InstanceIds':[INSTANCE],'CommandId':'command-id','RequestedDateTime':T}},
+                get_command_invocation=invocation,exceptions=types.SimpleNamespace(InvocationDoesNotExist=RuntimeError))
+            iam=types.SimpleNamespace(get_user_policy=lambda **_: {'PolicyDocument':policy})
+            config={'workspace_identity':{'request':{'operators':['arn:aws:iam::000000000000:user/sposhfi-admin']}}}
+            with patch.dict(L,{'role_name':lambda _: 'offline','bound_instance':lambda *_:None}), patch('time.sleep'):
+                return E['run_command'](L,None,lambda _,service: {'ssm':ssm,'iam':iam}[service],TARGET,config,launch,INSTANCE,E['payload'](VALUE,TARGET,'a'*32),directory)
+        answers=[failures.EndpointConnectionError(endpoint_url='https://ssm.invalid'),denied('ExpiredToken',400),denied('InternalError',500),{'Status':'Success','ResponseCode':0}]
+        with patch('sys.stderr',io.StringIO()) as printed:
+            self.assertEqual(poll('command-interrupted',answers)['status'],'Success')
+        self.assertEqual(answers,[]); self.assertEqual(printed.getvalue().count('keeps running'),1)
+        with self.assertRaises(failures.ClientError): poll('command-denied',[denied('AccessDeniedException',400)])
+    def test_job_timeout_reserves_teardown_at_every_lifetime(self):
+        for minutes,seconds in ((15,300),(40,1800),(60,1800),(61,1860),(720,41400),(2880,171000)):
+            self.assertEqual(L['job_timeout_limit'](minutes),seconds)
 
 unittest.main(verbosity=2)
 PY

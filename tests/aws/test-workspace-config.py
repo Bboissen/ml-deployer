@@ -162,6 +162,21 @@ class Configuration(unittest.TestCase):
                 self.assertNotIn('PRIVATE_TOKEN_CANARY', result.stdout+result.stderr)
                 self.project = json.loads((ROOT/'infra/aws/project.example.json').read_text())
 
+    def test_lifetime_ceiling(self):
+        self.project['maximum_runtime_minutes'] = 2881
+        self.rejected()
+        self.project['maximum_runtime_minutes'] = 2880
+        self.config.write_text(json.dumps(self.project))
+        self.assertEqual(P.validate_project(L, self.config)['maximum_runtime_minutes'], 2880)
+
+    def test_disk_option_bounds(self):
+        for disk in (24, 2001, True):
+            self.project['resources']['disk_gb'] = disk
+            self.rejected()
+        self.project['resources']['disk_gb'] = 500
+        self.config.write_text(json.dumps(self.project))
+        self.assertEqual(P.validate_project(L, self.config)['resources']['disk_gb'], 500)
+
     def test_duplicate_fields_nonfinite_and_boolean_lifetime_rejected(self):
         self.project['maximum_runtime_minutes'] = True
         self.rejected()

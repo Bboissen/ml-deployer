@@ -88,7 +88,7 @@ make</code></pre>
         <tr><td>Repository URL and branch</td><td>GitHub: private repositories use the <code>git@github.com:</code> URL and a deploy key, public ones HTTPS; the default branch.</td></tr>
         <tr><td>Project name</td><td>The repository name, lowercased (3 to 24 characters).</td></tr>
         <tr><td>AWS profile and region</td><td><code>AWS_PROFILE</code> or your only console/SSO profile (asked only when there are several; a new one is named <code>ml-deployer</code>); <code>us-east-1</code>.</td></tr>
-        <tr><td>Run</td><td><code>job</code> mode: <code>make setup</code> then <code>make train</code>, at most 60 minutes, results from <code>outputs/</code>. Setup checks that your Makefile has both targets (<a href="operations/aws-deployer-quickstart.md#runtime-contract">runtime contract</a>).</td></tr>
+        <tr><td>Run</td><td><code>job</code> mode: <code>make setup</code> then <code>make train</code>, at most 60 minutes by default, results from <code>outputs/</code>. Setup checks that your Makefile has both targets (<a href="operations/aws-deployer-quickstart.md#runtime-contract">runtime contract</a>).</td></tr>
       </table>
       <p class="meta">No questions at all: <code>make REPO=owner/name DATASET=/path/to/data</code>. The default file is <code>~/aws-workspace/demo/project.json</code>; choose another with <code>make PROJECT=/path/project.json</code>. Rerunning keeps existing values; edit the file to override any of them. Field reference: <a href="operations/aws-project-configuration.md">project configuration</a>.</p>
     </li>

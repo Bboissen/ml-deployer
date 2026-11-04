@@ -31,9 +31,9 @@
     },
     "resources": {
       "type": "object", "additionalProperties": false, "required": ["policy"],
-      "properties": {"policy": {"const": "ram-first"}, "maximum_hourly_usd": {"type": "number", "exclusiveMinimum": 0}}
+      "properties": {"policy": {"const": "ram-first"}, "maximum_hourly_usd": {"type": "number", "exclusiveMinimum": 0}, "disk_gb": {"type": "integer", "minimum": 25, "maximum": 2000}}
     },
-    "maximum_runtime_minutes": {"type": "integer", "minimum": 15, "maximum": 60}
+    "maximum_runtime_minutes": {"type": "integer", "minimum": 15, "maximum": 2880}
   },
   "$defs": {
     "text": {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^[^\\x00-\\x1f\\x7f]+$"},
