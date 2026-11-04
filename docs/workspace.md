@@ -9,7 +9,7 @@ major version; nothing is silently ignored.
 
 | Kind | Producer and consumer | Content |
 | --- | --- | --- |
-| `request` | Controller → planner | CPU/memory/disk minimums, toolbox profile, named operators, 15–720-minute maximum runtime, distinct `s3://` data/output prefixes and a state URI in a different bucket. Validation alone never touches the cloud. |
+| `request` | Controller → planner | CPU/memory/disk minimums, toolbox profile, named operators, 15–2880-minute maximum runtime, distinct `s3://` data/output prefixes and a state URI in a different bucket. Validation alone never touches the cloud. |
 | `handoff` | Planner → controller and readiness collector | Exact request hash and scope, immutable image reference and bootstrap hash, instance ID, non-root user and project directory, instance-role selector, Session Manager terminal argv and absolute lifetime/guard facts. |
 | `readiness` | Collector → controller | Request/handoff hashes, observed capacities and tool versions, timestamp and all nine check statuses with evidence paths under `evidence/aws/<workspace_id>/`. Failed or unverified checks cannot pass `--require-ready`. |
 

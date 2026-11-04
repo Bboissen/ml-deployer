@@ -16,7 +16,7 @@ import uuid
 from workspace_storage import run_folder
 from workspace_terminal import interactive
 
-# Checkout, project environment, caches and logs share the fixed root volume
+# Checkout, project environment, caches and logs share the root volume
 # with the staged dataset and declared outputs.
 DISK_RESERVE_BYTES=8*1024**3
 
@@ -181,12 +181,12 @@ def latest(L,config):
 
 
 def disk_fit(L,selected,dataset_bytes,output_bytes):
-    """Refuse a review whose staged dataset and outputs cannot fit the fixed root volume."""
+    """Refuse a review whose staged dataset and outputs cannot fit the root volume."""
     usable=selected['disk_gb']*1024**3
     L['require'](dataset_bytes+output_bytes+DISK_RESERVE_BYTES<=usable,'dataset plus outputs and the %d GiB environment reserve exceed the %d GiB workspace disk; reduce the dataset or outputs maximum_bytes'
                  % (DISK_RESERVE_BYTES//1024**3,selected['disk_gb']))
     return {'usable_bytes':usable,'dataset_bytes':dataset_bytes,'output_bytes':output_bytes,'reserve_bytes':DISK_RESERVE_BYTES,
-            'cost':'fixed gp3 root volume, no added cost'}
+            'cost':'gp3 root volume, billed separately while the machine exists'}
 
 
 def prepare(W,config,directory=None,instance_type=None):
@@ -208,7 +208,7 @@ def prepare(W,config,directory=None,instance_type=None):
     migration=O.iam_migration(L,retained,selected,rebinding) if retained else None
     if rebinding: L['require'](not migration['required'],'apply the pending deployer IAM migration with the original operator before rebinding')
     capacity=O.capacity(L,base,client,project['region'],project['resources'].get('maximum_hourly_usd'),
-                        availability_zone=platform['availability_zone'] if platform else None)
+                        availability_zone=platform['availability_zone'] if platform else None,disk_gb=project['resources'].get('disk_gb'))
     if instance_type:
         # A batch keeps the size its review pinned; no re-sizing between jobs.
         pinned=[c for c in capacity['candidates'] if c['instance_type']==instance_type]
@@ -380,7 +380,7 @@ def execute(W,config,directory,scope,task,resume=False):
                 'maximum_runtime_minutes':project['maximum_runtime_minutes'],'foundation':binding,'artifacts':str(directory/'artifacts/artifacts.json'),
                 'job':{'commands':project['commands'],'outputs':scope['outputs'],
                     'dataset_manifest':{k:manifest[k] for k in ('bucket','manifest_key','manifest_version_id','manifest_sha256')},
-                    'timeout_seconds':min(1800,(project['maximum_runtime_minutes']-10)*60)}}
+                    'timeout_seconds':L['job_timeout_limit'](project['maximum_runtime_minutes'])}}
             if scope.get('storage'):
                 value['job']['output_uri'] = scope['storage']['output_uri']
             if reference: value['repository']['credential']=reference

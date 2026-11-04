@@ -43,7 +43,7 @@ variable "workspace_identity" {
         var.workspace_identity.request.resources[key] == floor(var.workspace_identity.request.resources[key]) && var.workspace_identity.request.resources[key] >= minimum
       ]) &&
       var.workspace_identity.request.maximum_runtime_minutes == floor(var.workspace_identity.request.maximum_runtime_minutes) &&
-      var.workspace_identity.request.maximum_runtime_minutes >= 15 && var.workspace_identity.request.maximum_runtime_minutes <= 720 &&
+      var.workspace_identity.request.maximum_runtime_minutes >= 15 && var.workspace_identity.request.maximum_runtime_minutes <= 2880 &&
       length(var.workspace_identity.request.operators) >= 1 && length(toset(var.workspace_identity.request.operators)) == length(var.workspace_identity.request.operators) &&
       alltrue([for operator in var.workspace_identity.request.operators : operator == tostring(operator) && length(operator) <= 2048 && can(regex("^[^[:cntrl:]]+$", operator))]) &&
       contains([

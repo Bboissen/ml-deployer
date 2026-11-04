@@ -46,20 +46,20 @@ def configuration(path):
     else:
         require('credential' not in repository, 'runtime SSH credential requires a GitHub SSH endpoint')
     # The source profile remains the reviewed RAM-first choice; no automatic fallback.
-    require(value['sizing']['instance_type'] in L['supported_sizes']() and all(value['sizing'][k] == L['supported_sizes']()[value['sizing']['instance_type']][k] for k in ('cpus','memory_mb','disk_gb')),  'unsupported sizing profile; review another profile first')
-    require(type(value['maximum_runtime_minutes']) is int and 15 <= value['maximum_runtime_minutes'] <= 60,
-            'reviewed lifetime is 15 through 60 minutes')
+    require(value['sizing']['instance_type'] in L['supported_sizes']() and all(value['sizing'][k] == L['supported_sizes']()[value['sizing']['instance_type']][k] for k in ('cpus','memory_mb')) and value['sizing']['disk_gb'] >= L['supported_sizes']()[value['sizing']['instance_type']]['disk_gb'],  'unsupported sizing profile; review another profile first')
+    require(type(value['maximum_runtime_minutes']) is int and 15 <= value['maximum_runtime_minutes'] <= 2880,
+            'reviewed lifetime is 15 through 2880 minutes')
     require(set(value['foundation']) == {'plan_directory', 'outputs_file', 'outputs_sha256'}, 'foundation requires its applied plan and captured outputs hash')
     if 'job' in value and 'commands' in value['job']:
         job=value['job']
         fields={'commands','outputs','dataset_manifest','timeout_seconds'}
         require(set(job) in (fields,fields|{'output_uri'}),'closed generic job configuration required')
-        require(type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=min(1800,(value['maximum_runtime_minutes']-10)*60),'job must reserve teardown time')
+        require(type(job['timeout_seconds']) is int and 30<=job['timeout_seconds']<=L['job_timeout_limit'](value['maximum_runtime_minutes']),'job must reserve teardown time')
     if 'job' in value and 'commands' not in value['job']:
         job = value['job']
         require(set(job) == {'make_target', 'timeout_seconds', 'dataset', 'result', 'provenance'}, 'closed job configuration required')
         require(job['make_target'] is None or re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', job['make_target']), 'invalid Make target')
-        require(type(job['timeout_seconds']) is int and 30 <= job['timeout_seconds'] <= min(1800, (value['maximum_runtime_minutes']-10)*60), 'job timeout must leave time for cleanup')
+        require(type(job['timeout_seconds']) is int and 30 <= job['timeout_seconds'] <= L['job_timeout_limit'](value['maximum_runtime_minutes']), 'job timeout must leave time for cleanup')
         data = job['dataset']
         prefix = f"s3://{target['inventory']['buckets'][0]}/projects/{value['project']}/data/"
         require(set(data) == {'uri', 'version_id', 'sha256'} and data['uri'].startswith(prefix)
